@@ -532,7 +532,7 @@ function render() {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // 🌟 訪客視角水平翻轉（保證雙方看自己永遠都在左半邊自左往右打）
+  // 🌟 訪客視角水平翻轉
   const isGuestMirror = (typeof NET !== 'undefined' && NET.isMultiplayer && !NET.isHost && NET.mode === 'PVP');
   if (isGuestMirror) {
     ctx.save();
@@ -540,6 +540,10 @@ function render() {
     ctx.scale(-1, 1);
   }
 
+  // ==========================================
+  // 1. 世界座標層（受相機移動影響）
+  // ==========================================
+  ctx.save();
   ctx.translate(-camera.x, -camera.y);
 
   drawStadiumAtmosphere();
@@ -644,23 +648,41 @@ function render() {
     ctx.fillRect(0, 0, WORLD.WIDTH, WORLD.HEIGHT); ctx.restore();
   }
 
-  // 🌟 關閉訪客水平鏡像翻轉
-  if (isGuestMirror) {
-    ctx.restore();
-  }
+  ctx.restore(); // 🌟 結束世界座標層（相機位移在這裡被解除，回到 0,0 螢幕座標）
 
+  // ==========================================
+  // 2. 螢幕視窗層（不受相機平移影響，永遠置中）
+  // ==========================================
   renderChronoAnimation();
   allPlayers.forEach(p => drawRadarBubble(p.x, p.y - p.radius, p.color, false, p.isUser, p.radius));
   if (!isNaN(ball.x) && !isNaN(ball.y)) drawRadarBubble(ball.x, ball.y, '#facc15', true, false, ball.radius);
 
+  // 🌟 得分/出界全域霓虹橫幅（永遠鎖定在螢幕正中央 X: 800）
   if (banner.active) {
-    ctx.save(); ctx.fillStyle = 'rgba(30, 27, 75, 0.95)'; ctx.fillRect(350, 160, 900, 110);
-    ctx.strokeStyle = banner.color; ctx.lineWidth = 3; ctx.strokeRect(350, 160, 900, 110);
-    ctx.shadowColor = banner.color; ctx.shadowBlur = 25; ctx.fillStyle = banner.color;
-    ctx.font = '900 38px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(banner.mainText, 800, 212);
-    ctx.shadowBlur = 0; ctx.fillStyle = '#cbd5e1'; ctx.font = 'bold 14px sans-serif'; ctx.fillText(banner.subText, 800, 248); ctx.restore();
+    ctx.save();
+    ctx.fillStyle = 'rgba(30, 27, 75, 0.95)';
+    ctx.fillRect(350, 160, 900, 110);
+    ctx.strokeStyle = banner.color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(350, 160, 900, 110);
+    ctx.shadowColor = banner.color;
+    ctx.shadowBlur = 25;
+    ctx.fillStyle = banner.color;
+    ctx.font = '900 38px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(banner.mainText, 800, 212);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText(banner.subText, 800, 248);
+    ctx.restore();
   }
 
   if (debugHitbox) renderDebugTerminal();
-  ctx.restore();
+
+  if (isGuestMirror) {
+    ctx.restore(); // 還原訪客水平鏡像
+  }
+
+  ctx.restore(); // 還原最頂層 canvas save
 }

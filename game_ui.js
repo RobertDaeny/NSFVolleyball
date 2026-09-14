@@ -723,6 +723,8 @@ window.addEventListener('DOMContentLoaded', () => {
 // ========================================================
 // 多人連線大廳與房間信號交互
 // ========================================================
+// 拉到 game_ui.js 最底部，確保以下函式在全域層（不要包在任何括號內）：
+
 function openMultiplayerModal() {
   document.getElementById('start-menu-modal').style.display = 'none';
   document.getElementById('multiplayer-modal').style.display = 'flex';
@@ -762,7 +764,6 @@ function startHosting() {
     NET.conn = conn;
     setupDataConnection();
     
-    // 告知訪客比賽模式並同步開賽
     conn.on('open', () => {
       conn.send({ type: 'INIT_SYNC', mode: NET.mode });
       setTimeout(() => {
@@ -817,12 +818,9 @@ function joinRoom() {
 function setupDataConnection() {
   NET.conn.on('data', (data) => {
     if (data.type === 'INPUT') {
-      // 房主接收訪客按鍵
       NET.remoteKeys = data.keys;
     } else if (data.type === 'STATE_SYNC') {
-      // 訪客接收房主世界廣播狀態
       applyWorldSync(data);
     }
   });
 }
-});
