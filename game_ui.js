@@ -367,7 +367,6 @@ function openSettlement() {
     tbody.appendChild(tr);
   }
   
-  // 🏆 聯賽獎勵與炫彩光效強制解鎖處理
   if (isCareerMode && playerWon) {
     const stage = CAREER_STAGES.find(s => s.id === currentCareerStage);
     if (stage) {
@@ -720,11 +719,11 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('menu-card-desc').innerText = h.desc;
     document.getElementById('hero-sil-1').style.backgroundColor = h.color;
   }, 6000);
+});
+
 // ========================================================
 // 多人連線大廳與房間信號交互
 // ========================================================
-// 拉到 game_ui.js 最底部，確保以下函式在全域層（不要包在任何括號內）：
-
 function openMultiplayerModal() {
   document.getElementById('start-menu-modal').style.display = 'none';
   document.getElementById('multiplayer-modal').style.display = 'flex';
