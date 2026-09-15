@@ -138,9 +138,25 @@ let INVENTORY = [
 ];
 
 let ACTIVE_ROSTER = { user: INVENTORY[0], mate: INVENTORY[1], enemyFront: INVENTORY[2], enemyBack: INVENTORY[3] };
-let userCoins = 99999;
-const STORAGE_KEY = 'VOLLEY_ARENA_SAVE_DATA_2026_FULL_PARITY';
+// ========================================================
+// ☁️ Firebase 雲端資料庫初始化 (專案: nsfwvolley-b5ee1)
+// ========================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyCsPtYyZbhFpWjI1SYcfrJVxkc1U8T8HkQ",
+  authDomain: "nsfwvolley-b5ee1.firebaseapp.com",
+  projectId: "nsfwvolley-b5ee1",
+  storageBucket: "nsfwvolley-b5ee1.firebasestorage.app",
+  messagingSenderId: "486325994967",
+  appId: "1:486325994967:web:3c385f9b3db94a1bbe7792",
+  measurementId: "G-K6XRBRG29K"
+};
 
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+let currentCloudUser = localStorage.getItem('VOLLEY_CLOUD_USER') || null;
+let userCoins = 99999; // 封測期間維持 99999，正式公測由你後台一鍵重置
+const STORAGE_KEY = 'VOLLEY_ARENA_LOCAL_CACHE';
 const CAREER_STAGES = [
   {
     id: 1, name: '青葉新秀高校', subtitle: '初階考核·基礎攻防', color: '#34d399', rewardCoins: 200, rewardSkin: null,
@@ -266,19 +282,25 @@ function playWhistle(isScore = false) {
 }
 
 function saveGameData() {
-  try {
-    const data = {
-      coins: userCoins,
-      inventory: INVENTORY,
-      careerProgress: careerProgress,
-      unlockedCosmetics: UNLOCKED_COSMETICS,
-      unlockedSkills: UNLOCKED_SKILLS,
-      rosterIds: { user: ACTIVE_ROSTER.user.id, mate: ACTIVE_ROSTER.mate.id, enemyFront: ACTIVE_ROSTER.enemyFront.id, enemyBack: ACTIVE_ROSTER.enemyBack.id }
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {}
-}
+  const data = {
+    coins: userCoins,
+    inventory: INVENTORY,
+    careerProgress: careerProgress,
+    unlockedCosmetics: UNLOCKED_COSMETICS,
+    unlockedSkills: UNLOCKED_SKILLS,
+    rosterIds: { user: ACTIVE_ROSTER.user.id, mate: ACTIVE_ROSTER.mate.id, enemyFront: ACTIVE_ROSTER.enemyFront.id, enemyBack: ACTIVE_ROSTER.enemyBack.id }
+  };
+  // 1. 本地快速快取
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
 
+  // 2. 雲端同步保存
+  if (currentCloudUser) {
+    db.collection('players').doc(currentCloudUser).set({
+      gameData: JSON.stringify(data),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true }).catch(err => console.error("雲端存檔失敗:", err));
+  }
+}
 function loadGameData() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -365,3 +387,52 @@ const NET = {
   remoteKeys: { a: false, d: false, w: false, j: false, k: false, l: false, o: false, space: false },
   lastPing: 0
 };
+// ========================================================
+// ☁️ Firebase 雲端認證與存檔載入
+// ========================================================
+function handleFirebaseAuth(username, password) {
+  const userRef = db.collection('players').doc(username);
+  
+  userRef.get().then((doc) => {
+    if (doc.exists) {
+      const userData = doc.data();
+      if (userData.password !== password) {
+        alert('❌ 密碼錯誤！請重新輸入。');
+        return;
+      }
+      // 登入成功，讀取雲端進度覆蓋本機
+      currentCloudUser = username;
+      localStorage.setItem('VOLLEY_CLOUD_USER', username);
+      if (userData.gameData) {
+        localStorage.setItem(STORAGE_KEY, userData.gameData);
+      }
+      alert(`✅ 歡迎回來，[${username}]！已載入雲端進度。`);
+      location.reload();
+    } else {
+      // 註冊全新雲端帳號
+      userRef.set({
+        username: username,
+        password: password,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(() => {
+        currentCloudUser = username;
+        localStorage.setItem('VOLLEY_CLOUD_USER', username);
+        // 將初始存檔同步至雲端
+        saveGameData();
+        alert(`🎉 帳號 [${username}] 註冊成功！雲端存檔已建立。`);
+        location.reload();
+      });
+    }
+  }).catch((err) => {
+    alert('雲端連線失敗: ' + err.message);
+  });
+}
+
+// 畫面載入時更新登入狀態文字
+window.addEventListener('DOMContentLoaded', () => {
+  const btnAuth = document.getElementById('btn-cloud-auth');
+  if (btnAuth && currentCloudUser) {
+    btnAuth.innerText = `👤 雲端球團: ${currentCloudUser}`;
+    btnAuth.style.background = '#047857';
+  }
+});
