@@ -284,32 +284,34 @@ function drawPlayerEntity(player, targetCtx) {
     ? (player.slotIndex === NET.mySlot)
     : player.isUser;
 
-// 🌟 頭頂浮動 ID 膠囊名牌與黃色主控箭頭
-  const displayName = player.playerName || (player.card ? player.card.name : 'Player');
-  targetCtx.save();
-  targetCtx.font = '900 11px -apple-system, sans-serif';
-  const nameWidth = targetCtx.measureText(displayName).width;
-  const tagY = -player.radius * 2 - 14;
-
-  // 膠囊底框
-  targetCtx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-  targetCtx.beginPath();
-  targetCtx.roundRect(-nameWidth / 2 - 6, tagY - 10, nameWidth + 12, 14, 6);
-  targetCtx.fill();
-  targetCtx.strokeStyle = isMyLocalHero ? '#facc15' : (player.isLeft ? '#38bdf8' : '#f43f5e');
-  targetCtx.lineWidth = 1.5;
-  targetCtx.stroke();
-
-  // 玩家文字
-  targetCtx.fillStyle = isMyLocalHero ? '#fef08a' : '#ffffff';
-  targetCtx.textAlign = 'center';
-  targetCtx.fillText(displayName, 0, tagY);
-
+// 🌟 主控玩家專屬金色箭頭（保留在頭頂上方，方便認清自己）
   if (isMyLocalHero) {
     targetCtx.fillStyle = '#facc15'; targetCtx.beginPath();
-    targetCtx.moveTo(-5, -player.radius * 2 - 2); targetCtx.lineTo(5, -player.radius * 2 - 2); targetCtx.lineTo(0, -player.radius * 2 + 4);
+    targetCtx.moveTo(-5, -player.radius * 2 - 8); targetCtx.lineTo(5, -player.radius * 2 - 8); targetCtx.lineTo(0, -player.radius * 2 - 2);
     targetCtx.fill();
   }
+
+  // 🌟 角色 ID 膠囊標籤：全面移至「角色腳底正下方」，保持空中跳躍視野清爽
+  const displayName = player.playerName || (player.card ? player.card.name : 'Player');
+  targetCtx.save();
+  targetCtx.font = '900 10px -apple-system, sans-serif';
+  const nameWidth = targetCtx.measureText(displayName).width;
+  const tagY = 8; // 腳底 Y 軸下方 8 像素
+
+  // 腳底微型底框
+  targetCtx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+  targetCtx.beginPath();
+  targetCtx.roundRect(-nameWidth / 2 - 5, tagY, nameWidth + 10, 13, 4);
+  targetCtx.fill();
+  targetCtx.strokeStyle = isMyLocalHero ? '#facc15' : (player.isLeft ? '#38bdf8' : '#f43f5e');
+  targetCtx.lineWidth = 1.2;
+  targetCtx.stroke();
+
+  // 玩家 ID 文字
+  targetCtx.fillStyle = isMyLocalHero ? '#fef08a' : '#cbd5e1';
+  targetCtx.textAlign = 'center';
+  targetCtx.textBaseline = 'middle';
+  targetCtx.fillText(displayName, 0, tagY + 6.5);
   targetCtx.restore();
 
   targetCtx.restore();
@@ -750,7 +752,7 @@ let mangaCooldown = 0;
 
 function triggerMangaShout(speaker, text, sub = '', color = '#facc15') {
   if (mangaCooldown > 0) return; // 冷卻中嚴禁插話
-  mangaPopup = { active: true, timer: 65, speaker, text, sub, color };
+  mangaPopup = { active: true, timer: 120, speaker, text, sub, color };
   mangaCooldown = 600; // 鎖定 600 幀
 }
 function drawMangaBroadcastBox() {

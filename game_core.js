@@ -678,17 +678,41 @@ function recordTouch(hitter, isBlockTouch = false) {
 function triggerFault(winnerTeam, title, desc) {
   if (banner.active || isSettlementOpen) return;
   playWhistle(true);
-// 🌟 失分與犯規：觸發撕裂感失誤播報
-  const lastHitterName = ball.lastHitter ? (ball.lastHitter.playerName || ball.lastHitter.name) : '球員';
+// 🌟 沿用 Banner 判決邏輯：精準區分 Touch Out、暴扣得分與真實失誤
   if (typeof triggerMangaShout === 'function') {
-    if (desc.includes('DOUBLE')) {
-      triggerMangaShout(lastHitterName, `${lastHitterName} 連觸違例自爆 ...！`, '致命二次觸球！痛失球權！', '#f43f5e');
-    } else if (desc.includes('出界') || desc.includes('OUT')) {
-      triggerMangaShout(lastHitterName, `${lastHitterName} 進攻出界了啊啊啊！`, '用力過猛！球直接飛出場外！', '#f59e0b');
-    } else if (desc.includes('ROOF') || desc.includes('攔死')) {
-      triggerMangaShout(lastHitterName, `${lastHitterName} 被網前徹底死蓋封殺！！`, '絕望的銅牆鐵壁！完全過不去！', '#ec4899');
-    } else if (title.includes('ACE')) {
-      triggerMangaShout(lastHitterName, `${lastHitterName} 無解發球得分 (ACE)！！`, '完全接不住！落地開花！', '#facc15');
+    const isTouchOut = desc.includes('TOUCH OUT');
+    const isAce = title.includes('ACE');
+    const isRoof = desc.includes('ROOF') || desc.includes('攔死');
+    const isDouble = desc.includes('DOUBLE');
+    const isNetFault = desc.includes('NET') || desc.includes('觸網') || desc.includes('踩線');
+
+    // 找出得分方主攻手與失分球員身分
+    const hitter = ball.lastHitter;
+    const hitterName = hitter ? (hitter.playerName || hitter.name) : '球員';
+
+    if (isDouble) {
+      triggerMangaShout(hitterName, `${hitterName} 連觸違例自爆 ...！`, '致命二次觸球！痛失球權！', '#f43f5e');
+    } else if (isNetFault) {
+      triggerMangaShout(hitterName, `${hitterName} 嚴重違例失誤！`, '痛失寶貴比分！', '#f43f5e');
+    } else if (isRoof) {
+      triggerMangaShout(hitterName, `${hitterName} 被網前徹底死蓋封殺！！`, '絕望的銅牆鐵壁！無情下釘！', '#ec4899');
+    } else if (isAce) {
+      triggerMangaShout(hitterName, `${hitterName} 破壞性發球得分 (ACE)！！`, '完全無法防守！直接開花！', '#facc15');
+    } else if (isTouchOut) {
+      // 🌟 徹底解決接噴誤判：這是「防守方接噴彈出場外」，對攻方而言是神級打手出界得分！
+      const winnerSidePlayers = (winnerTeam === 'LEFT') ? [allPlayers[0], allPlayers[1]] : [allPlayers[2], allPlayers[3]];
+      const attacker = winnerSidePlayers.find(p => p.swingTimer > 0 || p.thrustTimer > 0) || winnerSidePlayers[0];
+      const attackerName = attacker.playerName || attacker.name;
+      triggerMangaShout(attackerName, `${attackerName} 打手出界得分 (TOUCH OUT)！！`, `${hitterName} 接球震飛出場！精妙造打手！`, '#10b981');
+    } else if (title.includes('SPIKE') || title.includes('IN')) {
+      // 純進攻界內扣殺得分
+      const winnerSidePlayers = (winnerTeam === 'LEFT') ? [allPlayers[0], allPlayers[1]] : [allPlayers[2], allPlayers[3]];
+      const attacker = winnerSidePlayers.find(p => p.swingTimer > 0 || p.thrustTimer > 0) || winnerSidePlayers[0];
+      const attackerName = attacker.playerName || attacker.name;
+      triggerMangaShout(attackerName, `${attackerName} 強力暴扣直接落地得分！！`, '勢不可擋！乾淨俐落釘地板！', '#38bdf8');
+    } else if (desc.includes('出界') || title.includes('OUT')) {
+      // 真正的無人觸球「自己打飛出界」
+      triggerMangaShout(hitterName, `${hitterName} 進攻出界了啊啊啊！`, '用力過猛！球直接飛出場外！', '#f59e0b');
     }
   }
   banner.winnerTeam = winnerTeam;
