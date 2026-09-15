@@ -3,7 +3,7 @@
 <head>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <meta charset="UTF-8">
-<title>Volleyball 2v2 Arena [20260915_StableBuild]</title>
+<title>Volleyball 2v2 Arena [2026_SlotDecoupled]</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -109,6 +109,28 @@
   .pause-btn:disabled {
     background: #1e1b4b !important; color: #64748b !important; border-color: #334155 !important;
     cursor: not-allowed !important; transform: none !important; opacity: 0.6;
+  }
+
+  /* 結算表格：恢復清晰格線排版 */
+  #settle-table-main {
+    width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 12px;
+    border: 1.5px solid #3b3678;
+  }
+  #settle-table-main th, #settle-table-main td {
+    border: 1px solid #2b2762;
+    padding: 8px 6px;
+    text-align: center;
+  }
+  #settle-table-main th {
+    background: #25215c;
+    color: #facc15;
+    font-weight: 800;
+  }
+  #settle-table-main tbody tr:nth-child(even) {
+    background: rgba(24, 21, 61, 0.6);
+  }
+  #settle-table-main tbody tr:hover {
+    background: rgba(67, 56, 202, 0.25);
   }
 
   .stat-row {
@@ -281,16 +303,16 @@
   </div>
 </div>
 
-<!-- ⏳ 15 秒連線戰術準備室 -->
+<!-- ⏳ 連線賽前戰術配置室 (30 秒倒數 + 雙方 Ready 縮短為 5 秒) -->
 <div id="net-prep-modal">
   <div style="width: 1060px; background: #1e1b4b; border: 3px solid #facc15; border-radius: 24px; padding: 28px; box-shadow: 0 0 70px rgba(250, 204, 21, 0.45); display: flex; flex-direction: column; align-items: center;">
     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; border-bottom: 2px solid #4338ca; padding-bottom: 12px; margin-bottom: 18px;">
       <h2 style="color: #facc15; font-size: 24px; font-weight: 900;">⚔️ 連線賽前戰術配置室</h2>
-      <div style="font-size: 18px; font-weight: 900; color: #ef4444;" id="net-prep-timer">⏳ 倒數: 15s</div>
+      <div style="font-size: 20px; font-weight: 900; color: #ef4444;" id="net-prep-timer">⏳ 倒數: 30s</div>
     </div>
 
-    <div style="display: flex; gap: 30px; margin-bottom: 20px;">
-      <div class="prep-card-panel">
+    <div style="display: flex; gap: 30px; margin-bottom: 16px;">
+      <div class="prep-card-panel" id="panel-my-prep">
         <h3 style="color: #38bdf8; font-size: 16px; border-bottom: 1px solid #4338ca; padding-bottom: 6px;">👤 我主控的角色 (Player 1)</h3>
         <div>
           <label style="font-size: 11px; color: #94a3b8;">出戰球員選擇：</label>
@@ -302,10 +324,10 @@
         </div>
       </div>
 
-      <div class="prep-card-panel">
-        <h3 style="color: #34d399; font-size: 16px; border-bottom: 1px solid #4338ca; padding-bottom: 6px;">🤖 我的搭檔隊友 (Teammate)</h3>
+      <div class="prep-card-panel" id="panel-mate-prep">
+        <h3 style="color: #34d399; font-size: 16px; border-bottom: 1px solid #4338ca; padding-bottom: 6px;" id="mate-prep-title">🤝 隊友配置 (即時同步)</h3>
         <div>
-          <label style="font-size: 11px; color: #94a3b8;">隊友球員選擇：</label>
+          <label style="font-size: 11px; color: #94a3b8;">隊友出戰球員：</label>
           <select id="net-prep-mate-char" style="width: 100%; padding: 6px; background: #0f172a; color: #34d399; border: 1px solid #10b981; border-radius: 6px;" onchange="onNetPrepChange()"></select>
         </div>
         <div>
@@ -315,7 +337,12 @@
       </div>
     </div>
 
-    <button class="btn-action" style="padding: 10px 45px; font-size: 16px; background: #10b981; border-color: #34d399;" onclick="confirmNetPrepReady()">⚔️ 準備完成 (READY)</button>
+    <div id="net-prep-difficulty-hint" style="font-size: 12px; color: #facc15; margin-bottom: 16px;"></div>
+
+    <div style="display: flex; gap: 20px; align-items: center;">
+      <button id="btn-net-prep-ready" class="btn-action" style="padding: 10px 45px; font-size: 16px; background: #10b981; border-color: #34d399;" onclick="confirmNetPrepReady()">⚔️ 準備完成 (READY)</button>
+      <span id="net-prep-ready-status" style="font-size: 13px; color: #cbd5e1;">等待雙方確認...</span>
+    </div>
   </div>
 </div>
 
@@ -354,10 +381,22 @@
 
     <div style="background: #18153d; border: 1.5px solid #4338ca; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
       <h3 style="color: #facc15; font-size: 15px; margin-bottom: 8px;">👑 方案 A：我是房主 (Host)</h3>
-      <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 10px;">
-        <label style="font-size: 12px; color: #cbd5e1;"><input type="radio" name="netMode" value="PVP" checked> 1P+AI vs 2P+AI (隔網對抗)</label>
-        <label style="font-size: 12px; color: #cbd5e1;"><input type="radio" name="netMode" value="COOP"> 1P+2P vs 雙AI (雙人合作)</label>
+      <div style="display: flex; justify-content: center; gap: 15px; margin-bottom: 12px;">
+        <label style="font-size: 12px; color: #cbd5e1;"><input type="radio" name="netMode" value="PVP" checked onchange="toggleDifficultySelect(false)"> 1P+AI vs 2P+AI (隔網對抗)</label>
+        <label style="font-size: 12px; color: #cbd5e1;"><input type="radio" name="netMode" value="COOP" onchange="toggleDifficultySelect(true)"> 1P+2P vs 雙AI (雙人合作)</label>
       </div>
+
+      <div id="pve-difficulty-wrap" style="display: none; margin-bottom: 12px;">
+        <label style="font-size: 11px; color: #facc15; font-weight: bold;">🏆 選擇雙AI對手難度：</label>
+        <select id="pve-diff-select" style="padding: 4px 8px; background: #0f172a; color: #facc15; border: 1px solid #facc15; border-radius: 6px;">
+          <option value="1">入門新手高校 (N 級雙人)</option>
+          <option value="2">泥濘沼澤戰隊 (SR 級防守)</option>
+          <option value="3">常盤鋼鐵壁壘 (SSR 級攔網)</option>
+          <option value="4">疾風怒濤反攻 (SSR 級神域)</option>
+          <option value="5" selected>神域全明星隊 (全國冠軍級)</option>
+        </select>
+      </div>
+
       <button class="btn-action" style="padding: 8px 20px; font-size: 13px;" onclick="startHosting()">創建房間並取得代碼</button>
       <div id="host-code-display" style="display: none; margin-top: 12px;">
         <span style="font-size: 12px; color: #94a3b8;">將此 6 碼房號傳給朋友：</span>
@@ -451,14 +490,15 @@
   </div>
 </div>
 
-<!-- 🪞 主畫面專用：試衣化妝間 -->
+<!-- 🪞 試衣化妝間 (支援全背包角色切換穿搭) -->
 <div id="wardrobe-modal">
   <div style="position: relative; width: 1100px; height: 680px; background: #1e1b4b; border: 3.5px solid #facc15; border-radius: 24px; padding: 28px; display: grid; grid-template-columns: 340px 1fr; gap: 24px;">
     <div style="background: radial-gradient(circle at center, #312e81 0%, #0f172a 100%); border: 2px solid #6366f1; border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 20px;">
-      <div style="display: flex; gap: 10px; width: 100%;">
-        <button id="wb-slot-user" class="btn-sound" style="flex: 1;" onclick="switchWardrobeSlot('user')">P1 主控</button>
-        <button id="wb-slot-mate" class="btn-sound" style="flex: 1;" onclick="switchWardrobeSlot('mate')">P2 搭檔</button>
+      <div style="width: 100%;">
+        <label style="font-size: 11px; color: #facc15; font-weight: bold;">👕 選擇要換裝的球員：</label>
+        <select id="wb-char-select" style="width: 100%; padding: 6px; background: #0f172a; color: #fff; border: 1.5px solid #38bdf8; border-radius: 8px; margin-top: 4px;" onchange="onWardrobeCharChange(this.value)"></select>
       </div>
+
       <div style="position: relative; width: 220px; height: 240px; display: flex; align-items: center; justify-content: center;">
         <canvas id="wardrobe-preview-canvas" width="220" height="240"></canvas>
       </div>
@@ -479,7 +519,7 @@
           <button id="wb-tab-faces" class="btn-sound" onclick="switchWardrobeCategory('faces')">👓 個性臉飾</button>
           <button id="wb-tab-effects" class="btn-sound" onclick="switchWardrobeCategory('effects')">✨ 炫彩光效</button>
         </div>
-        <button class="btn-action" style="background: #f59e0b;" onclick="openGachaArcadeFromWardrobe()">🎰 前往轉蛋專區抽衣服</button>
+        <button class="btn-action" style="background: #f59e0b;" onclick="openGachaArcadeFromWardrobe()">🎰 抽新時裝</button>
       </div>
       <div id="wardrobe-items-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 12px; height: 440px; margin: 12px 0;"></div>
       <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #4338ca; padding-top: 8px;">
@@ -502,7 +542,7 @@
   </div>
 </div>
 
-<!-- 更衣室視窗 (完全拔除右上角按鈕，全靠 ESC 控制，永不衝突死鎖) -->
+<!-- 更衣室視窗 -->
 <div id="locker-modal">
   <div class="locker-box">
     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid #4338ca; padding-bottom: 12px; margin-bottom: 16px;">
@@ -553,23 +593,25 @@
   </div>
 </div>
 
-<!-- 15 分結算面板 -->
+<!-- 15 分結算面板 (清晰格線 + 新增 ACE 得分欄) -->
 <div id="settlement-modal">
-  <div style="width: 1180px; max-height: 90vh; overflow-y: auto; background: #1e1b4b; border: 3px solid #facc15; border-radius: 20px; padding: 24px; text-align: center;">
+  <div style="width: 1240px; max-height: 90vh; overflow-y: auto; background: #1e1b4b; border: 3px solid #facc15; border-radius: 20px; padding: 24px; text-align: center;">
     <h1 id="settle-title" style="font-size: 28px; font-weight: 900; color: #facc15; margin-bottom: 6px;">MATCH VICTORY!</h1>
     <p id="settle-desc" style="font-size: 13px; color: #a5b4fc;">率先拿下 15 分局勝利！</p>
     <div style="margin: 10px 0; font-size: 16px; color: #fbbf24; font-weight: bold;" id="settle-coins-reward">🪙 +40 排球金幣入帳！</div>
-    <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 11.5px;">
+    
+    <table id="settle-table-main">
       <thead>
-        <tr style="background: #312e81; color: #facc15;">
-          <th>選手名</th><th>進攻總數</th><th>扣殺得分</th><th>TouchOut得分</th><th>峰值球速</th><th>接球總數</th><th>完美(綠)</th><th>一般(橘)</th><th>接噴(紅)</th><th>Cover救球</th><th>攔網總數</th><th>攔死得分</th><th>賽後EXP</th>
+        <tr>
+          <th>選手名</th><th>進攻總數</th><th>扣殺得分</th><th>TouchOut得分</th><th>發球ACE</th><th>峰值球速</th><th>接球總數</th><th>完美(綠)</th><th>一般(橘)</th><th>接噴(紅)</th><th>Cover救球</th><th>攔網總數</th><th>攔死得分</th><th>賽後EXP</th>
         </tr>
       </thead>
       <tbody id="settle-table-body"></tbody>
     </table>
-    <div style="display: flex; justify-content: center; gap: 15px; margin-top: 10px;">
+
+    <div style="display: flex; justify-content: center; gap: 15px; margin-top: 14px;">
       <button class="btn-home" onclick="returnToStartMenuFromSettle()">🏠 主選單</button>
-      <button class="btn-action" onclick="closeSettlementAndNextMatch()">開始下一局比賽</button>
+      <button class="btn-action" style="padding: 8px 24px; font-size: 14px;" onclick="closeSettlementAndNextMatch()">開始下一局比賽 [Enter]</button>
     </div>
   </div>
 </div>

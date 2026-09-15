@@ -1,5 +1,5 @@
 // ========================================================
-// 核心業務層：相機、物理碰撞、發扣判定、主循環、WebRTC 多人同步
+// 核心業務層：相機、物理碰撞、發扣判定、Slot 控制器解耦、WebRTC 雙向通訊
 // ========================================================
 const camera = {
   x: WORLD.NET_X - (VIEW_W / 2),
@@ -57,17 +57,20 @@ let hitStopFrames = 0;
 const banner = { active: false, timer: 0, mainText: '', subText: '', color: '#38bdf8', winner: 'player' };
 let pendingCoinReward = 0, pendingCoinReason = '';
 
+// 🌟 統計數據結構：包含 serviceAces 發球得分
 let proMatchStats = {
-  user: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
-  mate: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
-  enemyFront: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
-  enemyBack: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 }
+  user: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
+  mate: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
+  enemyFront: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
+  enemyBack: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 }
 };
 
 class Player {
-  constructor(slotKey, x, isLeft, isUser = false) {
-    this.slotKey = slotKey; this.x = x; this.y = WORLD.FLOOR_Y; this.vx = 0; this.vy = 0;
-    this.radius = 24; this.isLeft = isLeft; this.isUser = isUser; this.isGrounded = true;
+  constructor(slotKey, x, isLeft, slotIndex) {
+    this.slotKey = slotKey;
+    this.slotIndex = slotIndex;
+    this.x = x; this.y = WORLD.FLOOR_Y; this.vx = 0; this.vy = 0;
+    this.radius = 24; this.isLeft = isLeft; this.isGrounded = true;
     this.isDiving = false; this.diveTimer = 0; this.diveTouched = false;
     this.isBlocking = false; this.wantsToBlock = false; this.blockTimer = 0;
     this.facing = isLeft ? 1 : -1; this.squashX = 1; this.squashY = 1;
@@ -77,12 +80,14 @@ class Player {
     this.reactionTimer = 0; this.despairTimer = 0; this.recheckDelay = 0;
     this.jumpExhaustion = 1.0; this.energy = 0; this.hasPlayedFullSound = false;
     this.depressedRallies = 0; this.excitedRallies = 0;
-    this.mudDebuffTimer = 0;
-    this.softWallRallies = 0;
-    this.godspeedCharges = 0;
-    this.greaseDebuffRallies = 0;
+    this.mudDebuffTimer = 0; this.softWallRallies = 0;
+    this.godspeedCharges = 0; this.greaseDebuffRallies = 0;
     this.ghostTrail = [];
     this.rebind(false);
+  }
+
+  get isLocallyControlled() {
+    return this.slotIndex === NET.mySlot;
   }
 
   get effectiveSpeed() {
@@ -102,8 +107,8 @@ class Player {
     this.energy = Math.min(maxCost, this.energy + amount);
     if (oldEnergy < maxCost && this.energy >= maxCost && !this.hasPlayedFullSound) {
       this.hasPlayedFullSound = true;
-      if (this.isUser) playSound('p1_full');
-      else if (this === mateAI) playSound('p2_full');
+      if (this.isLocallyControlled) playSound('p1_full');
+      else if (this.slotIndex === NET.mateSlot) playSound('p2_full');
     }
     updateSideUltHUD();
   }
@@ -123,7 +128,7 @@ class Player {
   refundEnergy(percent = 0.5) {
     const refund = Math.floor(this.stats.skill.cost * percent);
     this.addEnergy(refund);
-    if (this.isUser) pushCallout(this.x, this.y - 45, `+${refund} 能量返還!`, '#38bdf8');
+    if (this.isLocallyControlled) pushCallout(this.x, this.y - 45, `+${refund} 能量返還!`, '#38bdf8');
   }
 
   forceGrounded(x = null) {
@@ -210,14 +215,12 @@ class Player {
     if (this.swingTimer > 0) this.swingTimer--;
     if (this.thrustTimer > 0) this.thrustTimer--;
 
-    if (this.isUser) {
-      if (this.wantsToBlock) {
-        this.blockTimer--;
-        this.isBlocking = (!this.isGrounded && this.y < WORLD.NET_TOP_Y + 50);
-        if (this.blockTimer <= 0 || this.isGrounded) { this.wantsToBlock = false; this.isBlocking = false; }
-      } else {
-        this.isBlocking = false;
-      }
+    if (this.wantsToBlock) {
+      this.blockTimer--;
+      this.isBlocking = (!this.isGrounded && this.y < WORLD.NET_TOP_Y + 50);
+      if (this.blockTimer <= 0 || this.isGrounded) { this.wantsToBlock = false; this.isBlocking = false; }
+    } else if (this.isLocallyControlled) {
+      this.isBlocking = false;
     } else {
       const isNetJump = Math.abs(this.jumpStartX - WORLD.NET_X) < 95;
       const isAttacking = this.swingTimer > 0 || this.thrustTimer > 0;
@@ -269,29 +272,47 @@ class Player {
   }
 }
 
-const userPlayer = new Player('user', WORLD.LEFT - 100, true, true);
-const mateAI     = new Player('mate', WORLD.LEFT + 240, true, false);
-const enemyA     = new Player('enemyFront', WORLD.RIGHT - 240, false, false);
-const enemyB     = new Player('enemyBack', WORLD.RIGHT + 100, false, false);
+// 🌟 物理 4 大客觀格子實例化 (Slot 0 ~ 3)
+const userPlayer = new Player('user', WORLD.LEFT - 100, true, 0);
+const mateAI     = new Player('mate', WORLD.LEFT + 240, true, 1);
+const enemyA     = new Player('enemyFront', WORLD.RIGHT - 240, false, 2);
+const enemyB     = new Player('enemyBack', WORLD.RIGHT + 100, false, 3);
 const allPlayers = [userPlayer, mateAI, enemyA, enemyB];
 
-function getLocalActivePlayer() {
-  if (typeof NET !== 'undefined' && NET.isMultiplayer && !NET.isHost && NET.mode === 'PVP') {
-    return enemyA;
-  }
-  return userPlayer;
+// 🌟 全域狀態重置 (分場徹底隔離，不帶舊能量進場)
+function resetMatchState() {
+  score.player = 0; score.enemy = 0;
+  scoreDisplay.innerText = '0 : 0';
+  match.leftHits = 0; match.rightHits = 0;
+  match.isBlockedBack = false;
+  timeSlowTimer = 0; chronoAnimTimer = 0; hitStopFrames = 0;
+  
+  proMatchStats = {
+    user: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
+    mate: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
+    enemyFront: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
+    enemyBack: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 }
+  };
+
+  allPlayers.forEach(p => {
+    p.energy = 0;
+    p.jumpExhaustion = 1.0;
+    p.depressedRallies = 0;
+    p.excitedRallies = 0;
+    p.mudDebuffTimer = 0;
+    p.softWallRallies = 0;
+    p.godspeedCharges = 0;
+    p.greaseDebuffRallies = 0;
+    p.hasPlayedFullSound = false;
+    p.forceGrounded();
+  });
+  updateSideUltHUD();
 }
 
-function getLocalTeammate() {
-  if (typeof NET !== 'undefined' && NET.isMultiplayer && !NET.isHost && NET.mode === 'PVP') {
-    return enemyB;
-  }
-  return mateAI;
-}
-
+// 🌟 HUD 依 Slot 格子讀取數據
 function updateSideUltHUD() {
-  const p1Actor = getLocalActivePlayer();
-  const p2Actor = getLocalTeammate();
+  const p1Actor = allPlayers[NET.mySlot] || userPlayer;
+  const p2Actor = allPlayers[NET.mateSlot] || mateAI;
 
   if (p1Actor && p1Actor.stats && p1Actor.stats.skill) {
     const uSk = p1Actor.stats.skill;
@@ -362,7 +383,6 @@ const ball = {
       enemyA.forceGrounded(WORLD.RIGHT - 320); enemyB.forceGrounded(WORLD.RIGHT - 180);
 
       this.x = serveState.currentServer.x + 15; this.y = WORLD.FLOOR_Y - 35;
-      statusSubtext.innerText = (serveState.currentServer === userPlayer) ? '★ 我方發球：長按 [K] 高拋 ➔ [W+J] 跳發或 [W+L] 跳飄！' : `★ 隊友 (${serveState.currentServer.name}) 發球中...`;
     } else {
       serveState.currentServer = (match.enemyServerIdx === 0) ? enemyB : enemyA;
       userPlayer.forceGrounded(WORLD.LEFT + 180); mateAI.forceGrounded(WORLD.LEFT + 320);
@@ -370,9 +390,26 @@ const ball = {
       enemyB.forceGrounded(serveState.currentServer === enemyB ? WORLD.RIGHT + 100 : WORLD.RIGHT - 180);
 
       this.x = serveState.currentServer.x - 15; this.y = WORLD.FLOOR_Y - 35;
+    }
+
+    // 🌟 依本機身分判定提示
+    const myPlayer = allPlayers[NET.mySlot] || userPlayer;
+    if (serveState.currentServer === myPlayer) {
+      statusSubtext.innerText = '★ 我方發球：長按 [K] 高拋 ➔ [W+J] 跳發或 [W+L] 跳飄！';
+    } else if (serveState.currentServer.isLeft === myPlayer.isLeft) {
+      statusSubtext.innerText = `★ 隊友 (${serveState.currentServer.name}) 發球中...`;
+    } else {
       statusSubtext.innerText = `▲ 敵方 (${serveState.currentServer.name}) 發球中...`;
     }
-    if (serveState.currentServer !== userPlayer) serveState.aiServeTimer = 75;
+
+    // 若當前發球員是 AI，啟動 AI 發球計時器
+    const isServerHuman = (serveState.currentServer.slotIndex === NET.mySlot) ||
+      (NET.isMultiplayer && NET.isHost && serveState.currentServer.slotIndex === ((NET.mode === 'COOP') ? 1 : 2));
+    if (!isServerHuman) {
+      serveState.aiServeTimer = 75;
+    } else {
+      serveState.aiServeTimer = 0;
+    }
   }
 };
 
@@ -455,7 +492,7 @@ function executePlayerTimingReceive(player, isCover = false) {
   if (dist < player.stats.sweetWindow && extraDefPenalty < 15.0) {
     playSound('pia'); triggerHalo(player, '#10b981', true);
     createImpactSparks(ball.x, ball.y, 16, '#10b981');
-    if (player.isUser) addCoins(1, 'PERFECT ABSORB', player.x, player.y - player.radius * 2);
+    if (player.isLocallyControlled) addCoins(1, 'PERFECT ABSORB', player.x, player.y - player.radius * 2);
     pushCallout(player.x, player.y - player.radius * 2 - 15, 'PERFECT ABSORB!!', '#10b981');
 
     player.jumpExhaustion = 1.0; player.depressedRallies = 0; player.addEnergy(30);
@@ -469,7 +506,7 @@ function executePlayerTimingReceive(player, isCover = false) {
     ball.isBrokenSpike = false; ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
     ball.opacity = 1.0; ball.isSineFloat = false; ball.isSkyComet = false; ball.isPhantomDrop = false; ball.glowColor = null;
     match.isBlockedBack = false;
-    if (player.isLeft && !player.isUser) pushCallout(player.x, player.y - player.radius * 2, 'CHANCE!', '#facc15');
+    if (player.isLeft && !player.isLocallyControlled) pushCallout(player.x, player.y - player.radius * 2, 'CHANCE!', '#facc15');
     return;
   }
 
@@ -520,7 +557,7 @@ function executePlayerTimingReceive(player, isCover = false) {
 function executeSetterPass(setter) {
   if (isNaN(ball.x) || isNaN(ball.y)) return;
   const isLeft = setter.isLeft;
-  if (isLeft && !setter.isUser) triggerHalo(setter, '#38bdf8', false);
+  if (isLeft && !setter.isLocallyControlled) triggerHalo(setter, '#38bdf8', false);
 
   if (setter.consumeSkill('SET_TACTIC') && setter.stats.skill.id === 'sk_godspeed_toss') {
     setter.godspeedCharges = 3;
@@ -585,7 +622,7 @@ function recordTouch(hitter, isBlockTouch = false) {
 
   let isLegitBlock = false;
   if (!match.inServeRally && isOpponentBall && !isAttacking && !hitter.isGrounded && ball.y < WORLD.NET_TOP_Y + 50) {
-    isLegitBlock = hitter.isUser ? (hitter.isBlocking && Math.abs(hitter.x - WORLD.NET_X) < 110) : (Math.abs(hitter.jumpStartX - WORLD.NET_X) < 95 || isBlockTouch);
+    isLegitBlock = hitter.isLocallyControlled ? (hitter.isBlocking && Math.abs(hitter.x - WORLD.NET_X) < 110) : (Math.abs(hitter.jumpStartX - WORLD.NET_X) < 95 || isBlockTouch);
   }
 
   if (isLegitBlock) {
@@ -664,20 +701,22 @@ function triggerFault(winner, title, desc) {
     if (pendingCoinReward > 0) {
       if (isTouchOut) addCoins(pendingCoinReward + 2, 'TOUCH OUT 打手出界加權', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
       else addCoins(pendingCoinReward, pendingCoinReason, userPlayer.x, userPlayer.y - userPlayer.radius * 2);
-    } else if (ball.lastHitter && ball.lastHitter.isUser) {
+    } else if (ball.lastHitter && ball.lastHitter.isLocallyControlled) {
       if (isAce) addCoins(3, 'SERVICE ACE!! 發球得分', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
       else addCoins(1, '進攻得分', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
     }
 
     if (ball.lastHitter && ball.lastHitter.isLeft) {
-      if (isTouchOut) proMatchStats[ball.lastHitter.slotKey].toolOutKills++;
+      if (isAce) proMatchStats[ball.lastHitter.slotKey].serviceAces++;
+      else if (isTouchOut) proMatchStats[ball.lastHitter.slotKey].toolOutKills++;
       else proMatchStats[ball.lastHitter.slotKey].spikeKills++;
     }
   } else { 
     score.enemy++;
     pendingCoinReward = 0; pendingCoinReason = '';
     if (ball.lastHitter && !ball.lastHitter.isLeft) {
-      if (isTouchOut) proMatchStats[ball.lastHitter.slotKey].toolOutKills++;
+      if (isAce) proMatchStats[ball.lastHitter.slotKey].serviceAces++;
+      else if (isTouchOut) proMatchStats[ball.lastHitter.slotKey].toolOutKills++;
       else proMatchStats[ball.lastHitter.slotKey].spikeKills++;
     }
   }
@@ -695,33 +734,23 @@ function triggerFault(winner, title, desc) {
 function closeSettlementAndNextMatch() {
   document.getElementById('settlement-modal').style.display = 'none';
   isSettlementOpen = false; isPaused = false;
-  score.player = 0; score.enemy = 0;
-  scoreDisplay.innerText = '0 : 0';
-
-  proMatchStats = {
-    user: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
-    mate: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
-    enemyFront: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
-    enemyBack: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 }
-  };
-
-  allPlayers.forEach(p => { p.forceGrounded(); p.energy = 0; p.hasPlayedFullSound = false; });
-  updateSideUltHUD();
+  resetMatchState();
   ball.resetForServe('player');
 }
 
 function returnToStartMenu() {
   if (confirm('確定要結束目前比賽並返回主選單嗎？目前比分將會重置。')) {
-    saveGameData(); score.player = 0; score.enemy = 0;
-    scoreDisplay.innerText = '0 : 0'; isGameStarted = false; isPaused = true;
-    allPlayers.forEach(p => p.forceGrounded()); document.getElementById('start-menu-modal').style.display = 'flex';
+    saveGameData(); isGameStarted = false; isPaused = true;
+    resetMatchState();
+    document.getElementById('start-menu-modal').style.display = 'flex';
   }
 }
 
 function returnToStartMenuFromSettle() {
-  document.getElementById('settlement-modal').style.display = 'none'; isSettlementOpen = false; saveGameData();
-  score.player = 0; score.enemy = 0; scoreDisplay.innerText = '0 : 0';
-  isGameStarted = false; isPaused = true; allPlayers.forEach(p => p.forceGrounded());
+  document.getElementById('settlement-modal').style.display = 'none';
+  isSettlementOpen = false; isGameStarted = false; isPaused = true;
+  saveGameData();
+  resetMatchState();
   document.getElementById('start-menu-modal').style.display = 'flex';
 }
 
@@ -738,8 +767,12 @@ function toggleLocker() {
   else { allPlayers.forEach(p => p.rebind(true)); }
 }
 
-function startGameFromMenu() { document.getElementById('start-menu-modal').style.display = 'none'; isGameStarted = true; isPaused = false; ball.resetForServe('player'); }
-function openLockerFromMenu() { document.getElementById('start-menu-modal').style.display = 'none'; isGameStarted = false; isLockerOpen = true; document.getElementById('locker-modal').style.display = 'flex'; initStagedCard(); renderLocker(); }
+function startGameFromMenu() {
+  document.getElementById('start-menu-modal').style.display = 'none';
+  isGameStarted = true; isPaused = false;
+  resetMatchState();
+  ball.resetForServe('player');
+}
 
 // 🌟 全鍵盤 ESC 智能監聽：徹底杜絕死鎖
 const keys = {};
@@ -748,13 +781,8 @@ window.addEventListener('keydown', (e) => {
   
   if (e.key === 'Escape') {
     if (isLockerOpen) {
-      if (!isGameStarted) {
-        // 🔒 防呆鐵律：在封面進更衣室，按 ESC 必定安全返回主選單！
-        closeLockerToMenu();
-      } else {
-        // 🔒 比賽中進更衣室，按 ESC 安全返回球場！
-        toggleLocker();
-      }
+      if (!isGameStarted) closeLockerToMenu();
+      else toggleLocker();
     } else if (isSettlementOpen) {
       closeSettlementAndNextMatch();
     } else if (isGameStarted) {
@@ -767,15 +795,18 @@ window.addEventListener('keydown', (e) => {
   }
   if (k === 'b') debugHitbox = !debugHitbox;
 
+  // 🌟 動態主角錨定 (allPlayers[NET.mySlot])
+  const myActor = allPlayers[NET.mySlot] || userPlayer;
+
   if (!isPaused && !isLockerOpen && !banner.active && !isSettlementOpen && isGameStarted && !isPauseMenuOpen) {
-    if (serveState.active && serveState.currentServer === userPlayer) {
+    if (serveState.active && serveState.currentServer === myActor) {
       if (k === 'k' && !serveState.tossed) serveState.charging = true;
       if (k === 'j' && serveState.tossed) handleServeSpike();
       if (k === 'l' && serveState.tossed) handleServeFloat();
     } else if (!serveState.active) {
-      if (e.code === 'Space') userPlayer.triggerBlock();
+      if (e.code === 'Space') myActor.triggerBlock();
       if (k === 'j') handleUserAttack();
-      if (k === 'l') { if (!userPlayer.isGrounded) handleUserThrust(); else userPlayer.dive(); }
+      if (k === 'l') { if (!myActor.isGrounded) handleUserThrust(); else myActor.dive(); }
       if (k === 'k') handleUserBump();
       if (k === 'o') handleUserSet();
     }
@@ -784,11 +815,14 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('keyup', (e) => {
   const k = e.key.toLowerCase(); keys[k] = false;
-  if (serveState.active && serveState.currentServer === userPlayer && k === 'k' && serveState.charging && !serveState.tossed) {
+  const myActor = allPlayers[NET.mySlot] || userPlayer;
+  if (serveState.active && serveState.currentServer === myActor && k === 'k' && serveState.charging && !serveState.tossed) {
     serveState.charging = false; serveState.tossed = true;
     const pRatio = Math.max(0.35, serveState.chargePower / 100);
-    ball.vx = 1.0; ball.vy = userPlayer.stats.jump * (0.80 + pRatio * 0.65);
-    playSound('set'); statusSubtext.innerText = '高拋完成！按 [D] 助跑 ➔ [W+J] 跳發暴扣 或 [W+L] 跳飄！';
+    ball.vx = myActor.isLeft ? 1.0 : -1.0;
+    ball.vy = myActor.stats.jump * (0.80 + pRatio * 0.65);
+    playSound('set');
+    statusSubtext.innerText = '高拋完成！助跑 ➔ [W+J] 跳發暴扣 或 [W+L] 跳飄！';
   }
 });
 
@@ -800,104 +834,111 @@ function getDist(p, b = ball) {
 }
 
 function handleServeSpike() {
-  if (getDist(userPlayer) > 95) return;
-  if (userPlayer.jumpStartX >= WORLD.LEFT) {
-    triggerFault('enemy', 'FOOT FAULT!!', '發球起跳踩線違例'); serveState.active = false; return;
+  const actor = allPlayers[NET.mySlot] || userPlayer;
+  if (getDist(actor) > 95) return;
+  const isFootFault = actor.isLeft ? (actor.jumpStartX >= WORLD.LEFT) : (actor.jumpStartX <= WORLD.RIGHT);
+  if (isFootFault) {
+    triggerFault(actor.isLeft ? 'enemy' : 'player', 'FOOT FAULT!!', '發球起跳踩線違例');
+    serveState.active = false; return;
   }
-  userPlayer.swingTimer = 12; serveState.active = false; recordTouch(userPlayer);
+  actor.swingTimer = 12; serveState.active = false; recordTouch(actor);
 
-  const isCometSkill = userPlayer.consumeSkill('SERVE_SPIKE');
-  const serveMomentum = (userPlayer.runMomentum / 25) * 4.5;
-  const rawSpikeSpeed = (userPlayer.stats.power * 0.98 + serveMomentum);
+  const isCometSkill = actor.consumeSkill('SERVE_SPIKE');
+  const serveMomentum = (actor.runMomentum / 25) * 4.5;
+  const rawSpikeSpeed = (actor.stats.power * 0.98 + serveMomentum);
+  const facingDir = actor.isLeft ? 1 : -1;
 
   if (isCometSkill) {
     ball.isSkyComet = true; ball.activeSkillTag = '天際墜石'; ball.armorPiercing = 7.5; ball.glowColor = '#facc15';
-    const targetX = WORLD.NET_X + 120 + Math.random() * 260;
+    const targetX = actor.isLeft ? (WORLD.NET_X + 120 + Math.random() * 260) : (WORLD.NET_X - 120 - Math.random() * 260);
     const effGravity = WORLD.GRAVITY * 1.8, reqVy = -22.5; 
     const tUp = Math.abs(reqVy) / effGravity, tDown = Math.sqrt((2 * (WORLD.FLOOR_Y - 90)) / effGravity);
     ball.vx = (targetX - ball.x) / (tUp + tDown); ball.vy = reqVy;
     playSound('perfect_spike'); triggerScreenShake(12, 12); createImpactSparks(ball.x, ball.y, 20, '#facc15');
-    pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, '天際墜石 (SKY COMET)!!', '#facc15');
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, '天際墜石 (SKY COMET)!!', '#facc15');
     pendingCoinReward = 3; pendingCoinReason = 'SKY COMET';
-  } else if (!userPlayer.isGrounded) {
-    const contactDy = ball.y - (userPlayer.y - userPlayer.radius * 1.5);
-    if (ball.y < WORLD.NET_TOP_Y - 60 && ball.y > WORLD.NET_TOP_Y - 240 && getDist(userPlayer) < 80) {
-      ball.vx = rawSpikeSpeed; ball.vy = (contactDy * 0.08) - 1.5;
+  } else if (!actor.isGrounded) {
+    const contactDy = ball.y - (actor.y - actor.radius * 1.5);
+    if (ball.y < WORLD.NET_TOP_Y - 60 && ball.y > WORLD.NET_TOP_Y - 240 && getDist(actor) < 80) {
+      ball.vx = facingDir * rawSpikeSpeed; ball.vy = (contactDy * 0.08) - 1.5;
       ball.isSpiked = true; ball.isPerfectSpike = true; ball.isTopspin = true;
-      ball.topspinRating = userPlayer.stats.technique;
+      ball.topspinRating = actor.stats.technique;
       playSound('perfect_spike'); triggerScreenShake(8, 9); createImpactSparks(ball.x, ball.y, 16, '#ef4444');
-      pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'PERFECT JUMP SERVE!!', '#ef4444');
+      pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'PERFECT JUMP SERVE!!', '#ef4444');
       pendingCoinReward = 2; pendingCoinReason = 'PERFECT ACE';
     } else if (ball.y <= WORLD.NET_TOP_Y - 240) {
-      ball.vx = rawSpikeSpeed * 1.18; ball.vy = -5.0; ball.isSpiked = true;
-      playSound('spike'); pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'OUT BALL!!', '#eab308');
+      ball.vx = facingDir * rawSpikeSpeed * 1.18; ball.vy = -5.0; ball.isSpiked = true;
+      playSound('spike'); pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'OUT BALL!!', '#eab308');
     } else {
-      ball.vx = rawSpikeSpeed * 0.65; ball.vy = 4.0;
-      playSound('bump'); pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'NET FAULT!!', '#f97316');
+      ball.vx = facingDir * rawSpikeSpeed * 0.65; ball.vy = 4.0;
+      playSound('bump'); pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'NET FAULT!!', '#f97316');
     }
   } else {
-    ball.vx = rawSpikeSpeed * 0.70; ball.vy = -4.0;
-    playSound('spike'); pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'STANDING SERVE', '#94a3b8');
+    ball.vx = facingDir * rawSpikeSpeed * 0.70; ball.vy = -4.0;
+    playSound('spike'); pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'STANDING SERVE', '#94a3b8');
   }
   statusSubtext.innerText = '';
 }
 
 function handleServeFloat() {
-  if (getDist(userPlayer) > 95) return;
-  if (userPlayer.jumpStartX >= WORLD.LEFT) {
-    triggerFault('enemy', 'FOOT FAULT!!', '發球起跳踩線違例'); serveState.active = false; return;
+  const actor = allPlayers[NET.mySlot] || userPlayer;
+  if (getDist(actor) > 95) return;
+  const isFootFault = actor.isLeft ? (actor.jumpStartX >= WORLD.LEFT) : (actor.jumpStartX <= WORLD.RIGHT);
+  if (isFootFault) {
+    triggerFault(actor.isLeft ? 'enemy' : 'player', 'FOOT FAULT!!', '發球起跳踩線違例');
+    serveState.active = false; return;
   }
-  userPlayer.thrustTimer = 12; userPlayer.thrustTargetX = ball.x; userPlayer.thrustTargetY = ball.y;
-  serveState.active = false; recordTouch(userPlayer);
+  actor.thrustTimer = 12; actor.thrustTargetX = ball.x; actor.thrustTargetY = ball.y;
+  serveState.active = false; recordTouch(actor);
+  const facingDir = actor.isLeft ? 1 : -1;
 
-  const isSineSkill = userPlayer.consumeSkill('SERVE_FLOAT');
+  const isSineSkill = actor.consumeSkill('SERVE_FLOAT');
   if (isSineSkill) {
     ball.isFloat = true; ball.isSineFloat = true; ball.activeSkillTag = '落日正弦'; ball.glowColor = '#f59e0b';
-    ball.vx = 11.2; ball.vy = -10.5; playSound('set');
-    pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, '落日正弦 (SOLAR SINE)!!', '#f59e0b');
+    ball.vx = facingDir * 11.2; ball.vy = -10.5; playSound('set');
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, '落日正弦 (SOLAR SINE)!!', '#f59e0b');
   } else {
     ball.isFloat = true; ball.isTacticalThrust = false; ball.isTopspin = false; playSound('set');
-    const floatSpeed = 17.5 + (userPlayer.stats.technique * 2.0);
-    ball.vx = !userPlayer.isGrounded ? floatSpeed : 15.0;
-    ball.vy = !userPlayer.isGrounded ? -1.5 : -3.5;
-    pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'FLOAT SERVE!', '#10b981');
+    const floatSpeed = 17.5 + (actor.stats.technique * 2.0);
+    ball.vx = facingDir * (!actor.isGrounded ? floatSpeed : 15.0);
+    ball.vy = !actor.isGrounded ? -1.5 : -3.5;
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'FLOAT SERVE!', '#10b981');
   }
   statusSubtext.innerText = '';
 }
 
 function handleUserAttack() {
-  const shoulderX = userPlayer.x, shoulderY = userPlayer.y - userPlayer.radius * 1.5;
-  const dx = (ball.x - shoulderX) * userPlayer.facing, dy = -(ball.y - shoulderY);
+  const actor = allPlayers[NET.mySlot] || userPlayer;
+  const shoulderX = actor.x, shoulderY = actor.y - actor.radius * 1.5;
+  const dx = (ball.x - shoulderX) * actor.facing, dy = -(ball.y - shoulderY);
   if (dx < -10 || dx > 80 || Math.abs(dy) > 80) return;
-  userPlayer.swingTimer = 12;
-  if (!recordTouch(userPlayer)) return;
+  actor.swingTimer = 12;
+  if (!recordTouch(actor)) return;
 
-  proMatchStats.user.totalSpikes++;
+  proMatchStats[actor.slotKey].totalSpikes++;
   ball.isTacticalThrust = false; ball.isTopspin = true;
-  ball.topspinRating = userPlayer.stats.technique;
-  if (enemyA.stats) enemyA.reactionTimer = enemyA.stats.reactionDelay;
-  if (enemyB.stats) enemyB.reactionTimer = enemyB.stats.reactionDelay;
+  ball.topspinRating = actor.stats.technique;
 
-  const isSkillActivated = userPlayer.consumeSkill('SPIKE');
-  const currentSkill = userPlayer.stats.skill;
+  const isSkillActivated = actor.consumeSkill('SPIKE');
+  const currentSkill = actor.stats.skill;
 
-  if (!userPlayer.isGrounded) {
+  if (!actor.isGrounded) {
     const angle = Math.atan2(dy, dx);
-    const momentumRatio = userPlayer.runMomentum / 25;
+    const momentumRatio = actor.runMomentum / 25;
     const bonusPower = momentumRatio * 4.2;
-    const techFactor = 0.85 + (userPlayer.stats.technique * 0.25);
-    let effectivePower = (userPlayer.stats.power + bonusPower) * techFactor;
+    const techFactor = 0.85 + (actor.stats.technique * 0.25);
+    let effectivePower = (actor.stats.power + bonusPower) * techFactor;
 
     if (ball.hasTossedFromGodspeed) {
       effectivePower += 4.0;
       ball.hasTossedFromGodspeed = false;
       createImpactSparks(ball.x, ball.y, 14, '#eab308');
-      pushCallout(userPlayer.x, userPlayer.y - 45, 'GODSPEED SPIKE +4.0!!', '#eab308');
+      pushCallout(actor.x, actor.y - 45, 'GODSPEED SPIKE +4.0!!', '#eab308');
     }
 
     if (isSkillActivated) {
       effectivePower *= (currentSkill.speedMult || 1.10);
-      ball.vx = userPlayer.facing * (effectivePower + 4.0); ball.vy = 14.5;
+      ball.vx = actor.facing * (effectivePower + 4.0); ball.vy = 14.5;
       ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = true;
       ball.armorPiercing = currentSkill.armorPiercing || 0;
       ball.topspinRating += (currentSkill.extraDown || 0);
@@ -908,28 +949,28 @@ function handleUserAttack() {
       if (currentSkill.id === 'sk_greased_ball') ball.greaseCharges = 2;
 
       playSound('perfect_spike'); triggerScreenShake(12, 12); createImpactSparks(ball.x, ball.y, 20, ball.glowColor);
-      pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, `${currentSkill.name}!!`, ball.glowColor);
+      pushCallout(actor.x, actor.y - actor.radius * 2 - 15, `${currentSkill.name}!!`, ball.glowColor);
       pendingCoinReward = 2; pendingCoinReason = currentSkill.name;
     } else if (angle > 0.6) {
-      ball.vx = userPlayer.facing * (effectivePower * 1.15); ball.vy = 6.8;
+      ball.vx = actor.facing * (effectivePower * 1.15); ball.vy = 6.8;
       ball.isSpiked = true; ball.isPerfectSpike = false; ball.isUltimate = false; ball.armorPiercing = 0; ball.glowColor = null;
       playSound('spike'); triggerScreenShake(5, 6); createImpactSparks(ball.x, ball.y, 8, '#38bdf8');
-      pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'DEEP SPIKE (長線深場)!', '#38bdf8');
+      pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'DEEP SPIKE!', '#38bdf8');
     } else if (angle >= 0.1 && angle <= 0.6) {
-      ball.vx = userPlayer.facing * effectivePower; ball.vy = 12.0;
+      ball.vx = actor.facing * effectivePower; ball.vy = 12.0;
       ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = false; ball.armorPiercing = 0; ball.glowColor = null;
       playSound('perfect_spike'); triggerScreenShake(8, 9); createImpactSparks(ball.x, ball.y, 14, '#ef4444');
-      pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'PERFECT SPIKE!!', '#ef4444');
+      pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'PERFECT SPIKE!!', '#ef4444');
       pendingCoinReward = 1; pendingCoinReason = 'PERFECT SPIKE';
     } else {
-      ball.vx = userPlayer.facing * (effectivePower * 0.72); ball.vy = 16.5;
+      ball.vx = actor.facing * (effectivePower * 0.72); ball.vy = 16.5;
       ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = false; ball.armorPiercing = 0; ball.glowColor = null;
       playSound('perfect_spike'); triggerScreenShake(9, 10); createImpactSparks(ball.x, ball.y, 16, '#facc15');
-      pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'STEEP CUT (下釘三米)!', '#facc15');
+      pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'STEEP CUT!', '#facc15');
       pendingCoinReward = 1; pendingCoinReason = 'STEEP CUT';
     }
   } else {
-    const targetX = WORLD.NET_X + (userPlayer.facing * 180);
+    const targetX = WORLD.NET_X + (actor.facing * 180);
     const effGravity = WORLD.GRAVITY * 0.72, apexY = WORLD.NET_TOP_Y - 48;
     const deltaY = Math.max(10, ball.y - apexY);
     const reqVy = -Math.sqrt(2 * effGravity * deltaY);
@@ -938,110 +979,118 @@ function handleUserAttack() {
     ball.vx = (targetX - ball.x) / (tUp + tDown); ball.vy = reqVy;
     ball.isSpiked = false; ball.isPerfectSpike = false; ball.isUltimate = false; ball.armorPiercing = 0;
     ball.isTopspin = false; ball.glowColor = null; playSound('bump');
-    pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'SAFE PUSH (安全緩推)', '#38bdf8');
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'SAFE PUSH', '#38bdf8');
   }
 
   const curSpd = Math.hypot(ball.vx, ball.vy);
-  if (curSpd > proMatchStats.user.maxSpeed) proMatchStats.user.maxSpeed = curSpd;
+  if (curSpd > proMatchStats[actor.slotKey].maxSpeed) proMatchStats[actor.slotKey].maxSpeed = curSpd;
 }
 
 function handleUserThrust() {
-  const shoulderX = userPlayer.x, shoulderY = userPlayer.y - userPlayer.radius * 1.5;
-  const forwardDist = (ball.x - shoulderX) * userPlayer.facing;
+  const actor = allPlayers[NET.mySlot] || userPlayer;
+  const shoulderX = actor.x, shoulderY = actor.y - actor.radius * 1.5;
+  const forwardDist = (ball.x - shoulderX) * actor.facing;
   const verticalDelta = ball.y - shoulderY;
   if (forwardDist < 0 || forwardDist > 85 || Math.abs(verticalDelta) > 65) return;
-  userPlayer.thrustTimer = 12; userPlayer.thrustTargetX = ball.x; userPlayer.thrustTargetY = ball.y;
-  if (!recordTouch(userPlayer)) return;
+  actor.thrustTimer = 12; actor.thrustTargetX = ball.x; actor.thrustTargetY = ball.y;
+  if (!recordTouch(actor)) return;
 
-  proMatchStats.user.totalSpikes++;
-  const currentSkill = userPlayer.stats.skill;
-  const isPhantomThrust = userPlayer.consumeSkill('THRUST');
-  const isBungeeThrust = (currentSkill.id === 'sk_bungee_gum') && userPlayer.consumeSkill('SPIKE');
-  const isPhantomDrop = (match.leftHits === 2) && userPlayer.consumeSkill('SET_ATTACK');
+  proMatchStats[actor.slotKey].totalSpikes++;
+  const currentSkill = actor.stats.skill;
+  const isPhantomThrust = actor.consumeSkill('THRUST');
+  const isBungeeThrust = (currentSkill.id === 'sk_bungee_gum') && actor.consumeSkill('SPIKE');
+  const hits = actor.isLeft ? match.leftHits : match.rightHits;
+  const isPhantomDrop = (hits === 2) && actor.consumeSkill('SET_ATTACK');
 
   if (isPhantomDrop) {
     ball.isPhantomDrop = true; ball.opacity = 0.05; ball.activeSkillTag = '幽靈吊球'; ball.glowColor = null;
-    const targetX = WORLD.NET_X + 130, effGravity = WORLD.GRAVITY * 0.72, apexY = WORLD.NET_TOP_Y - 30;
+    const targetX = WORLD.NET_X + (actor.facing * 130), effGravity = WORLD.GRAVITY * 0.72, apexY = WORLD.NET_TOP_Y - 30;
     const deltaY = Math.max(10, ball.y - apexY), reqVy = -Math.sqrt(2 * effGravity * deltaY);
     const tUp = Math.abs(reqVy) / effGravity, tDown = Math.sqrt((2 * (WORLD.FLOOR_Y - apexY)) / effGravity);
     ball.vx = (targetX - ball.x) / (tUp + tDown); ball.vy = reqVy; playSound('set');
-    pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, '幽靈吊球 (PHANTOM DROP)!!', '#c084fc');
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, '幽靈吊球!!', '#c084fc');
     return;
   }
 
   const baseSpeed = isPhantomThrust ? 15.0 : 12.5;
-  ball.vx = userPlayer.facing * baseSpeed; ball.isTacticalThrust = true; ball.isTopspin = false;
+  ball.vx = actor.facing * baseSpeed; ball.isTacticalThrust = true; ball.isTopspin = false;
 
   if (isBungeeThrust) {
     ball.isBungeeGum = true;
     ball.vy = 0.5; ball.activeSkillTag = '伸縮自在的愛'; ball.glowColor = '#f472b6';
-    pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, '伸縮自在的愛 (BUNGEE)!!', '#f472b6');
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, '伸縮自在的愛!!', '#f472b6');
   } else if (isPhantomThrust) {
     ball.vy = 0.2; ball.activeSkillTag = '幻影抹手'; ball.glowColor = '#10b981';
-    pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, `${currentSkill.name}!!`, '#10b981');
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, `${currentSkill.name}!!`, '#10b981');
   } else if (verticalDelta < -15) {
-    ball.vy = -3.2; pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'PUSH DEEP (推後排)!', '#38bdf8');
+    ball.vy = -3.2; pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'PUSH DEEP!', '#38bdf8');
   } else if (verticalDelta >= -15 && verticalDelta <= 15) {
-    ball.vy = 0.5; pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'TOOL OUT (平推抹手)!', '#10b981');
+    ball.vy = 0.5; pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'TOOL OUT!', '#10b981');
   } else {
-    ball.vy = 4.8; pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'SOFT ROLL (軟墜三米)!', '#facc15');
+    ball.vy = 4.8; pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'SOFT ROLL!', '#facc15');
   }
   ball.isSpiked = false; ball.isPerfectSpike = false; ball.isFloat = false; ball.isUltimate = (isPhantomThrust || isBungeeThrust); ball.armorPiercing = 0;
   playSound('set');
   const curSpd = Math.hypot(ball.vx, ball.vy);
-  if (curSpd > proMatchStats.user.maxSpeed) proMatchStats.user.maxSpeed = curSpd;
+  if (curSpd > proMatchStats[actor.slotKey].maxSpeed) proMatchStats[actor.slotKey].maxSpeed = curSpd;
 }
 
 function handleUserBump() {
-  const sk = userPlayer.stats.skill;
-  if (sk.id === 'sk_savage_roar' && userPlayer.energy >= sk.cost) {
-    userPlayer.consumeSkill('DEF_SAVE');
+  const actor = allPlayers[NET.mySlot] || userPlayer;
+  const sk = actor.stats.skill;
+  if (sk.id === 'sk_savage_roar' && actor.energy >= sk.cost) {
+    actor.consumeSkill('DEF_SAVE');
     playSound('time_freeze'); triggerScreenShake(8, 12);
-    createShockwave(userPlayer.x, userPlayer.y - userPlayer.radius, '#dc2626');
-    pushCallout(userPlayer.x, userPlayer.y - 45, '野蠻怒吼 (SAVAGE ROAR)!!', '#dc2626');
-    userPlayer.excitedRallies = 3; mateAI.excitedRallies = 3;
-    enemyA.depressedRallies = 3; enemyB.depressedRallies = 3;
+    createShockwave(actor.x, actor.y - actor.radius, '#dc2626');
+    pushCallout(actor.x, actor.y - 45, '野蠻怒吼 (SAVAGE ROAR)!!', '#dc2626');
+    allPlayers.forEach(p => {
+      if (p.isLeft === actor.isLeft) p.excitedRallies = 3;
+      else p.depressedRallies = 3;
+    });
     return;
   }
 
-  const isRollingThunderReady = (sk.type === 'DEF_SAVE') && (userPlayer.energy >= sk.cost);
-  const isBallInMyCourt = ball.x <= WORLD.NET_X - 10;
+  const isRollingThunderReady = (sk.type === 'DEF_SAVE') && (actor.energy >= sk.cost);
+  const isBallInMyCourt = actor.isLeft ? (ball.x <= WORLD.NET_X - 10) : (ball.x >= WORLD.NET_X + 10);
   const isBallEligibleHeight = ball.y > 260 && ball.y < WORLD.FLOOR_Y - 15;
 
   if (isRollingThunderReady && isBallInMyCourt && isBallEligibleHeight && sk.id === 'sk_rolling_thunder') {
-    userPlayer.consumeSkill('DEF_SAVE');
-    createImpactSparks(userPlayer.x, userPlayer.y - userPlayer.radius, 14, '#38bdf8');
-    userPlayer.x = Math.max(WORLD.LEFT + 30, Math.min(WORLD.NET_X - 40, ball.x - (userPlayer.facing * 8)));
-    userPlayer.y = WORLD.FLOOR_Y; userPlayer.isGrounded = true; userPlayer.vx = 0; userPlayer.vy = 0;
+    actor.consumeSkill('DEF_SAVE');
+    createImpactSparks(actor.x, actor.y - actor.radius, 14, '#38bdf8');
+    const minX = actor.isLeft ? WORLD.LEFT + 30 : WORLD.NET_X + 40;
+    const maxX = actor.isLeft ? WORLD.NET_X - 40 : WORLD.RIGHT - 30;
+    actor.x = Math.max(minX, Math.min(maxX, ball.x - (actor.facing * 8)));
+    actor.y = WORLD.FLOOR_Y; actor.isGrounded = true; actor.vx = 0; actor.vy = 0;
     playSound('teleport');
-    createImpactSparks(userPlayer.x, userPlayer.y - userPlayer.radius, 18, '#10b981');
-    pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'ROLLING THUNDER!!', '#38bdf8');
-    ball.x = userPlayer.x + (userPlayer.facing * 12); ball.y = userPlayer.y - userPlayer.radius * 1.2;
+    createImpactSparks(actor.x, actor.y - actor.radius, 18, '#10b981');
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'ROLLING THUNDER!!', '#38bdf8');
+    ball.x = actor.x + (actor.facing * 12); ball.y = actor.y - actor.radius * 1.2;
     ball.vx = 0; ball.vy = 0;
-    if (recordTouch(userPlayer)) executePlayerTimingReceive(userPlayer, false);
+    if (recordTouch(actor)) executePlayerTimingReceive(actor, false);
     return;
   }
 
-  const d = getDist(userPlayer);
-  const reach = 56 + (userPlayer.stats.technique * 8.0);
+  const d = getDist(actor);
+  const reach = 56 + (actor.stats.technique * 8.0);
   if (d > reach) return;
   const wasBlocked = match.isBlockedBack;
-  if (!recordTouch(userPlayer)) return;
-  executePlayerTimingReceive(userPlayer, wasBlocked);
+  if (!recordTouch(actor)) return;
+  executePlayerTimingReceive(actor, wasBlocked);
 }
 
 function handleUserSet() {
-  if (getDist(userPlayer) > 85) return;
-  if (!recordTouch(userPlayer)) return;
+  const actor = allPlayers[NET.mySlot] || userPlayer;
+  if (getDist(actor) > 85) return;
+  if (!recordTouch(actor)) return;
 
-  const isChrono = userPlayer.consumeSkill('SET_TACTIC');
-  if (isChrono && userPlayer.stats.skill.id === 'sk_chrono_spike') {
-    timeSlowTimer = 180; chronoCasterSide = 'player'; chronoAnimTimer = 28;
+  const isChrono = actor.consumeSkill('SET_TACTIC');
+  if (isChrono && actor.stats.skill.id === 'sk_chrono_spike') {
+    timeSlowTimer = 180; chronoCasterSide = actor.isLeft ? 'player' : 'enemy'; chronoAnimTimer = 28;
     triggerScreenShake(6, 12); playSound('clock_tick');
     setTimeout(() => { playSound('time_freeze'); }, 180);
-    pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'CHRONO SPIKE!! (時流差)', '#ec4899');
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'CHRONO SPIKE!!', '#ec4899');
   }
-  executeSetterPass(userPlayer);
+  executeSetterPass(actor);
 }
 
 function moveTowards(char, targetX, speed) {
@@ -1076,7 +1125,11 @@ function handlePhysics() {
   if (serveState.active && !serveState.tossed) {
     const s = serveState.currentServer;
     ball.x = s.x + (s.isLeft ? 20 : -12); ball.y = s.y - 10;
-    if (s === userPlayer && serveState.charging) serveState.chargePower = Math.min(100, serveState.chargePower + 2.4);
+    const isHumanServer = (s.slotIndex === NET.mySlot) ||
+      (NET.isMultiplayer && NET.isHost && s.slotIndex === ((NET.mode === 'COOP') ? 1 : 2));
+    if (isHumanServer && serveState.charging) {
+      serveState.chargePower = Math.min(100, serveState.chargePower + 2.4);
+    }
     return;
   }
 
@@ -1157,7 +1210,7 @@ function handlePhysics() {
       let isEligibleBlock = false;
 
       if (isOpponentBall && !isAttacking && !p.isGrounded && ball.y < WORLD.NET_TOP_Y + 50) {
-        isEligibleBlock = p.isUser ? (p.isBlocking && Math.abs(p.x - WORLD.NET_X) < 110) : (Math.abs(p.jumpStartX - WORLD.NET_X) < 95);
+        isEligibleBlock = p.isLocallyControlled ? (p.isBlocking && Math.abs(p.x - WORLD.NET_X) < 110) : (Math.abs(p.jumpStartX - WORLD.NET_X) < 95);
       }
 
       if (isEligibleBlock && getDist(p) < 70) {
@@ -1200,7 +1253,7 @@ function handlePhysics() {
           playSound('bump');
           ball.vx = (p.isLeft ? -1 : 1) * 3.5; ball.vy = -12.5;
           ball.isSpiked = false; ball.isPerfectSpike = false; ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
-          pushCallout(p.x, p.y - p.radius * 2, '引力柔網 (SOFT ONE TOUCH)!!', '#2dd4bf');
+          pushCallout(p.x, p.y - p.radius * 2, '引力柔網!!', '#2dd4bf');
           return;
         }
 
@@ -1233,7 +1286,7 @@ function handlePhysics() {
           playSound('block_break'); triggerScreenShake(10, 10);
           createImpactSparks(ball.x, ball.y, 18, '#ef4444');
           pushCallout(p.x, p.y - p.radius * 2, 'BROKEN!!', '#ef4444');
-          if (ball.lastHitter && ball.lastHitter.isUser) {
+          if (ball.lastHitter && ball.lastHitter.isLocallyControlled) {
             addCoins(2, 'SPIKE THROUGH BLOCK', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
             pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'THROUGH BLOCK!!', '#facc15');
           }
@@ -1263,7 +1316,7 @@ function handlePhysics() {
           ball.isSpiked = true; ball.isPerfectSpike = (incomingSpeed > 20); ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
           playSound('block_roof'); triggerScreenShake(9, 10);
           createImpactSparks(ball.x, ball.y, 16, '#facc15');
-          if (p.isUser) {
+          if (p.isLocallyControlled) {
             addCoins(3, 'MONSTER BLOCK', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
             pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'ROOF BLOCK!!', '#facc15');
           }
@@ -1277,7 +1330,7 @@ function handlePhysics() {
       if (recordTouch(p)) {
         p.diveTouched = true; p.addEnergy(25);
         executePlayerTimingReceive(p, match.isBlockedBack); playSound('dive');
-        if (p.isUser) { 
+        if (p.isLocallyControlled) { 
           addCoins(2, 'DIVE SAVE', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
           pushCallout(p.x, p.y - p.radius * 2 - 15, 'SUPER DIVE SAVE!!', '#38bdf8');
         }
@@ -1351,9 +1404,16 @@ function applyWorldSync(data) {
   score.enemy = data.score.enemy;
   scoreDisplay.innerText = `${score.player} : ${score.enemy}`;
 
+  // 🌟 同步 Banner
+  if (data.banner) {
+    Object.assign(banner, data.banner);
+  }
+
   data.players.forEach((pData, idx) => {
     if (allPlayers[idx]) Object.assign(allPlayers[idx], pData);
   });
+
+  updateSideUltHUD();
 }
 
 function fixedUpdate() {
@@ -1370,6 +1430,7 @@ function fixedUpdate() {
             isPerfectSpike: ball.isPerfectSpike, isFloat: ball.isFloat, activeSkillTag: ball.activeSkillTag
           },
           score: score,
+          banner: { active: banner.active, timer: banner.timer, mainText: banner.mainText, subText: banner.subText, color: banner.color },
           players: allPlayers.map(p => ({
             x: p.x, y: p.y, vx: p.vx, vy: p.vy, facing: p.facing,
             squashX: p.squashX, squashY: p.squashY, isDiving: p.isDiving,
@@ -1378,6 +1439,7 @@ function fixedUpdate() {
         });
       }
 
+      // 房主代為處理遠端訪客按鍵
       const rk = NET.remoteKeys || {};
       const targetPlayer = (NET.mode === 'COOP') ? mateAI : enemyA;
       const forwardDir = (NET.mode === 'COOP') ? 1 : -1;
@@ -1396,10 +1458,12 @@ function fixedUpdate() {
     }
   }
 
-  userPlayer.vx = 0;
-  if (keys['a']) { userPlayer.vx = -userPlayer.effectiveSpeed; userPlayer.facing = -1; }
-  if (keys['d']) { userPlayer.vx = userPlayer.effectiveSpeed; userPlayer.facing = 1; }
-  if (keys['w']) userPlayer.jump();
+  // 🌟 本機玩家 (allPlayers[NET.mySlot]) 實體移動
+  const myPlayer = allPlayers[NET.mySlot] || userPlayer;
+  myPlayer.vx = 0;
+  if (keys['a']) { myPlayer.vx = -myPlayer.effectiveSpeed; myPlayer.facing = -1; }
+  if (keys['d']) { myPlayer.vx = myPlayer.effectiveSpeed; myPlayer.facing = 1; }
+  if (keys['w']) myPlayer.jump();
 
   allPlayers.forEach(p => {
     p.update();
@@ -1432,48 +1496,53 @@ function fixedUpdate() {
     }
   });
 
-  if (serveState.active && serveState.currentServer !== userPlayer) {
-    serveState.aiServeTimer--;
-    const server = serveState.currentServer, isLeft = server.isLeft;
+  if (serveState.active && serveState.currentServer !== myPlayer) {
+    const isServerHuman = (serveState.currentServer.slotIndex === NET.mySlot) ||
+      (NET.isMultiplayer && NET.isHost && serveState.currentServer.slotIndex === ((NET.mode === 'COOP') ? 1 : 2));
 
-    if (serveState.aiServeTimer === 35) {
-      serveState.tossed = true; 
-      ball.vx = isLeft ? 2.2 : -2.2; 
-      ball.vy = server.stats.jump * 1.15; 
-      playSound('set');
-    }
-    if (serveState.aiServeTimer === 10) server.jump();
-    if (serveState.aiServeTimer <= 0) {
-      server.swingTimer = 12; serveState.active = false; recordTouch(server);
-      const isAISkyComet = server.consumeSkill('SERVE_SPIKE');
-      const isAISolarSine = server.consumeSkill('SERVE_FLOAT');
+    if (!isServerHuman && serveState.aiServeTimer > 0) {
+      serveState.aiServeTimer--;
+      const server = serveState.currentServer, isLeft = server.isLeft;
 
-      if (isAISkyComet) {
-        ball.isSkyComet = true; ball.activeSkillTag = '天際墜石'; ball.armorPiercing = 7.5; ball.glowColor = '#facc15';
-        const targetX = isLeft ? (WORLD.NET_X + 120 + Math.random() * 260) : (WORLD.NET_X - 120 - Math.random() * 260);
-        const effGravity = WORLD.GRAVITY * 1.8, reqVy = -22.5;
-        const tUp = Math.abs(reqVy) / effGravity, tDown = Math.sqrt((2 * (WORLD.FLOOR_Y - 90)) / effGravity);
-        ball.vx = (targetX - ball.x) / (tUp + tDown); ball.vy = reqVy;
-        playSound('perfect_spike'); pushCallout(server.x, server.y - server.radius * 2, '天際墜石!!', '#facc15');
-      } else if (isAISolarSine) {
-        ball.isFloat = true; ball.isSineFloat = true; ball.activeSkillTag = '落日正弦'; ball.glowColor = '#f59e0b';
-        ball.vx = (isLeft ? 1 : -1) * 11.2; ball.vy = -10.5;
-        playSound('set'); pushCallout(server.x, server.y - server.radius * 2, '落日正弦!!', '#f59e0b');
-      } else {
-        const prefersFloat = server.stats.technique > 0.85 && Math.random() < 0.6;
-        if (prefersFloat) {
-          ball.isFloat = true; ball.isTopspin = false; ball.glowColor = null;
-          const floatSpeed = 17.5 + (server.stats.technique * 2.0);
-          ball.vx = (isLeft ? 1 : -1) * floatSpeed; ball.vy = -1.5; playSound('set');
-        } else {
-          const serveMomentum = (server.runMomentum / 25) * 4.5;
-          const rawSpikeSpeed = (server.stats.power * 0.98 + serveMomentum);
-          ball.vx = (isLeft ? 1 : -1) * rawSpikeSpeed; ball.vy = -2.0; 
-          ball.isSpiked = true; ball.isTopspin = true; ball.topspinRating = server.stats.technique;
-          ball.glowColor = null; playSound('spike');
-        }
+      if (serveState.aiServeTimer === 35) {
+        serveState.tossed = true; 
+        ball.vx = isLeft ? 2.2 : -2.2; 
+        ball.vy = server.stats.jump * 1.15; 
+        playSound('set');
       }
-      statusSubtext.innerText = '';
+      if (serveState.aiServeTimer === 10) server.jump();
+      if (serveState.aiServeTimer <= 0) {
+        server.swingTimer = 12; serveState.active = false; recordTouch(server);
+        const isAISkyComet = server.consumeSkill('SERVE_SPIKE');
+        const isAISolarSine = server.consumeSkill('SERVE_FLOAT');
+
+        if (isAISkyComet) {
+          ball.isSkyComet = true; ball.activeSkillTag = '天際墜石'; ball.armorPiercing = 7.5; ball.glowColor = '#facc15';
+          const targetX = isLeft ? (WORLD.NET_X + 120 + Math.random() * 260) : (WORLD.NET_X - 120 - Math.random() * 260);
+          const effGravity = WORLD.GRAVITY * 1.8, reqVy = -22.5;
+          const tUp = Math.abs(reqVy) / effGravity, tDown = Math.sqrt((2 * (WORLD.FLOOR_Y - 90)) / effGravity);
+          ball.vx = (targetX - ball.x) / (tUp + tDown); ball.vy = reqVy;
+          playSound('perfect_spike'); pushCallout(server.x, server.y - server.radius * 2, '天際墜石!!', '#facc15');
+        } else if (isAISolarSine) {
+          ball.isFloat = true; ball.isSineFloat = true; ball.activeSkillTag = '落日正弦'; ball.glowColor = '#f59e0b';
+          ball.vx = (isLeft ? 1 : -1) * 11.2; ball.vy = -10.5;
+          playSound('set'); pushCallout(server.x, server.y - server.radius * 2, '落日正弦!!', '#f59e0b');
+        } else {
+          const prefersFloat = server.stats.technique > 0.85 && Math.random() < 0.6;
+          if (prefersFloat) {
+            ball.isFloat = true; ball.isTopspin = false; ball.glowColor = null;
+            const floatSpeed = 17.5 + (server.stats.technique * 2.0);
+            ball.vx = (isLeft ? 1 : -1) * floatSpeed; ball.vy = -1.5; playSound('set');
+          } else {
+            const serveMomentum = (server.runMomentum / 25) * 4.5;
+            const rawSpikeSpeed = (server.stats.power * 0.98 + serveMomentum);
+            ball.vx = (isLeft ? 1 : -1) * rawSpikeSpeed; ball.vy = -2.0; 
+            ball.isSpiked = true; ball.isTopspin = true; ball.topspinRating = server.stats.technique;
+            ball.glowColor = null; playSound('spike');
+          }
+        }
+        statusSubtext.innerText = '';
+      }
     }
   } else if (!serveState.active && !banner.active && !isSettlementOpen) {
     if (ball.x < WORLD.NET_X) {

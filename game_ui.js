@@ -1,5 +1,5 @@
 // ========================================================
-// UI 與動態彈窗系統：更衣室、紙娃娃化妝間、轉蛋大街、結算、ESC 暫停選單
+// UI 與動態彈窗系統：更衣室、試衣間、轉蛋大街、結算、連線大廳與準備室
 // ========================================================
 let currentSlot = 'user', stagedCard = null;
 
@@ -161,7 +161,7 @@ function swapActivePlayer(cardId) {
 }
 
 // ========================================================
-// ⏸️ ESC 暫停選單與更衣室全鍵盤安全控制（無按鈕、零死鎖）
+// ⏸️ ESC 暫停選單
 // ========================================================
 let isPauseMenuOpen = false;
 let isPracticeMode = false;
@@ -192,14 +192,10 @@ function openLockerFromPause() {
 
 function toggleLocker() {
   if (isSettlementOpen) return;
-
-  // 🌟 防呆核心：若是在主選單點進來的，按 ESC 一律安全退回主選單！
   if (!isGameStarted) {
     closeLockerToMenu();
     return;
   }
-
-  // 🌟 比賽中按 ESC：關閉更衣室回到比賽
   isLockerOpen = !isLockerOpen;
   isPaused = isLockerOpen;
   document.getElementById('locker-modal').style.display = isLockerOpen ? 'flex' : 'none';
@@ -273,124 +269,235 @@ function startPracticeMode() {
   isCareerMode = false;
   document.getElementById('start-menu-modal').style.display = 'none';
   isGameStarted = true; isPaused = false;
+  if (typeof resetMatchState === 'function') resetMatchState();
   ball.resetForServe('player');
 }
 
 // ========================================================
-// ⏳ 15 秒連線戰術準備室 (自選位置與技能)
+// ⏳ 連線賽前戰術配置室 (30 秒倒數 + 雙方 Ready 縮為 5 秒)
 // ========================================================
-let netPrepTimer = null, netPrepSeconds = 15;
-let myPrepData = { charId: '', mateCharId: '', skillId: '', mateSkillId: '' };
+let netPrepTimer = null, netPrepSeconds = 30;
+let isMyReady = false, isMateReady = false;
+
+function toggleDifficultySelect(isCoop) {
+  const wrap = document.getElementById('pve-difficulty-wrap');
+  if (wrap) wrap.style.display = isCoop ? 'block' : 'none';
+}
 
 function startNetPreparation() {
   document.getElementById('multiplayer-modal').style.display = 'none';
   document.getElementById('net-prep-modal').style.display = 'flex';
-  netPrepSeconds = 15;
-  document.getElementById('net-prep-timer').innerText = `⏳ 倒數: ${netPrepSeconds}s`;
+  netPrepSeconds = 30;
+  isMyReady = false;
+  isMateReady = false;
+
+  const timerEl = document.getElementById('net-prep-timer');
+  timerEl.innerText = `⏳ 倒數: ${netPrepSeconds}s`;
+  timerEl.style.color = '#ef4444';
+
+  const readyBtn = document.getElementById('btn-net-prep-ready');
+  readyBtn.disabled = false;
+  readyBtn.style.background = '#10b981';
+  readyBtn.innerText = '⚔️ 準備完成 (READY)';
+
+  document.getElementById('net-prep-ready-status').innerText = '等待雙方確認...';
+  document.getElementById('net-prep-ready-status').style.color = '#cbd5e1';
 
   const myCharSel = document.getElementById('net-prep-my-char');
-  const mateCharSel = document.getElementById('net-prep-mate-char');
   const mySkillSel = document.getElementById('net-prep-my-skill');
+  const mateCharSel = document.getElementById('net-prep-mate-char');
   const mateSkillSel = document.getElementById('net-prep-mate-skill');
+  const mateTitle = document.getElementById('mate-prep-title');
+  const diffHint = document.getElementById('net-prep-difficulty-hint');
 
-  myCharSel.innerHTML = ''; mateCharSel.innerHTML = '';
+  myCharSel.disabled = false;
+  mySkillSel.disabled = false;
+  myCharSel.innerHTML = '';
   INVENTORY.forEach((c, idx) => {
     myCharSel.innerHTML += `<option value="${c.id}" ${idx === 0 ? 'selected' : ''}>[${c.tier}] ${c.name} (Lv.${c.level})</option>`;
-    mateCharSel.innerHTML += `<option value="${c.id}" ${idx === 1 ? 'selected' : ''}>[${c.tier}] ${c.name} (Lv.${c.level})</option>`;
   });
 
-  mySkillSel.innerHTML = ''; mateSkillSel.innerHTML = '';
+  mySkillSel.innerHTML = '';
   SKILL_POOL.forEach(sk => {
     mySkillSel.innerHTML += `<option value="${sk.id}">[${sk.type}] ${sk.name}</option>`;
-    mateSkillSel.innerHTML += `<option value="${sk.id}">[${sk.type}] ${sk.name}</option>`;
   });
+
+  if (NET.mode === 'COOP') {
+    mateTitle.innerText = '🤝 隊友配置 (即時連動)';
+    mateCharSel.disabled = true;
+    mateSkillSel.disabled = true;
+    mateCharSel.innerHTML = `<option value="">(隊友選擇中...)</option>`;
+    mateSkillSel.innerHTML = `<option value="">(技能同步中...)</option>`;
+
+    const diffNames = { 1: '入門新手', 2: '泥濘沼澤', 3: '常盤鋼鐵', 4: '疾風怒濤', 5: '神域全明星' };
+    diffHint.innerText = `👾 挑戰難度：【${diffNames[NET.pveDifficulty] || '隨機難度'}】(電腦將於開賽時登場)`;
+  } else {
+    mateTitle.innerText = '🤖 我的電腦隊友 (AI 搭檔)';
+    mateCharSel.disabled = false;
+    mateSkillSel.disabled = false;
+    mateCharSel.innerHTML = '';
+    INVENTORY.forEach((c, idx) => {
+      mateCharSel.innerHTML += `<option value="${c.id}" ${idx === 1 ? 'selected' : ''}>[${c.tier}] ${c.name} (Lv.${c.level})</option>`;
+    });
+    mateSkillSel.innerHTML = '';
+    SKILL_POOL.forEach(sk => {
+      mateSkillSel.innerHTML += `<option value="${sk.id}">[${sk.type}] ${sk.name}</option>`;
+    });
+    diffHint.innerText = '⚔️ 隔網對抗：雙方各帶一名自選電腦隊友交戰！';
+  }
 
   onNetPrepChange();
 
   clearInterval(netPrepTimer);
   netPrepTimer = setInterval(() => {
     netPrepSeconds--;
-    document.getElementById('net-prep-timer').innerText = `⏳ 倒數: ${netPrepSeconds}s`;
+    timerEl.innerText = `⏳ 倒數: ${netPrepSeconds}s`;
     if (netPrepSeconds <= 0) {
       clearInterval(netPrepTimer);
-      confirmNetPrepReady();
+      finalizeNetStart();
     }
   }, 1000);
 }
 
 function onNetPrepChange() {
-  myPrepData = {
-    charId: document.getElementById('net-prep-my-char').value,
-    mateCharId: document.getElementById('net-prep-mate-char').value,
-    skillId: document.getElementById('net-prep-my-skill').value,
-    mateSkillId: document.getElementById('net-prep-mate-skill').value
-  };
+  const charId = document.getElementById('net-prep-my-char').value;
+  const skillId = document.getElementById('net-prep-my-skill').value;
+  const myCharObj = INVENTORY.find(c => c.id === charId) || INVENTORY[0];
+
+  if (NET.conn && NET.conn.open) {
+    NET.conn.send({
+      type: 'LOBBY_SELECT_UPDATE',
+      char: { name: myCharObj.name, tier: myCharObj.tier, level: myCharObj.level, color: myCharObj.color },
+      skillId: skillId
+    });
+  }
+}
+
+function handleRemoteLobbyUpdate(data) {
+  if (NET.mode === 'COOP') {
+    const mateCharSel = document.getElementById('net-prep-mate-char');
+    const mateSkillSel = document.getElementById('net-prep-mate-skill');
+    const sk = SKILL_POOL.find(s => s.id === data.skillId) || SKILL_POOL[0];
+
+    mateCharSel.innerHTML = `<option value="">[${data.char.tier}] ${data.char.name} (Lv.${data.char.level})</option>`;
+    mateSkillSel.innerHTML = `<option value="">[${sk.type}] ${sk.name}</option>`;
+  }
 }
 
 function confirmNetPrepReady() {
-  clearInterval(netPrepTimer);
-  document.getElementById('net-prep-modal').style.display = 'none';
+  if (isMyReady) return;
+  isMyReady = true;
 
-  const myCharObj = INVENTORY.find(c => c.id === myPrepData.charId) || INVENTORY[0];
-  const myMateObj = INVENTORY.find(c => c.id === myPrepData.mateCharId) || INVENTORY[1];
+  const readyBtn = document.getElementById('btn-net-prep-ready');
+  readyBtn.disabled = true;
+  readyBtn.style.background = '#64748b';
+  readyBtn.innerText = '✓ 我已就緒 (WAITING)';
+
+  document.getElementById('net-prep-my-char').disabled = true;
+  document.getElementById('net-prep-my-skill').disabled = true;
+  document.getElementById('net-prep-mate-char').disabled = true;
+  document.getElementById('net-prep-mate-skill').disabled = true;
+
+  const myCharId = document.getElementById('net-prep-my-char').value;
+  const mySkillId = document.getElementById('net-prep-my-skill').value;
+  const mateCharId = document.getElementById('net-prep-mate-char').value;
+  const mateSkillId = document.getElementById('net-prep-mate-skill').value;
+
+  const myCharObj = INVENTORY.find(c => c.id === myCharId) || INVENTORY[0];
+  const mateCharObj = INVENTORY.find(c => c.id === mateCharId) || INVENTORY[1];
 
   const payload = {
-    type: 'PREP_CONFIRM',
-    mode: NET.mode,
-    p1: { name: myCharObj.name, color: myCharObj.color, stats: myCharObj.stats, skillId: myPrepData.skillId, cosmetics: myCharObj.cosmetics },
-    p2: { name: myMateObj.name, color: myMateObj.color, stats: myMateObj.stats, skillId: myPrepData.mateSkillId, cosmetics: myMateObj.cosmetics }
+    type: 'READY_CHECK',
+    ready: true,
+    p1: { name: myCharObj.name, color: myCharObj.color, stats: myCharObj.stats, skillId: mySkillId, cosmetics: myCharObj.cosmetics },
+    p2: (NET.mode === 'PVP') ? { name: mateCharObj.name, color: mateCharObj.color, stats: mateCharObj.stats, skillId: mateSkillId, cosmetics: mateCharObj.cosmetics } : null
   };
 
   if (NET.conn && NET.conn.open) {
     NET.conn.send(payload);
   }
 
+  // 套用本機選手配置到對應 Slot
   if (NET.isHost) {
-    ACTIVE_ROSTER.user = { ...myCharObj, equippedSkill: myPrepData.skillId };
-    if (NET.mode !== 'COOP') {
-      ACTIVE_ROSTER.mate = { ...myMateObj, equippedSkill: myPrepData.mateSkillId };
+    ACTIVE_ROSTER.user = { ...myCharObj, equippedSkill: mySkillId };
+    if (NET.mode === 'PVP') {
+      ACTIVE_ROSTER.mate = { ...mateCharObj, equippedSkill: mateSkillId };
     }
-    userPlayer.rebind(true); mateAI.rebind(true);
   } else {
     if (NET.mode === 'COOP') {
-      ACTIVE_ROSTER.mate = { ...myCharObj, equippedSkill: myPrepData.skillId };
-      mateAI.rebind(true);
+      ACTIVE_ROSTER.mate = { ...myCharObj, equippedSkill: mySkillId };
     } else {
-      ACTIVE_ROSTER.enemyFront = { ...myCharObj, equippedSkill: myPrepData.skillId };
-      ACTIVE_ROSTER.enemyBack = { ...myMateObj, equippedSkill: myPrepData.mateSkillId };
-      enemyA.rebind(true); enemyB.rebind(true);
+      ACTIVE_ROSTER.enemyFront = { ...myCharObj, equippedSkill: mySkillId };
+      ACTIVE_ROSTER.enemyBack = { ...mateCharObj, equippedSkill: mateSkillId };
     }
   }
 
+  checkBothReadyToAccelerate();
+}
+
+function handleRemoteReady(data) {
+  isMateReady = true;
+
   if (NET.isHost) {
-    setTimeout(() => { startGameFromMenu(); }, 600);
+    if (NET.mode === 'COOP') {
+      ACTIVE_ROSTER.mate = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics };
+    } else {
+      ACTIVE_ROSTER.enemyFront = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics };
+      if (data.p2) {
+        ACTIVE_ROSTER.enemyBack = { id: 'remote_guest_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics };
+      }
+    }
+  } else {
+    if (NET.mode === 'COOP') {
+      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics };
+    } else {
+      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics };
+      if (data.p2) {
+        ACTIVE_ROSTER.mate = { id: 'remote_host_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics };
+      }
+    }
+  }
+
+  document.getElementById('net-prep-ready-status').innerText = '對手已準備完成！';
+  document.getElementById('net-prep-ready-status').style.color = '#34d399';
+
+  checkBothReadyToAccelerate();
+}
+
+function checkBothReadyToAccelerate() {
+  if (isMyReady && isMateReady) {
+    if (netPrepSeconds > 5) {
+      netPrepSeconds = 5;
+      const timerEl = document.getElementById('net-prep-timer');
+      timerEl.innerText = `⏳ 雙方就緒！最後 5 秒...`;
+      timerEl.style.color = '#facc15';
+    }
   }
 }
 
-function applyOpponentPrepData(oppData) {
+function finalizeNetStart() {
+  clearInterval(netPrepTimer);
+  document.getElementById('net-prep-modal').style.display = 'none';
+
+  // 雙方重新綁定實體並歸位
+  if (typeof allPlayers !== 'undefined') {
+    allPlayers.forEach(p => p.rebind(true));
+  }
+  if (typeof resetMatchState === 'function') resetMatchState();
+
+  isGameStarted = true;
+  isPaused = false;
+
   if (NET.isHost) {
-    if (oppData.mode === 'COOP') {
-      ACTIVE_ROSTER.mate = { id: 'remote_guest', name: oppData.p1.name, color: oppData.p1.color, stats: oppData.p1.stats, equippedSkill: oppData.p1.skillId, cosmetics: oppData.p1.cosmetics };
-      mateAI.rebind(true);
-    } else {
-      ACTIVE_ROSTER.enemyFront = { id: 'remote_guest', name: oppData.p1.name, color: oppData.p1.color, stats: oppData.p1.stats, equippedSkill: oppData.p1.skillId, cosmetics: oppData.p1.cosmetics };
-      ACTIVE_ROSTER.enemyBack = { id: 'remote_guest_mate', name: oppData.p2.name, color: oppData.p2.color, stats: oppData.p2.stats, equippedSkill: oppData.p2.skillId, cosmetics: oppData.p2.cosmetics };
-      enemyA.rebind(true); enemyB.rebind(true);
+    if (NET.conn && NET.conn.open) {
+      NET.conn.send({ type: 'START_MATCH' });
     }
-  } else {
-    if (oppData.mode === 'COOP') {
-      ACTIVE_ROSTER.user = { id: 'remote_host', name: oppData.p1.name, color: oppData.p1.color, stats: oppData.p1.stats, equippedSkill: oppData.p1.skillId, cosmetics: oppData.p1.cosmetics };
-      userPlayer.rebind(true);
-    } else {
-      ACTIVE_ROSTER.user = { id: 'remote_host', name: oppData.p1.name, color: oppData.p1.color, stats: oppData.p1.stats, equippedSkill: oppData.p1.skillId, cosmetics: oppData.p1.cosmetics };
-      ACTIVE_ROSTER.mate = { id: 'remote_host_mate', name: oppData.p2.name, color: oppData.p2.color, stats: oppData.p2.stats, equippedSkill: oppData.p2.skillId, cosmetics: oppData.p2.cosmetics };
-      userPlayer.rebind(true); mateAI.rebind(true);
-    }
+    ball.resetForServe('player');
   }
 }
 
 // ========================================================
-// 🌐 連線大廳控制器
+// 🌐 多人連線大廳控制器
 // ========================================================
 function openMultiplayerModal() {
   document.getElementById('start-menu-modal').style.display = 'none';
@@ -416,7 +523,27 @@ function startHosting() {
   NET.mode = selectedMode;
   NET.isHost = true;
   NET.isMultiplayer = true;
+  NET.mySlot = 0;
+  NET.mateSlot = (selectedMode === 'COOP') ? 1 : 1;
   NET.roomCode = generateRoomCode();
+
+  if (selectedMode === 'COOP') {
+    const diffVal = parseInt(document.getElementById('pve-diff-select').value) || 5;
+    NET.pveDifficulty = diffVal;
+    
+    // 預先產生 PVE 雙電腦對手配置
+    const stage = CAREER_STAGES.find(s => s.id === diffVal) || CAREER_STAGES[4];
+    ACTIVE_ROSTER.enemyFront = {
+      id: `ai_f_${Date.now()}`, name: stage.front.name, tier: stage.front.tier,
+      color: stage.front.color, level: diffVal * 3, stats: { ...stage.front.stats },
+      equippedSkill: stage.front.equippedSkill, cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' }
+    };
+    ACTIVE_ROSTER.enemyBack = {
+      id: `ai_b_${Date.now()}`, name: stage.back.name, tier: stage.back.tier,
+      color: stage.back.color, level: diffVal * 3, stats: { ...stage.back.stats },
+      equippedSkill: stage.back.equippedSkill, cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' }
+    };
+  }
 
   const customPeerId = `VB2026_${NET.roomCode}`;
   NET.peer = new Peer(customPeerId);
@@ -430,7 +557,13 @@ function startHosting() {
     NET.conn = conn;
     setupDataConnection();
     conn.on('open', () => {
-      conn.send({ type: 'INIT_SYNC', mode: NET.mode });
+      conn.send({
+        type: 'INIT_SYNC',
+        mode: NET.mode,
+        diff: NET.pveDifficulty,
+        enemyFront: ACTIVE_ROSTER.enemyFront,
+        enemyBack: ACTIVE_ROSTER.enemyBack
+      });
       startNetPreparation();
     });
   });
@@ -463,6 +596,16 @@ function joinRoom() {
     conn.on('data', (data) => {
       if (data.type === 'INIT_SYNC') {
         NET.mode = data.mode;
+        NET.pveDifficulty = data.diff || 5;
+        if (NET.mode === 'COOP') {
+          NET.mySlot = 1;
+          NET.mateSlot = 0;
+          if (data.enemyFront) ACTIVE_ROSTER.enemyFront = data.enemyFront;
+          if (data.enemyBack) ACTIVE_ROSTER.enemyBack = data.enemyBack;
+        } else {
+          NET.mySlot = 2;
+          NET.mateSlot = 3;
+        }
         startNetPreparation();
       }
     });
@@ -479,27 +622,198 @@ function setupDataConnection() {
       NET.remoteKeys = data.keys;
     } else if (data.type === 'STATE_SYNC') {
       applyWorldSync(data);
-    } else if (data.type === 'PREP_CONFIRM') {
-      applyOpponentPrepData(data);
+    } else if (data.type === 'LOBBY_SELECT_UPDATE') {
+      handleRemoteLobbyUpdate(data);
+    } else if (data.type === 'READY_CHECK') {
+      handleRemoteReady(data);
+    } else if (data.type === 'START_MATCH') {
+      finalizeNetStart();
     } else if (data.type === 'PEER_QUIT') {
       alert('⚠️ 對手已退出比賽，正在返回主選單...');
       location.reload();
     }
   });
+
+  NET.conn.on('close', () => {
+    if (netPrepTimer) clearInterval(netPrepTimer);
+    alert('⚠️ 與對手的連線已中斷！正在返回主選單...');
+    location.reload();
+  });
 }
 
-function openGachaArcade() { document.getElementById('start-menu-modal').style.display = 'none'; document.getElementById('gacha-arcade-modal').style.display = 'flex'; }
-function closeGachaArcade() { document.getElementById('gacha-arcade-modal').style.display = 'none'; document.getElementById('start-menu-modal').style.display = 'flex'; }
+// ========================================================
+// 🪞 試衣化妝間 (支援全背包角色換裝)
+// ========================================================
+let wbSelectedCharId = 'c1', wbCategory = 'hats', wbPage = 0;
+
+function openWardrobeModal() {
+  document.getElementById('start-menu-modal').style.display = 'none';
+  document.getElementById('wardrobe-modal').style.display = 'flex';
+
+  const sel = document.getElementById('wb-char-select');
+  sel.innerHTML = '';
+  INVENTORY.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.innerText = `[${c.tier}] ${c.name} (Lv.${c.level})`;
+    if (c.id === wbSelectedCharId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  renderWardrobeUI();
+  runWardrobePreviewLoop();
+}
+
+function onWardrobeCharChange(charId) {
+  wbSelectedCharId = charId;
+  renderWardrobeUI();
+}
+
+function closeWardrobeModal() {
+  document.getElementById('wardrobe-modal').style.display = 'none';
+  document.getElementById('start-menu-modal').style.display = 'flex';
+  if (typeof allPlayers !== 'undefined') allPlayers.forEach(p => p.rebind(true));
+  saveGameData();
+}
+
+function switchWardrobeCategory(cat) {
+  wbCategory = cat;
+  wbPage = 0;
+  document.getElementById('wb-tab-hats').className = `btn-sound ${cat === 'hats' ? 'active' : ''}`;
+  document.getElementById('wb-tab-faces').className = `btn-sound ${cat === 'faces' ? 'active' : ''}`;
+  document.getElementById('wb-tab-effects').className = `btn-sound ${cat === 'effects' ? 'active' : ''}`;
+  renderWardrobeUI();
+}
+
+function changeWardrobePage(delta) {
+  const list = COSMETICS_DB[wbCategory];
+  const maxPages = Math.ceil(list.length / 9);
+  wbPage = Math.max(0, Math.min(maxPages - 1, wbPage + delta));
+  renderWardrobeUI();
+}
+
+function renderWardrobeUI() {
+  const currentCard = INVENTORY.find(c => c.id === wbSelectedCharId) || INVENTORY[0];
+  if (!currentCard.cosmetics) currentCard.cosmetics = { hat: 'hat_none', face: 'face_none', effect: 'fx_none' };
+
+  document.getElementById('wardrobe-char-name').innerText = currentCard.name;
+  
+  const hatName = (COSMETICS_DB.hats.find(h => h.id === currentCard.cosmetics.hat) || {}).name || '無';
+  const faceName = (COSMETICS_DB.faces.find(f => f.id === currentCard.cosmetics.face) || {}).name || '無';
+  const fxName = (COSMETICS_DB.effects.find(e => e.id === currentCard.cosmetics.effect) || {}).name || '無';
+  document.getElementById('wardrobe-char-desc').innerText = `頭飾: ${hatName} | 臉飾: ${faceName} | 光效: ${fxName}`;
+
+  const list = COSMETICS_DB[wbCategory];
+  const maxPages = Math.ceil(list.length / 9);
+  document.getElementById('wardrobe-page-num').innerText = `第 ${wbPage + 1} / ${maxPages} 頁`;
+
+  const grid = document.getElementById('wardrobe-items-grid');
+  grid.innerHTML = '';
+
+  const pageItems = list.slice(wbPage * 9, (wbPage + 1) * 9);
+  const unlockedList = UNLOCKED_COSMETICS[wbCategory] || [];
+
+  pageItems.forEach(item => {
+    const isNone = item.id.endsWith('_none');
+    const isUnlocked = isNone || unlockedList.includes(item.id);
+    const catSingular = wbCategory === 'hats' ? 'hat' : (wbCategory === 'faces' ? 'face' : 'effect');
+    const isEquipped = currentCard.cosmetics[catSingular] === item.id;
+
+    const box = document.createElement('div');
+    box.style.cssText = `
+      background: ${isUnlocked ? (isEquipped ? '#312e81' : '#18153d') : '#0f172a'};
+      border: 2px solid ${isEquipped ? '#facc15' : (isUnlocked ? '#6366f1' : '#334155')};
+      border-radius: 12px; padding: 10px; display: flex; flex-direction: column;
+      align-items: center; justify-content: space-between; text-align: center;
+      opacity: ${isUnlocked ? 1.0 : 0.45}; cursor: ${isUnlocked ? 'pointer' : 'not-allowed'};
+      box-shadow: ${isEquipped ? '0 0 15px rgba(250, 204, 21, 0.4)' : 'none'};
+    `;
+
+    box.innerHTML = `
+      <div style="font-size: 13px; font-weight: bold; color: ${isEquipped ? '#facc15' : '#fff'};">${item.name}</div>
+      <p style="font-size: 10px; color: #a5b4fc; margin: 4px 0; line-height: 1.2;">${item.desc}</p>
+      <span style="font-size: 10px; font-weight: 800; color: ${isUnlocked ? (isEquipped ? '#10b981' : '#38bdf8') : '#ef4444'};">
+        ${isUnlocked ? (isEquipped ? '✓ 已穿戴' : '點擊換裝') : '🔒 未獲得'}
+      </span>
+    `;
+
+    if (isUnlocked) {
+      box.onclick = () => {
+        currentCard.cosmetics[catSingular] = item.id;
+        renderWardrobeUI();
+      };
+    }
+    grid.appendChild(box);
+  });
+}
+
+function unequipAllWardrobe() {
+  const currentCard = INVENTORY.find(c => c.id === wbSelectedCharId) || INVENTORY[0];
+  currentCard.cosmetics = { hat: 'hat_none', face: 'face_none', effect: 'fx_none' };
+  renderWardrobeUI();
+}
+
+function runWardrobePreviewLoop() {
+  const cvs = document.getElementById('wardrobe-preview-canvas');
+  if (!cvs || document.getElementById('wardrobe-modal').style.display !== 'flex') return;
+  const pCtx = cvs.getContext('2d');
+  pCtx.clearRect(0, 0, cvs.width, cvs.height);
+
+  const card = INVENTORY.find(c => c.id === wbSelectedCharId) || INVENTORY[0];
+  const dummyPlayer = {
+    x: 110, y: 160, radius: 36, color: card.color,
+    facing: 1, squashX: 1, squashY: 1, isDiving: false, isBlocking: false,
+    card: card
+  };
+
+  drawPlayerEntity(dummyPlayer, pCtx);
+  requestAnimationFrame(runWardrobePreviewLoop);
+}
+
+// ========================================================
+// 🎰 轉蛋專區 (GACHA ARCADE) & 防手殘確認邏輯
+// ========================================================
+let pendingGachaAction = null;
+
+function openGachaArcade() {
+  document.getElementById('start-menu-modal').style.display = 'none';
+  document.getElementById('gacha-arcade-modal').style.display = 'flex';
+  const cd = document.getElementById('arcade-coin-display');
+  if (cd) cd.innerText = userCoins;
+}
+
+function closeGachaArcade() {
+  document.getElementById('gacha-arcade-modal').style.display = 'none';
+  document.getElementById('start-menu-modal').style.display = 'flex';
+  saveGameData();
+}
+
+function openGachaArcadeFromWardrobe() {
+  document.getElementById('wardrobe-modal').style.display = 'none';
+  openGachaArcade();
+}
+
 function promptConfirmGacha(type, isTen, cost) {
-  if (userCoins < cost) { alert(`金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) {
+    alert(`排球金幣不足！本次抽取需要 ${cost} 幣，目前持有 ${userCoins} 幣。`);
+    return;
+  }
+  const typeLabels = { cosmetic: '時尚轉蛋', player: '角色轉蛋', skill: '技能轉蛋' };
   pendingGachaAction = { type, isTen, cost };
-  document.getElementById('confirm-gacha-text').innerText = `確定花費 ${cost} 幣進行抽取嗎？`;
+  document.getElementById('confirm-gacha-text').innerText = `確定要花費 ${cost} 排球金幣，進行【${typeLabels[type]}】${isTen ? '十抽' : '單抽'} 嗎？`;
   document.getElementById('confirm-gacha-modal').style.display = 'flex';
 }
-function closeConfirmGacha() { document.getElementById('confirm-gacha-modal').style.display = 'none'; }
+
+function closeConfirmGacha() {
+  document.getElementById('confirm-gacha-modal').style.display = 'none';
+  pendingGachaAction = null;
+}
+
 function executeConfirmedGacha() {
   if (!pendingGachaAction) return;
-  const { type, isTen } = pendingGachaAction; closeConfirmGacha();
+  const { type, isTen } = pendingGachaAction;
+  closeConfirmGacha();
+
   if (type === 'cosmetic') triggerCosmeticGacha(isTen);
   else if (type === 'player') triggerGacha(isTen);
   else if (type === 'skill') triggerSkillGacha(isTen);
@@ -546,7 +860,7 @@ function rollSingleCard() {
 
 function triggerGacha(isTen = false) {
   const cost = isTen ? 900 : 100;
-  if (userCoins < cost) { alert(`金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
   userCoins -= cost;
   updateCoinHUD();
 
@@ -624,7 +938,8 @@ function openSettlement() {
   let bestRating = -1, mvpSlot = 'user';
   for (let slot in ACTIVE_ROSTER) {
     const s = proMatchStats[slot];
-    const rating = ((s.spikeKills + s.toolOutKills) * 25) + (s.roofKills * 30) + (s.perfectAbsorbs * 15);
+    const aces = s.serviceAces || 0;
+    const rating = ((s.spikeKills + s.toolOutKills) * 25) + (aces * 25) + (s.roofKills * 30) + (s.perfectAbsorbs * 15);
     if (rating > bestRating) { bestRating = rating; mvpSlot = slot; }
   }
 
@@ -634,7 +949,8 @@ function openSettlement() {
 
   for (let slot in ACTIVE_ROSTER) {
     const card = ACTIVE_ROSTER[slot], s = proMatchStats[slot], isMvp = (slot === mvpSlot);
-    const personalBonus = ((s.spikeKills + s.toolOutKills) * 20) + (s.roofKills * 25) + (s.perfectAbsorbs * 15) + (isMvp ? 50 : 0);
+    const aces = s.serviceAces || 0;
+    const personalBonus = ((s.spikeKills + s.toolOutKills) * 20) + (aces * 20) + (s.roofKills * 25) + (s.perfectAbsorbs * 15) + (isMvp ? 50 : 0);
     const finalExp = baseExp + personalBonus;
 
     card.exp += finalExp;
@@ -650,6 +966,7 @@ function openSettlement() {
       <td>${s.totalSpikes}</td>
       <td style="color: #ef4444; font-weight: bold;">${s.spikeKills}</td>
       <td style="color: #10b981; font-weight: bold;">${s.toolOutKills}</td>
+      <td style="color: #facc15; font-weight: bold;">${aces}</td>
       <td style="color: #facc15;">${s.maxSpeed.toFixed(1)}</td>
       <td>${s.totalReceives}</td>
       <td style="color: #10b981;">${s.perfectAbsorbs}</td>
@@ -770,128 +1087,8 @@ function startCareerMatch(stageId) {
   document.getElementById('career-modal').style.display = 'none';
   isGameStarted = true;
   isPaused = false;
-  score.player = 0;
-  score.enemy = 0;
-  scoreDisplay.innerText = '0 : 0';
+  if (typeof resetMatchState === 'function') resetMatchState();
   ball.resetForServe('player');
-}
-
-// ========================================================
-// 🪞 主畫面試衣化妝間 (Wardrobe UI)
-// ========================================================
-let wbSlot = 'user', wbCategory = 'hats', wbPage = 0;
-
-function openWardrobeModal() {
-  document.getElementById('start-menu-modal').style.display = 'none';
-  document.getElementById('wardrobe-modal').style.display = 'flex';
-  renderWardrobeUI();
-  runWardrobePreviewLoop();
-}
-
-function closeWardrobeModal() {
-  document.getElementById('wardrobe-modal').style.display = 'none';
-  document.getElementById('start-menu-modal').style.display = 'flex';
-  if (typeof allPlayers !== 'undefined') allPlayers.forEach(p => p.rebind(true));
-  saveGameData();
-}
-
-function switchWardrobeSlot(slot) {
-  wbSlot = slot;
-  document.getElementById('wb-slot-user').className = `roster-tab ${slot === 'user' ? 'active' : ''}`;
-  document.getElementById('wb-slot-mate').className = `roster-tab ${slot === 'mate' ? 'active' : ''}`;
-  renderWardrobeUI();
-}
-
-function switchWardrobeCategory(cat) {
-  wbCategory = cat;
-  wbPage = 0;
-  document.getElementById('wb-tab-hats').className = `roster-tab ${cat === 'hats' ? 'active' : ''}`;
-  document.getElementById('wb-tab-faces').className = `roster-tab ${cat === 'faces' ? 'active' : ''}`;
-  document.getElementById('wb-tab-effects').className = `roster-tab ${cat === 'effects' ? 'active' : ''}`;
-  renderWardrobeUI();
-}
-
-function changeWardrobePage(delta) {
-  const list = COSMETICS_DB[wbCategory];
-  const maxPages = Math.ceil(list.length / 9);
-  wbPage = Math.max(0, Math.min(maxPages - 1, wbPage + delta));
-  renderWardrobeUI();
-}
-
-function renderWardrobeUI() {
-  const currentCard = ACTIVE_ROSTER[wbSlot];
-  document.getElementById('wardrobe-char-name').innerText = currentCard.name;
-  
-  const hatName = (COSMETICS_DB.hats.find(h => h.id === currentCard.cosmetics.hat) || {}).name || '無';
-  const faceName = (COSMETICS_DB.faces.find(f => f.id === currentCard.cosmetics.face) || {}).name || '無';
-  const fxName = (COSMETICS_DB.effects.find(e => e.id === currentCard.cosmetics.effect) || {}).name || '無';
-  document.getElementById('wardrobe-char-desc').innerText = `頭飾: ${hatName} | 臉飾: ${faceName} | 光效: ${fxName}`;
-
-  const list = COSMETICS_DB[wbCategory];
-  const maxPages = Math.ceil(list.length / 9);
-  document.getElementById('wardrobe-page-num').innerText = `第 ${wbPage + 1} / ${maxPages} 頁`;
-
-  const grid = document.getElementById('wardrobe-items-grid');
-  grid.innerHTML = '';
-
-  const pageItems = list.slice(wbPage * 9, (wbPage + 1) * 9);
-  const unlockedList = UNLOCKED_COSMETICS[wbCategory] || [];
-
-  pageItems.forEach(item => {
-    const isNone = item.id.endsWith('_none');
-    const isUnlocked = isNone || unlockedList.includes(item.id);
-    const catSingular = wbCategory === 'hats' ? 'hat' : (wbCategory === 'faces' ? 'face' : 'effect');
-    const isEquipped = currentCard.cosmetics[catSingular] === item.id;
-
-    const box = document.createElement('div');
-    box.style.cssText = `
-      background: ${isUnlocked ? (isEquipped ? '#312e81' : '#18153d') : '#0f172a'};
-      border: 2px solid ${isEquipped ? '#facc15' : (isUnlocked ? '#6366f1' : '#334155')};
-      border-radius: 12px; padding: 10px; display: flex; flex-direction: column;
-      align-items: center; justify-content: space-between; text-align: center;
-      opacity: ${isUnlocked ? 1.0 : 0.45}; cursor: ${isUnlocked ? 'pointer' : 'not-allowed'};
-      box-shadow: ${isEquipped ? '0 0 15px rgba(250, 204, 21, 0.4)' : 'none'};
-    `;
-
-    box.innerHTML = `
-      <div style="font-size: 13px; font-weight: bold; color: ${isEquipped ? '#facc15' : '#fff'};">${item.name}</div>
-      <p style="font-size: 10px; color: #a5b4fc; margin-4px 0; line-height: 1.2;">${item.desc}</p>
-      <span style="font-size: 10px; font-weight: 800; color: ${isUnlocked ? (isEquipped ? '#10b981' : '#38bdf8') : '#ef4444'};">
-        ${isUnlocked ? (isEquipped ? '✓ 已穿戴' : '點擊換裝') : '🔒 未獲得'}
-      </span>
-    `;
-
-    if (isUnlocked) {
-      box.onclick = () => {
-        currentCard.cosmetics[catSingular] = item.id;
-        renderWardrobeUI();
-      };
-    }
-    grid.appendChild(box);
-  });
-}
-
-function unequipAllWardrobe() {
-  const currentCard = ACTIVE_ROSTER[wbSlot];
-  currentCard.cosmetics = { hat: 'hat_none', face: 'face_none', effect: 'fx_none' };
-  renderWardrobeUI();
-}
-
-function runWardrobePreviewLoop() {
-  const cvs = document.getElementById('wardrobe-preview-canvas');
-  if (!cvs || document.getElementById('wardrobe-modal').style.display !== 'flex') return;
-  const pCtx = cvs.getContext('2d');
-  pCtx.clearRect(0, 0, cvs.width, cvs.height);
-
-  const card = ACTIVE_ROSTER[wbSlot];
-  const dummyPlayer = {
-    x: 110, y: 160, radius: 36, color: card.color,
-    facing: 1, squashX: 1, squashY: 1, isDiving: false, isBlocking: false,
-    card: card
-  };
-
-  drawPlayerEntity(dummyPlayer, pCtx);
-  requestAnimationFrame(runWardrobePreviewLoop);
 }
 
 function triggerCosmeticGacha(isTen = false) {

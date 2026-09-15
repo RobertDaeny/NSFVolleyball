@@ -279,7 +279,12 @@ function drawPlayerEntity(player, targetCtx) {
     }
   }
 
-  if (player.isUser) {
+  // 🌟 主控箭頭指標：動態鎖定本機操控者 (NET.mySlot)
+  const isLocalControlled = (typeof NET !== 'undefined' && typeof NET.mySlot !== 'undefined')
+    ? (player.slotIndex === NET.mySlot)
+    : player.isUser;
+
+  if (isLocalControlled) {
     targetCtx.fillStyle = '#facc15'; targetCtx.beginPath();
     targetCtx.moveTo(-7, -player.radius * 2 - 8); targetCtx.lineTo(7, -player.radius * 2 - 8); targetCtx.lineTo(0, -player.radius * 2);
     targetCtx.fill();
@@ -519,7 +524,13 @@ function renderChronoAnimation() {
 
 function render() {
   ctx.save();
-  const pExh = (typeof getLocalActivePlayer === 'function') ? getLocalActivePlayer().jumpExhaustion : userPlayer.jumpExhaustion;
+  
+  // 體力條讀取本機主控 (NET.mySlot)
+  const myPlayer = (typeof allPlayers !== 'undefined' && typeof NET !== 'undefined')
+    ? (allPlayers[NET.mySlot] || userPlayer)
+    : userPlayer;
+
+  const pExh = myPlayer.jumpExhaustion;
   staminaFill.style.width = (pExh * 100) + '%';
   if (pExh > 0.8) staminaFill.style.backgroundColor = '#10b981';
   else if (pExh > 0.55) staminaFill.style.backgroundColor = '#facc15';
@@ -532,7 +543,7 @@ function render() {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // 🌟 訪客視角水平翻轉
+  // 🌟 WebRTC 訪客視角鏡像翻轉 (PVP 模式下)
   const isGuestMirror = (typeof NET !== 'undefined' && NET.isMultiplayer && !NET.isHost && NET.mode === 'PVP');
   if (isGuestMirror) {
     ctx.save();
@@ -541,7 +552,7 @@ function render() {
   }
 
   // ==========================================
-  // 1. 世界座標層（受相機移動影響）
+  // 1. 世界座標層（受相機平移影響）
   // ==========================================
   ctx.save();
   ctx.translate(-camera.x, -camera.y);
@@ -602,9 +613,11 @@ function render() {
 
   allPlayers.forEach(p => p.draw(ctx));
 
-  if (serveState.charging && serveState.currentServer === userPlayer) {
-    ctx.fillStyle = '#1e1b4b'; ctx.fillRect(userPlayer.x - 20, userPlayer.y - userPlayer.radius * 2 - 24, 40, 6);
-    ctx.fillStyle = '#facc15'; ctx.fillRect(userPlayer.x - 20, userPlayer.y - userPlayer.radius * 2 - 24, (serveState.chargePower / 100) * 40, 6);
+  // 發球蓄力條：動態對齊當前發球員
+  if (serveState.charging && serveState.currentServer) {
+    const s = serveState.currentServer;
+    ctx.fillStyle = '#1e1b4b'; ctx.fillRect(s.x - 20, s.y - s.radius * 2 - 24, 40, 6);
+    ctx.fillStyle = '#facc15'; ctx.fillRect(s.x - 20, s.y - s.radius * 2 - 24, (serveState.chargePower / 100) * 40, 6);
   }
 
   if (!isNaN(ball.x) && !isNaN(ball.y)) {
@@ -623,23 +636,32 @@ function render() {
     ctx.restore();
   }
 
+  // 🌟 文字呼喊與跳幣：鏡像模式下二次翻轉文字，防止鏡像反字
   for (let i = calloutPopups.length - 1; i >= 0; i--) {
     const pop = calloutPopups[i];
-    pop.timer--; pop.y -= 0.6; ctx.save();
+    pop.timer--; pop.y -= 0.6;
+    ctx.save();
+    ctx.translate(pop.x, pop.y);
+    if (isGuestMirror) ctx.scale(-1, 1);
     ctx.font = '900 24px -apple-system, sans-serif'; ctx.textAlign = 'center';
     ctx.globalAlpha = Math.min(1, pop.timer / 15);
-    ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 4; ctx.strokeText(pop.text, pop.x, pop.y);
-    ctx.fillStyle = pop.color; ctx.fillText(pop.text, pop.x, pop.y); ctx.restore();
+    ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 4; ctx.strokeText(pop.text, 0, 0);
+    ctx.fillStyle = pop.color; ctx.fillText(pop.text, 0, 0);
+    ctx.restore();
     if (pop.timer <= 0) calloutPopups.splice(i, 1);
   }
 
   for (let i = coinPopups.length - 1; i >= 0; i--) {
     const cp = coinPopups[i];
-    cp.timer--; cp.y -= 0.8; ctx.save();
+    cp.timer--; cp.y -= 0.8;
+    ctx.save();
+    ctx.translate(cp.x, cp.y);
+    if (isGuestMirror) ctx.scale(-1, 1);
     ctx.font = '900 20px -apple-system, sans-serif'; ctx.textAlign = 'center';
     ctx.globalAlpha = Math.min(1, cp.timer / 15);
-    ctx.strokeStyle = '#78350f'; ctx.lineWidth = 3; ctx.strokeText(`+${cp.amount} 🪙`, cp.x, cp.y);
-    ctx.fillStyle = '#facc15'; ctx.fillText(`+${cp.amount} 🪙`, cp.x, cp.y); ctx.restore();
+    ctx.strokeStyle = '#78350f'; ctx.lineWidth = 3; ctx.strokeText(`+${cp.amount} 🪙`, 0, 0);
+    ctx.fillStyle = '#facc15'; ctx.fillText(`+${cp.amount} 🪙`, 0, 0);
+    ctx.restore();
     if (cp.timer <= 0) coinPopups.splice(i, 1);
   }
 
@@ -648,18 +670,26 @@ function render() {
     ctx.fillRect(0, 0, WORLD.WIDTH, WORLD.HEIGHT); ctx.restore();
   }
 
-  ctx.restore(); // 🌟 結束世界座標層（相機位移在這裡被解除，回到 0,0 螢幕座標）
+  ctx.restore(); // 結束世界座標層
 
   // ==========================================
-  // 2. 螢幕視窗層（不受相機平移影響，永遠置中）
+  // 2. 螢幕視窗層（不受相機位移影響）
   // ==========================================
   renderChronoAnimation();
-  allPlayers.forEach(p => drawRadarBubble(p.x, p.y - p.radius, p.color, false, p.isUser, p.radius));
+  allPlayers.forEach(p => {
+    const isLocal = (typeof NET !== 'undefined' && typeof NET.mySlot !== 'undefined') ? (p.slotIndex === NET.mySlot) : p.isUser;
+    drawRadarBubble(p.x, p.y - p.radius, p.color, false, isLocal, p.radius);
+  });
   if (!isNaN(ball.x) && !isNaN(ball.y)) drawRadarBubble(ball.x, ball.y, '#facc15', true, false, ball.radius);
 
-  // 🌟 得分/出界全域霓虹橫幅（永遠鎖定在螢幕正中央 X: 800）
+  // 🌟 得分/出界全域橫幅
   if (banner.active) {
     ctx.save();
+    if (isGuestMirror) {
+      ctx.translate(800, 215);
+      ctx.scale(-1, 1);
+      ctx.translate(-800, -215);
+    }
     ctx.fillStyle = 'rgba(30, 27, 75, 0.95)';
     ctx.fillRect(350, 160, 900, 110);
     ctx.strokeStyle = banner.color;
@@ -681,8 +711,8 @@ function render() {
   if (debugHitbox) renderDebugTerminal();
 
   if (isGuestMirror) {
-    ctx.restore(); // 還原訪客水平鏡像
+    ctx.restore(); // 還原鏡像翻轉
   }
 
-  ctx.restore(); // 還原最頂層 canvas save
+  ctx.restore(); // 還原畫布最頂層 save
 }

@@ -139,7 +139,7 @@ let INVENTORY = [
 
 let ACTIVE_ROSTER = { user: INVENTORY[0], mate: INVENTORY[1], enemyFront: INVENTORY[2], enemyBack: INVENTORY[3] };
 let userCoins = 99999;
-const STORAGE_KEY = 'VOLLEY_ARENA_SAVE_DATA_2026_FINAL_SYNC';
+const STORAGE_KEY = 'VOLLEY_ARENA_SAVE_DATA_2026_SLOT_DECOUPLED';
 
 const CAREER_STAGES = [
   {
@@ -180,7 +180,7 @@ let isCareerMode = false;
 
 let audioCtx = null, customAudio = new Audio();
 customAudio.loop = true;
-let isAudioLoaded = false, wasPlaying = false;
+let isAudioLoaded = false;
 
 function playSound(type) {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -304,7 +304,6 @@ function loadGameData() {
     }
   } catch (e) {}
 
-  // 🌟 強制保障：根據目前 careerProgress，補發已過關的炫彩光效至 UNLOCKED_COSMETICS
   if (!UNLOCKED_COSMETICS.effects) UNLOCKED_COSMETICS.effects = ['fx_none'];
   CAREER_STAGES.forEach(stage => {
     if (stage.id < careerProgress && stage.rewardSkin) {
@@ -349,28 +348,8 @@ function deriveStats(card) {
 
 function getRequiredExp(level) { return Math.floor(100 * Math.pow(1.22, level - 1)); }
 
-window.addEventListener('DOMContentLoaded', () => {
-  const audioFileInput = document.getElementById('audio-file');
-  const btnBgm = document.getElementById('btn-bgm');
-  if (audioFileInput) {
-    audioFileInput.addEventListener('change', (e) => {
-      const f = e.target.files[0];
-      if (f) {
-        customAudio.src = URL.createObjectURL(f);
-        customAudio.play().then(() => { isAudioLoaded = true; btnBgm.innerText = 'BGM: 播放中'; btnBgm.style.color = '#10b981'; });
-      }
-    });
-  }
-  if (btnBgm) {
-    btnBgm.addEventListener('click', () => {
-      if (!isAudioLoaded) { alert('請先點擊自選 MP3！'); return; }
-      if (customAudio.paused) { customAudio.play(); btnBgm.innerText = 'BGM: 播放中'; btnBgm.style.color = '#10b981'; }
-      else { customAudio.pause(); btnBgm.innerText = 'BGM: 暫停'; btnBgm.style.color = '#38bdf8'; }
-    });
-  }
-});
 // ========================================================
-// 網路多人通訊狀態 (Multiplayer Network State)
+// 網路連線狀態 (支援 Slot 架構與雙向握手)
 // ========================================================
 const NET = {
   isMultiplayer: false,
@@ -378,7 +357,10 @@ const NET = {
   peer: null,
   conn: null,
   roomCode: '',
-  mode: 'PVP', // 'PVP' (1P1E vs 2P1E) 或 'COOP' (2P vs 2E)
+  mode: 'PVP',
+  pveDifficulty: 5,
+  mySlot: 0,
+  mateSlot: 1,
   remoteKeys: { a: false, d: false, w: false, j: false, k: false, l: false, o: false, space: false },
   lastPing: 0
 };
