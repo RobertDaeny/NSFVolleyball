@@ -988,9 +988,10 @@ function executePlayerAction(actor, inputKeys) {
 function executeGuestActionWithEdge(guestPlayer, currentKeys) {
   if (!guestPlayer || !currentKeys) return;
 
-  const justPressed = {};
+const justPressed = {};
   const justReleased = {};
-  const checkKeys = ['w', 'a', 's', 'd', 'j', 'k', 'l', 'o', 'space'];
+  // 🌟 補齊空白鍵的三種瀏覽器標準鍵名（' '、'space'、'spacebar'）
+  const checkKeys = ['w', 'a', 's', 'd', 'j', 'k', 'l', 'o', 'space', ' ', 'spacebar'];
   
   for (let k of checkKeys) {
     if (currentKeys[k] && !lastRemoteKeys[k]) justPressed[k] = true;
@@ -998,6 +999,8 @@ function executeGuestActionWithEdge(guestPlayer, currentKeys) {
   }
   lastRemoteKeys = { ...currentKeys };
 
+  // 🌟 空白鍵相容整合：只要任何一種空白鍵有按，就認定 space 觸發
+  const isSpacePressed = justPressed['space'] || justPressed[' '] || justPressed['spacebar'];
   // 發球階段
   if (serveState.active && serveState.currentServer === guestPlayer) {
     if (justPressed['k'] && !serveState.tossed) {
@@ -1016,9 +1019,9 @@ function executeGuestActionWithEdge(guestPlayer, currentKeys) {
     if (justPressed['j'] && serveState.tossed) handleServeSpike(guestPlayer);
     if (justPressed['l'] && serveState.tossed) handleServeFloat(guestPlayer);
   } 
-  // 常規攻防階段：嚴格只在剛按下的那一幀 (justPressed) 觸發一次，徹底消滅二觸！
+// 常規攻防階段：嚴格只在剛按下的那一幀 (justPressed) 觸發一次，徹底消滅二觸！
   else if (!serveState.active) {
-    if (justPressed['space']) guestPlayer.triggerBlock();
+    if (isSpacePressed) guestPlayer.triggerBlock();
     if (justPressed['j']) handleUserAttack(guestPlayer);
     if (justPressed['l']) { 
       if (!guestPlayer.isGrounded) handleUserThrust(guestPlayer); 
