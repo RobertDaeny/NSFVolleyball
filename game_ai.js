@@ -1,6 +1,24 @@
 // ========================================================
 // AI 戰術決策層：拋物線落點預判、三觸分配、智慧封網與新技能施放
 // ========================================================
+
+// 🌟 判定該角色是否被真人玩家控制（本機或連線遠端）
+function isSlotHumanControlled(player) {
+  if (!player) return false;
+  // 本機控制者
+  if (typeof NET !== 'undefined' && typeof NET.mySlot !== 'undefined') {
+    if (player.slotIndex === NET.mySlot) return true;
+    // 若為房主，連線中的訪客也是真人，AI 嚴禁插手！
+    if (NET.isMultiplayer && NET.isHost) {
+      const guestSlot = (NET.mode === 'COOP') ? 1 : 2;
+      if (player.slotIndex === guestSlot) return true;
+    }
+  } else {
+    if (player.isUser) return true;
+  }
+  return false;
+}
+
 function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
   const isCooldown = (gameFrame - match.lastTouchFrame) < 18;
   let realLandingX = ball.x;
@@ -29,8 +47,12 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
   const isPerceivedOut = isLeft ? (perceivedLandingX < WORLD.LEFT) : (perceivedLandingX > WORLD.RIGHT);
   const isBallThreat = (isLeft ? ball.vx <= 0 : ball.vx >= 0) && (ball.vy > 0.1 || match.isBlockedBack);
 
+  // 🌟 若負責執行的球員是真人，AI 大腦立刻退出，把控制權完全留給鍵盤/連線！
+  const actorIsHuman = isSlotHumanControlled(actor);
+  const partnerIsHuman = isSlotHumanControlled(partner);
+
   if (isBallThreat && (teamHits === 0 || match.isBlockedBack)) {
-    if (!actor.isUser) {
+    if (!actorIsHuman) {
       // 🦁 AI 施放【野蠻怒吼】判定
       if (actor.stats.skill.id === 'sk_savage_roar' && actor.energy >= actor.stats.skill.cost) {
         actor.consumeSkill('DEF_SAVE');
@@ -38,8 +60,9 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
         createShockwave(actor.x, actor.y - actor.radius, '#dc2626');
         pushCallout(actor.x, actor.y - 45, '野蠻怒吼 (SAVAGE ROAR)!!', '#dc2626');
         actor.excitedRallies = 3; partner.excitedRallies = 3;
-        const opps = isLeft ? [enemyA, enemyB] : [userPlayer, mateAI];
-        opps.forEach(op => op.depressedRallies = 3);
+        allPlayers.forEach(p => {
+          if (p.isLeft !== isLeft) p.depressedRallies = 3;
+        });
       }
 
       // ⚡ AI 施放【雷霆瞬步】判定
@@ -92,7 +115,7 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
       }
     }
 
-    if (!partner.isUser && partner.reactionTimer <= 0) {
+    if (!partnerIsHuman && partner.reactionTimer <= 0) {
       const isBallExtremelyDeep = (isLeft && ball.x < WORLD.LEFT - 120) || (!isLeft && ball.x > WORLD.RIGHT + 120);
       const defensiveHomeX = isBallExtremelyDeep ? (isLeft ? WORLD.LEFT + 320 : WORLD.RIGHT - 320) : (isLeft ? WORLD.NET_X - 260 : WORLD.NET_X + 260);
       moveTowards(partner, defensiveHomeX, partner.effectiveSpeed);
@@ -101,8 +124,10 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
   else if (teamHits === 1) {
     const handler = (ball.lastHitter === pA) ? pB : pA;
     const spiker = (handler === pA) ? pB : pA;
+    const handlerIsHuman = isSlotHumanControlled(handler);
+    const spikerIsHuman = isSlotHumanControlled(spiker);
 
-    if (!handler.isUser && handler.reactionTimer <= 0) {
+    if (!handlerIsHuman && handler.reactionTimer <= 0) {
       moveTowards(handler, ball.x, handler.effectiveSpeed);
       if (!handler.isDiving && getDist(handler) < 64 && ball.lastHitter !== handler && !isCooldown) {
         if (recordTouch(handler)) {
@@ -124,19 +149,21 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
         }
       }
     }
-    if (!spiker.isUser && spiker.reactionTimer <= 0) {
+    if (!spikerIsHuman && spiker.reactionTimer <= 0) {
       moveTowards(spiker, isLeft ? (WORLD.NET_X - 180) : (WORLD.NET_X + 180), spiker.effectiveSpeed);
     }
   } 
   else if (teamHits === 2) {
     const spiker = (ball.lastHitter === pA) ? pB : pA;
     const supporter = (spiker === pA) ? pB : pA;
+    const spikerIsHuman = isSlotHumanControlled(spiker);
+    const supporterIsHuman = isSlotHumanControlled(supporter);
 
-    if (!supporter.isUser && supporter.reactionTimer <= 0) {
+    if (!supporterIsHuman && supporter.reactionTimer <= 0) {
       moveTowards(supporter, spiker.x + (isLeft ? 30 : -30), supporter.effectiveSpeed);
     }
 
-    if (!spiker.isUser && spiker.reactionTimer <= 0) {
+    if (!spikerIsHuman && spiker.reactionTimer <= 0) {
       moveTowards(spiker, ball.x, spiker.effectiveSpeed);
       const distToNet = Math.abs(spiker.x - WORLD.NET_X);
       const isNearNet = distToNet < 280;
@@ -165,8 +192,9 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
               createImpactSparks(ball.x, ball.y, 14, '#eab308');
             }
 
-            const oppFront = isLeft ? enemyA : userPlayer;
-            const isOpponentBlocking = oppFront.isBlocking && Math.abs(oppFront.x - WORLD.NET_X) < 110;
+            // 🌟 敵方前排偵測（動態對象）
+            const oppFront = isLeft ? enemyA : allPlayers[NET.mySlot || 0];
+            const isOpponentBlocking = oppFront && oppFront.isBlocking && Math.abs(oppFront.x - WORLD.NET_X) < 110;
 
             let intent = 'POWER';
             if (distToNet < 130 && isApex) {
@@ -185,7 +213,6 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
               ball.armorPiercing = sk.armorPiercing || 0; ball.activeSkillTag = sk.name;
               ball.glowColor = sk.glowColor || '#ef4444';
 
-              // 🌟 觸發特定專屬技能狀態
               if (sk.id === 'sk_bungee_gum') ball.isBungeeGum = true;
               if (sk.id === 'sk_gravity_drop') { ball.isGravityDrop = true; ball.vy = 2.0; }
               if (sk.id === 'sk_greased_ball') ball.greaseCharges = 2;
@@ -227,36 +254,40 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
 function updateBlockAI() {
   if (match.inServeRally) return;
 
+  // 左半場防守 AI（敵方進攻時）
   if (ball.x < WORLD.NET_X && match.leftHits >= 1) {
-    const distUser = Math.hypot(userPlayer.x - ball.x, userPlayer.y - ball.y);
-    const distMate = Math.hypot(mateAI.x - ball.x, mateAI.y - ball.y);
-    const leftAttacker = (distUser <= distMate) ? userPlayer : mateAI;
+    const leftAttacker = (Math.hypot(userPlayer.x - ball.x, userPlayer.y - ball.y) <= Math.hypot(mateAI.x - ball.x, mateAI.y - ball.y)) ? userPlayer : mateAI;
     const distA = Math.abs(enemyA.x - WORLD.NET_X), distB = Math.abs(enemyB.x - WORLD.NET_X);
     const blocker = (distA <= distB) ? enemyA : enemyB;
     const defender = (blocker === enemyA) ? enemyB : enemyA;
 
-    moveTowards(blocker, WORLD.NET_X + 42, blocker.effectiveSpeed);
-    moveTowards(defender, WORLD.RIGHT - 180, defender.effectiveSpeed);
-
-    const inZone = Math.abs(blocker.x - WORLD.NET_X) < 95;
-    const attackerIsAirborne = !leftAttacker.isGrounded && leftAttacker.y < WORLD.NET_TOP_Y + 55;
-    const isDirectAttack = (ball.vx > 13.0 && ball.x > WORLD.NET_X - 120);
-    if (inZone && blocker.isGrounded && (attackerIsAirborne || isDirectAttack)) {
-      // 🧱 AI 施放【引力柔網】判定
-      if (blocker.stats.skill.id === 'sk_soft_wall' && blocker.energy >= blocker.stats.skill.cost) {
-        blocker.consumeSkill('BLOCK_STANCE');
-        blocker.softWallRallies = 3;
-        pushCallout(blocker.x, blocker.y - 45, '引力柔網 (SOFT WALL)!!', '#2dd4bf');
+    // 若該位置不是真人，才執行 AI 封網移動
+    if (!isSlotHumanControlled(blocker)) {
+      moveTowards(blocker, WORLD.NET_X + 42, blocker.effectiveSpeed);
+      const inZone = Math.abs(blocker.x - WORLD.NET_X) < 95;
+      const attackerIsAirborne = !leftAttacker.isGrounded && leftAttacker.y < WORLD.NET_TOP_Y + 55;
+      const isDirectAttack = (ball.vx > 13.0 && ball.x > WORLD.NET_X - 120);
+      if (inZone && blocker.isGrounded && (attackerIsAirborne || isDirectAttack)) {
+        if (blocker.stats.skill.id === 'sk_soft_wall' && blocker.energy >= blocker.stats.skill.cost) {
+          blocker.consumeSkill('BLOCK_STANCE');
+          blocker.softWallRallies = 3;
+          pushCallout(blocker.x, blocker.y - 45, '引力柔網!!', '#2dd4bf');
+        }
+        blocker.jump(); blocker.triggerBlock();
       }
-      blocker.jump(); blocker.triggerBlock();
+    }
+
+    if (!isSlotHumanControlled(defender)) {
+      moveTowards(defender, WORLD.RIGHT - 180, defender.effectiveSpeed);
     }
   }
 
+  // 右半場防守 AI（我方進攻時）
   if (ball.x > WORLD.NET_X && match.rightHits >= 1) {
     const userDistToNet = Math.abs(userPlayer.x - WORLD.NET_X);
     const mateDistToNet = Math.abs(mateAI.x - WORLD.NET_X);
 
-    if (mateDistToNet <= userDistToNet) {
+    if (mateDistToNet <= userDistToNet && !isSlotHumanControlled(mateAI)) {
       moveTowards(mateAI, WORLD.NET_X - 42, mateAI.effectiveSpeed);
       const inZone = Math.abs(mateAI.x - WORLD.NET_X) < 95;
       const rightAttackerAir = (!enemyA.isGrounded && enemyA.y < WORLD.NET_TOP_Y + 55) || (!enemyB.isGrounded && enemyB.y < WORLD.NET_TOP_Y + 55);
