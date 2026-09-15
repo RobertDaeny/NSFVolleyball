@@ -45,7 +45,6 @@ const subPillarFrame = document.getElementById('sub-pillar-frame');
 const staminaFill = document.getElementById('stamina-fill');
 const scoreDisplay = document.getElementById('score-display');
 const statusSubtext = document.getElementById('status-subtext');
-const bossScreen = document.getElementById('boss-screen');
 
 let isGameStarted = false, isPaused = true, isLockerOpen = false, isSettlementOpen = false;
 let score = { player: 0, enemy: 0 }, gameFrame = 0;
@@ -742,22 +741,33 @@ function toggleLocker() {
 function startGameFromMenu() { document.getElementById('start-menu-modal').style.display = 'none'; isGameStarted = true; isPaused = false; ball.resetForServe('player'); }
 function openLockerFromMenu() { document.getElementById('start-menu-modal').style.display = 'none'; isGameStarted = false; isLockerOpen = true; document.getElementById('locker-modal').style.display = 'flex'; initStagedCard(); renderLocker(); }
 
+// 🌟 全鍵盤 ESC 智能監聽：徹底杜絕死鎖
 const keys = {};
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase(); keys[k] = true;
+  
   if (e.key === 'Escape') {
-    if (isLockerOpen) toggleLocker();
-    else if (isSettlementOpen) closeSettlementAndNextMatch();
-    else toggleBossKey();
+    if (isLockerOpen) {
+      if (!isGameStarted) {
+        // 🔒 防呆鐵律：在封面進更衣室，按 ESC 必定安全返回主選單！
+        closeLockerToMenu();
+      } else {
+        // 🔒 比賽中進更衣室，按 ESC 安全返回球場！
+        toggleLocker();
+      }
+    } else if (isSettlementOpen) {
+      closeSettlementAndNextMatch();
+    } else if (isGameStarted) {
+      togglePauseMenu();
+    }
   }
+
   if (e.key === 'Enter') {
     if (isSettlementOpen) closeSettlementAndNextMatch();
-    else if (!isGameStarted) startGameFromMenu();
-    else toggleLocker();
   }
   if (k === 'b') debugHitbox = !debugHitbox;
 
-  if (!isPaused && !isLockerOpen && !banner.active && !isSettlementOpen && isGameStarted) {
+  if (!isPaused && !isLockerOpen && !banner.active && !isSettlementOpen && isGameStarted && !isPauseMenuOpen) {
     if (serveState.active && serveState.currentServer === userPlayer) {
       if (k === 'k' && !serveState.tossed) serveState.charging = true;
       if (k === 'j' && serveState.tossed) handleServeSpike();
@@ -1332,17 +1342,6 @@ function createMudSplash(x, y, count = 10) {
       vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
       size: Math.random() * 4 + 3, life: 28, maxLife: 28, color: '#78350f'
     });
-  }
-}
-
-function toggleBossKey() {
-  isPaused = !isPaused; bossScreen.style.display = isPaused ? 'block' : 'none';
-  if (isPaused) {
-    if (audioCtx) audioCtx.suspend();
-    if (isAudioLoaded && !customAudio.paused) { wasPlaying = true; customAudio.pause(); }
-  } else {
-    if (audioCtx) audioCtx.resume();
-    if (isAudioLoaded && wasPlaying) customAudio.play();
   }
 }
 

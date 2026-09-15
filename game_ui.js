@@ -1,5 +1,5 @@
 // ========================================================
-// UI 與動態彈窗系統：更衣室、紙娃娃化妝間、轉蛋大街、結算
+// UI 與動態彈窗系統：更衣室、紙娃娃化妝間、轉蛋大街、結算、ESC 暫停選單
 // ========================================================
 let currentSlot = 'user', stagedCard = null;
 
@@ -14,7 +14,7 @@ function renderLocker() {
   tabs.innerHTML = '';
   const slotLabels = { user: '球員 1 (主控)', mate: '球員 2 (搭檔)', enemyFront: '敵方 1', enemyBack: '敵方 2' };
 
-  const visibleSlots = isCareerMode ? ['user', 'mate'] : ['user', 'mate', 'enemyFront', 'enemyBack'];
+  const visibleSlots = (typeof isPracticeMode !== 'undefined' && isPracticeMode) || !isGameStarted ? ['user', 'mate', 'enemyFront', 'enemyBack'] : ['user', 'mate'];
   if (!visibleSlots.includes(currentSlot)) currentSlot = 'user';
 
   visibleSlots.forEach(key => {
@@ -43,9 +43,9 @@ function renderLocker() {
       skillSel.appendChild(opt);
     }
   });
-  skillSel.disabled = isGameStarted;
+
   const currentEquippedSkill = SKILL_POOL.find(s => s.id === origin.equippedSkill) || SKILL_POOL[0];
-  document.getElementById('skill-card-desc').innerText = isGameStarted ? '⚠️ 比賽進行中，鎖定更換技能！' : currentEquippedSkill.desc;
+  document.getElementById('skill-card-desc').innerText = currentEquippedSkill.desc;
 
   const tierWeight = { SSR: 4, SR: 3, R: 2, N: 1 };
   const sortedInventory = [...INVENTORY].sort((a, b) => {
@@ -148,7 +148,7 @@ function saveStagedStats() {
   origin.freePts = stagedCard.freePts; origin.stats = { ...stagedCard.stats };
   if (typeof allPlayers !== 'undefined') allPlayers.forEach(p => p.rebind(true));
   saveGameData(); renderLocker();
-  alert(`✅ [${origin.name}] 配點已成功儲存並同步至 LocalStorage！`);
+  alert(`✅ [${origin.name}] 配點已成功儲存！`);
 }
 
 function swapActivePlayer(cardId) {
@@ -161,49 +161,345 @@ function swapActivePlayer(cardId) {
 }
 
 // ========================================================
-// 🎰 轉蛋專區 (GACHA ARCADE) & 防手殘確認邏輯
+// ⏸️ ESC 暫停選單與更衣室全鍵盤安全控制（無按鈕、零死鎖）
 // ========================================================
-let pendingGachaAction = null;
+let isPauseMenuOpen = false;
+let isPracticeMode = false;
 
-function openGachaArcade() {
+function openLockerFromMenu() {
   document.getElementById('start-menu-modal').style.display = 'none';
-  document.getElementById('gacha-arcade-modal').style.display = 'flex';
-  const cd = document.getElementById('arcade-coin-display');
-  if (cd) cd.innerText = userCoins;
+  isGameStarted = false;
+  isLockerOpen = true;
+  document.getElementById('locker-modal').style.display = 'flex';
+  initStagedCard();
+  renderLocker();
 }
 
-function closeGachaArcade() {
-  document.getElementById('gacha-arcade-modal').style.display = 'none';
-  document.getElementById('start-menu-modal').style.display = 'flex';
-  saveGameData();
+function closeLockerToMenu() {
+  isLockerOpen = false;
+  document.getElementById('locker-modal').style.display = 'none';
+  if (!isGameStarted) {
+    document.getElementById('start-menu-modal').style.display = 'flex';
+  }
 }
 
-function openGachaArcadeFromWardrobe() {
-  document.getElementById('wardrobe-modal').style.display = 'none';
-  openGachaArcade();
+function openLockerFromPause() {
+  if (NET.isMultiplayer || isCareerMode) return;
+  isPauseMenuOpen = false;
+  document.getElementById('pause-menu-modal').style.display = 'none';
+  toggleLocker();
 }
 
-function promptConfirmGacha(type, isTen, cost) {
-  if (userCoins < cost) {
-    alert(`排球金幣不足！本次抽取需要 ${cost} 幣，目前持有 ${userCoins} 幣。`);
+function toggleLocker() {
+  if (isSettlementOpen) return;
+
+  // 🌟 防呆核心：若是在主選單點進來的，按 ESC 一律安全退回主選單！
+  if (!isGameStarted) {
+    closeLockerToMenu();
     return;
   }
-  const typeLabels = { cosmetic: '時尚轉蛋', player: '角色轉蛋', skill: '技能轉蛋' };
+
+  // 🌟 比賽中按 ESC：關閉更衣室回到比賽
+  isLockerOpen = !isLockerOpen;
+  isPaused = isLockerOpen;
+  document.getElementById('locker-modal').style.display = isLockerOpen ? 'flex' : 'none';
+
+  if (isLockerOpen) {
+    initStagedCard();
+    renderLocker();
+  } else {
+    allPlayers.forEach(p => p.rebind(true));
+  }
+}
+
+function togglePauseMenu() {
+  if (isSettlementOpen || !isGameStarted) return;
+  isPauseMenuOpen = !isPauseMenuOpen;
+  document.getElementById('pause-menu-modal').style.display = isPauseMenuOpen ? 'flex' : 'none';
+
+  const lockerBtn = document.getElementById('pause-btn-locker');
+  const modeStatus = document.getElementById('pause-mode-status');
+
+  if (NET.isMultiplayer) {
+    isPaused = false;
+    lockerBtn.disabled = true;
+    lockerBtn.innerText = '🔒 更衣室 (連線中禁用)';
+    modeStatus.innerText = '🌐 線上對戰中 · 賽局即時進行中 (未暫停)';
+    modeStatus.style.color = '#38bdf8';
+  } else if (isCareerMode) {
+    isPaused = isPauseMenuOpen;
+    lockerBtn.disabled = true;
+    lockerBtn.innerText = '🔒 更衣室 (聯賽中禁用)';
+    modeStatus.innerText = '🏆 聯賽進行中 · 時間已凍結';
+    modeStatus.style.color = '#facc15';
+  } else {
+    isPaused = isPauseMenuOpen;
+    lockerBtn.disabled = false;
+    lockerBtn.innerText = '👕 角色戰術更衣室';
+    modeStatus.innerText = '🏐 無盡練習模式 · 時間已凍結';
+    modeStatus.style.color = '#10b981';
+  }
+}
+
+function resumeGame() {
+  isPauseMenuOpen = false;
+  document.getElementById('pause-menu-modal').style.display = 'none';
+  if (!NET.isMultiplayer) isPaused = false;
+}
+
+function toggleBgmPlay() {
+  const btn = document.getElementById('btn-bgm');
+  if (!isAudioLoaded) { alert('請先點擊上方按鈕選擇本機 MP3！'); return; }
+  if (customAudio.paused) {
+    customAudio.play(); btn.innerText = 'BGM: 播放中'; btn.style.background = '#10b981';
+  } else {
+    customAudio.pause(); btn.innerText = 'BGM: 暫停'; btn.style.background = '#312e81';
+  }
+}
+
+function returnToStartMenuFromPause() {
+  if (confirm('確定要結束比賽並返回大廳嗎？')) {
+    resumeGame();
+    if (NET.isMultiplayer && NET.conn && NET.conn.open) {
+      NET.conn.send({ type: 'PEER_QUIT' });
+      NET.peer.destroy(); NET.peer = null; NET.isMultiplayer = false;
+    }
+    returnToStartMenu();
+  }
+}
+
+function startPracticeMode() {
+  isPracticeMode = true;
+  isCareerMode = false;
+  document.getElementById('start-menu-modal').style.display = 'none';
+  isGameStarted = true; isPaused = false;
+  ball.resetForServe('player');
+}
+
+// ========================================================
+// ⏳ 15 秒連線戰術準備室 (自選位置與技能)
+// ========================================================
+let netPrepTimer = null, netPrepSeconds = 15;
+let myPrepData = { charId: '', mateCharId: '', skillId: '', mateSkillId: '' };
+
+function startNetPreparation() {
+  document.getElementById('multiplayer-modal').style.display = 'none';
+  document.getElementById('net-prep-modal').style.display = 'flex';
+  netPrepSeconds = 15;
+  document.getElementById('net-prep-timer').innerText = `⏳ 倒數: ${netPrepSeconds}s`;
+
+  const myCharSel = document.getElementById('net-prep-my-char');
+  const mateCharSel = document.getElementById('net-prep-mate-char');
+  const mySkillSel = document.getElementById('net-prep-my-skill');
+  const mateSkillSel = document.getElementById('net-prep-mate-skill');
+
+  myCharSel.innerHTML = ''; mateCharSel.innerHTML = '';
+  INVENTORY.forEach((c, idx) => {
+    myCharSel.innerHTML += `<option value="${c.id}" ${idx === 0 ? 'selected' : ''}>[${c.tier}] ${c.name} (Lv.${c.level})</option>`;
+    mateCharSel.innerHTML += `<option value="${c.id}" ${idx === 1 ? 'selected' : ''}>[${c.tier}] ${c.name} (Lv.${c.level})</option>`;
+  });
+
+  mySkillSel.innerHTML = ''; mateSkillSel.innerHTML = '';
+  SKILL_POOL.forEach(sk => {
+    mySkillSel.innerHTML += `<option value="${sk.id}">[${sk.type}] ${sk.name}</option>`;
+    mateSkillSel.innerHTML += `<option value="${sk.id}">[${sk.type}] ${sk.name}</option>`;
+  });
+
+  onNetPrepChange();
+
+  clearInterval(netPrepTimer);
+  netPrepTimer = setInterval(() => {
+    netPrepSeconds--;
+    document.getElementById('net-prep-timer').innerText = `⏳ 倒數: ${netPrepSeconds}s`;
+    if (netPrepSeconds <= 0) {
+      clearInterval(netPrepTimer);
+      confirmNetPrepReady();
+    }
+  }, 1000);
+}
+
+function onNetPrepChange() {
+  myPrepData = {
+    charId: document.getElementById('net-prep-my-char').value,
+    mateCharId: document.getElementById('net-prep-mate-char').value,
+    skillId: document.getElementById('net-prep-my-skill').value,
+    mateSkillId: document.getElementById('net-prep-mate-skill').value
+  };
+}
+
+function confirmNetPrepReady() {
+  clearInterval(netPrepTimer);
+  document.getElementById('net-prep-modal').style.display = 'none';
+
+  const myCharObj = INVENTORY.find(c => c.id === myPrepData.charId) || INVENTORY[0];
+  const myMateObj = INVENTORY.find(c => c.id === myPrepData.mateCharId) || INVENTORY[1];
+
+  const payload = {
+    type: 'PREP_CONFIRM',
+    mode: NET.mode,
+    p1: { name: myCharObj.name, color: myCharObj.color, stats: myCharObj.stats, skillId: myPrepData.skillId, cosmetics: myCharObj.cosmetics },
+    p2: { name: myMateObj.name, color: myMateObj.color, stats: myMateObj.stats, skillId: myPrepData.mateSkillId, cosmetics: myMateObj.cosmetics }
+  };
+
+  if (NET.conn && NET.conn.open) {
+    NET.conn.send(payload);
+  }
+
+  if (NET.isHost) {
+    ACTIVE_ROSTER.user = { ...myCharObj, equippedSkill: myPrepData.skillId };
+    if (NET.mode !== 'COOP') {
+      ACTIVE_ROSTER.mate = { ...myMateObj, equippedSkill: myPrepData.mateSkillId };
+    }
+    userPlayer.rebind(true); mateAI.rebind(true);
+  } else {
+    if (NET.mode === 'COOP') {
+      ACTIVE_ROSTER.mate = { ...myCharObj, equippedSkill: myPrepData.skillId };
+      mateAI.rebind(true);
+    } else {
+      ACTIVE_ROSTER.enemyFront = { ...myCharObj, equippedSkill: myPrepData.skillId };
+      ACTIVE_ROSTER.enemyBack = { ...myMateObj, equippedSkill: myPrepData.mateSkillId };
+      enemyA.rebind(true); enemyB.rebind(true);
+    }
+  }
+
+  if (NET.isHost) {
+    setTimeout(() => { startGameFromMenu(); }, 600);
+  }
+}
+
+function applyOpponentPrepData(oppData) {
+  if (NET.isHost) {
+    if (oppData.mode === 'COOP') {
+      ACTIVE_ROSTER.mate = { id: 'remote_guest', name: oppData.p1.name, color: oppData.p1.color, stats: oppData.p1.stats, equippedSkill: oppData.p1.skillId, cosmetics: oppData.p1.cosmetics };
+      mateAI.rebind(true);
+    } else {
+      ACTIVE_ROSTER.enemyFront = { id: 'remote_guest', name: oppData.p1.name, color: oppData.p1.color, stats: oppData.p1.stats, equippedSkill: oppData.p1.skillId, cosmetics: oppData.p1.cosmetics };
+      ACTIVE_ROSTER.enemyBack = { id: 'remote_guest_mate', name: oppData.p2.name, color: oppData.p2.color, stats: oppData.p2.stats, equippedSkill: oppData.p2.skillId, cosmetics: oppData.p2.cosmetics };
+      enemyA.rebind(true); enemyB.rebind(true);
+    }
+  } else {
+    if (oppData.mode === 'COOP') {
+      ACTIVE_ROSTER.user = { id: 'remote_host', name: oppData.p1.name, color: oppData.p1.color, stats: oppData.p1.stats, equippedSkill: oppData.p1.skillId, cosmetics: oppData.p1.cosmetics };
+      userPlayer.rebind(true);
+    } else {
+      ACTIVE_ROSTER.user = { id: 'remote_host', name: oppData.p1.name, color: oppData.p1.color, stats: oppData.p1.stats, equippedSkill: oppData.p1.skillId, cosmetics: oppData.p1.cosmetics };
+      ACTIVE_ROSTER.mate = { id: 'remote_host_mate', name: oppData.p2.name, color: oppData.p2.color, stats: oppData.p2.stats, equippedSkill: oppData.p2.skillId, cosmetics: oppData.p2.cosmetics };
+      userPlayer.rebind(true); mateAI.rebind(true);
+    }
+  }
+}
+
+// ========================================================
+// 🌐 連線大廳控制器
+// ========================================================
+function openMultiplayerModal() {
+  document.getElementById('start-menu-modal').style.display = 'none';
+  document.getElementById('multiplayer-modal').style.display = 'flex';
+}
+
+function closeMultiplayerModal() {
+  if (NET.peer) { NET.peer.destroy(); NET.peer = null; }
+  NET.isMultiplayer = false;
+  document.getElementById('multiplayer-modal').style.display = 'none';
+  document.getElementById('start-menu-modal').style.display = 'flex';
+}
+
+function generateRoomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+  return code;
+}
+
+function startHosting() {
+  const selectedMode = document.querySelector('input[name="netMode"]:checked').value;
+  NET.mode = selectedMode;
+  NET.isHost = true;
+  NET.isMultiplayer = true;
+  NET.roomCode = generateRoomCode();
+
+  const customPeerId = `VB2026_${NET.roomCode}`;
+  NET.peer = new Peer(customPeerId);
+
+  NET.peer.on('open', () => {
+    document.getElementById('host-code-display').style.display = 'block';
+    document.getElementById('room-code-text').innerText = NET.roomCode;
+  });
+
+  NET.peer.on('connection', (conn) => {
+    NET.conn = conn;
+    setupDataConnection();
+    conn.on('open', () => {
+      conn.send({ type: 'INIT_SYNC', mode: NET.mode });
+      startNetPreparation();
+    });
+  });
+
+  NET.peer.on('error', (err) => { alert('建立房間失敗: ' + err); });
+}
+
+function joinRoom() {
+  const inputCode = document.getElementById('join-room-input').value.trim().toUpperCase();
+  if (inputCode.length !== 6) {
+    document.getElementById('join-status-text').innerText = '請輸入 6 碼代碼！';
+    return;
+  }
+  document.getElementById('join-status-text').innerText = '連線中...';
+
+  NET.isHost = false;
+  NET.isMultiplayer = true;
+  NET.roomCode = inputCode;
+  NET.peer = new Peer();
+
+  NET.peer.on('open', () => {
+    const targetPeerId = `VB2026_${inputCode}`;
+    const conn = NET.peer.connect(targetPeerId);
+    NET.conn = conn;
+
+    conn.on('open', () => {
+      setupDataConnection();
+    });
+
+    conn.on('data', (data) => {
+      if (data.type === 'INIT_SYNC') {
+        NET.mode = data.mode;
+        startNetPreparation();
+      }
+    });
+  });
+
+  NET.peer.on('error', () => {
+    document.getElementById('join-status-text').innerText = '找不到該房間代碼！';
+  });
+}
+
+function setupDataConnection() {
+  NET.conn.on('data', (data) => {
+    if (data.type === 'INPUT') {
+      NET.remoteKeys = data.keys;
+    } else if (data.type === 'STATE_SYNC') {
+      applyWorldSync(data);
+    } else if (data.type === 'PREP_CONFIRM') {
+      applyOpponentPrepData(data);
+    } else if (data.type === 'PEER_QUIT') {
+      alert('⚠️ 對手已退出比賽，正在返回主選單...');
+      location.reload();
+    }
+  });
+}
+
+function openGachaArcade() { document.getElementById('start-menu-modal').style.display = 'none'; document.getElementById('gacha-arcade-modal').style.display = 'flex'; }
+function closeGachaArcade() { document.getElementById('gacha-arcade-modal').style.display = 'none'; document.getElementById('start-menu-modal').style.display = 'flex'; }
+function promptConfirmGacha(type, isTen, cost) {
+  if (userCoins < cost) { alert(`金幣不足 ${cost}！`); return; }
   pendingGachaAction = { type, isTen, cost };
-  document.getElementById('confirm-gacha-text').innerText = `確定要花費 ${cost} 排球金幣，進行【${typeLabels[type]}】${isTen ? '十抽' : '單抽'} 嗎？`;
+  document.getElementById('confirm-gacha-text').innerText = `確定花費 ${cost} 幣進行抽取嗎？`;
   document.getElementById('confirm-gacha-modal').style.display = 'flex';
 }
-
-function closeConfirmGacha() {
-  document.getElementById('confirm-gacha-modal').style.display = 'none';
-  pendingGachaAction = null;
-}
-
+function closeConfirmGacha() { document.getElementById('confirm-gacha-modal').style.display = 'none'; }
 function executeConfirmedGacha() {
   if (!pendingGachaAction) return;
-  const { type, isTen } = pendingGachaAction;
-  closeConfirmGacha();
-
+  const { type, isTen } = pendingGachaAction; closeConfirmGacha();
   if (type === 'cosmetic') triggerCosmeticGacha(isTen);
   else if (type === 'player') triggerGacha(isTen);
   else if (type === 'skill') triggerSkillGacha(isTen);
@@ -250,7 +546,7 @@ function rollSingleCard() {
 
 function triggerGacha(isTen = false) {
   const cost = isTen ? 900 : 100;
-  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { alert(`金幣不足 ${cost}！`); return; }
   userCoins -= cost;
   updateCoinHUD();
 
@@ -559,7 +855,7 @@ function renderWardrobeUI() {
 
     box.innerHTML = `
       <div style="font-size: 13px; font-weight: bold; color: ${isEquipped ? '#facc15' : '#fff'};">${item.name}</div>
-      <p style="font-size: 10px; color: #a5b4fc; margin: 4px 0; line-height: 1.2;">${item.desc}</p>
+      <p style="font-size: 10px; color: #a5b4fc; margin-4px 0; line-height: 1.2;">${item.desc}</p>
       <span style="font-size: 10px; font-weight: 800; color: ${isUnlocked ? (isEquipped ? '#10b981' : '#38bdf8') : '#ef4444'};">
         ${isUnlocked ? (isEquipped ? '✓ 已穿戴' : '點擊換裝') : '🔒 未獲得'}
       </span>
@@ -600,7 +896,7 @@ function runWardrobePreviewLoop() {
 
 function triggerCosmeticGacha(isTen = false) {
   const cost = isTen ? 450 : 50;
-  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { alert(`金幣不足 ${cost}！`); return; }
 
   const availablePool = [];
   ['hats', 'faces'].forEach(cat => {
@@ -636,7 +932,7 @@ function triggerCosmeticGacha(isTen = false) {
 
 function triggerSkillGacha(isTen = false) {
   const cost = isTen ? 2350 : 250;
-  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { alert(`金幣不足 ${cost}！`); return; }
 
   const availableSkills = SKILL_POOL.filter(sk => !UNLOCKED_SKILLS.includes(sk.id));
   if (availableSkills.length === 0) {
@@ -721,105 +1017,19 @@ window.addEventListener('DOMContentLoaded', () => {
   }, 6000);
 });
 
-// ========================================================
-// 多人連線大廳與房間信號交互
-// ========================================================
-function openMultiplayerModal() {
-  document.getElementById('start-menu-modal').style.display = 'none';
-  document.getElementById('multiplayer-modal').style.display = 'flex';
-}
-
-function closeMultiplayerModal() {
-  if (NET.peer) { NET.peer.destroy(); NET.peer = null; }
-  NET.isMultiplayer = false;
-  document.getElementById('multiplayer-modal').style.display = 'none';
-  document.getElementById('start-menu-modal').style.display = 'flex';
-}
-
-function generateRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-  return code;
-}
-
-// 👑 房主開房
-function startHosting() {
-  const selectedMode = document.querySelector('input[name="netMode"]:checked').value;
-  NET.mode = selectedMode;
-  NET.isHost = true;
-  NET.isMultiplayer = true;
-  NET.roomCode = generateRoomCode();
-
-  const customPeerId = `VB2026_${NET.roomCode}`;
-  NET.peer = new Peer(customPeerId);
-
-  NET.peer.on('open', (id) => {
-    document.getElementById('host-code-display').style.display = 'block';
-    document.getElementById('room-code-text').innerText = NET.roomCode;
-  });
-
-  NET.peer.on('connection', (conn) => {
-    NET.conn = conn;
-    setupDataConnection();
-    
-    conn.on('open', () => {
-      conn.send({ type: 'INIT_SYNC', mode: NET.mode });
-      setTimeout(() => {
-        document.getElementById('multiplayer-modal').style.display = 'none';
-        startGameFromMenu();
-      }, 500);
-    });
-  });
-
-  NET.peer.on('error', (err) => {
-    alert('建立房間失敗，請重試: ' + err);
-  });
-}
-
-// 🎮 訪客加入
-function joinRoom() {
-  const inputCode = document.getElementById('join-room-input').value.trim().toUpperCase();
-  if (inputCode.length !== 6) {
-    document.getElementById('join-status-text').innerText = '請輸入正確的 6 碼代碼！';
-    return;
-  }
-  document.getElementById('join-status-text').innerText = '正在尋找主機連線中...';
-
-  NET.isHost = false;
-  NET.isMultiplayer = true;
-  NET.roomCode = inputCode;
-  NET.peer = new Peer();
-
-  NET.peer.on('open', () => {
-    const targetPeerId = `VB2026_${inputCode}`;
-    const conn = NET.peer.connect(targetPeerId);
-    NET.conn = conn;
-
-    conn.on('open', () => {
-      setupDataConnection();
-    });
-
-    conn.on('data', (data) => {
-      if (data.type === 'INIT_SYNC') {
-        NET.mode = data.mode;
-        document.getElementById('multiplayer-modal').style.display = 'none';
-        startGameFromMenu();
+window.addEventListener('DOMContentLoaded', () => {
+  const audioFileInput = document.getElementById('audio-file');
+  if (audioFileInput) {
+    audioFileInput.addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      if (f) {
+        customAudio.src = URL.createObjectURL(f);
+        customAudio.play().then(() => {
+          isAudioLoaded = true;
+          const btn = document.getElementById('btn-bgm');
+          if (btn) { btn.innerText = 'BGM: 播放中'; btn.style.background = '#10b981'; }
+        });
       }
     });
-  });
-
-  NET.peer.on('error', (err) => {
-    document.getElementById('join-status-text').innerText = '找不到該房間代碼或連線逾時！';
-  });
-}
-
-function setupDataConnection() {
-  NET.conn.on('data', (data) => {
-    if (data.type === 'INPUT') {
-      NET.remoteKeys = data.keys;
-    } else if (data.type === 'STATE_SYNC') {
-      applyWorldSync(data);
-    }
-  });
-}
+  }
+});
