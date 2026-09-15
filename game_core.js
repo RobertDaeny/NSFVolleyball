@@ -1601,26 +1601,64 @@ function createMudSplash(x, y, count = 10) {
 
 // 🌟 套用網路同步封包 (包含狀態機、Banner 與浮動文字)
 function applyWorldSync(data) {
-  Object.assign(ball, data.ball);
+  // 🌟 客戶端球體平滑：保留原本狀態標籤，但座標採用微插值過渡，撫平掉幀抖動
+  const snapDist = Math.hypot(ball.x - data.ball.x, ball.y - data.ball.y);
+  if (snapDist > 250 || serveState.active) {
+    // 瞬移或發球重置時直接瞬移對齊
+    Object.assign(ball, data.ball);
+  } else {
+    // 平時用 0.85 比例柔和逼近，消除肉眼微跳頓
+    ball.x += (data.ball.x - ball.x) * 0.85;
+    ball.y += (data.ball.y - ball.y) * 0.85;
+    ball.vx = data.ball.vx;
+    ball.vy = data.ball.vy;
+    ball.rotation = data.ball.rotation;
+    ball.opacity = data.ball.opacity;
+    ball.glowColor = data.ball.glowColor;
+    ball.isSpiked = data.ball.isSpiked;
+    ball.isPerfectSpike = data.ball.isPerfectSpike;
+    ball.isFloat = data.ball.isFloat;
+    ball.activeSkillTag = data.ball.activeSkillTag;
+  }
+
   score.player = data.score.player;
   score.enemy = data.score.enemy;
   scoreDisplay.innerText = `${score.player} : ${score.enemy}`;
 
   if (data.banner) {
     Object.assign(banner, data.banner);
-    // 訪客端依自己所屬陣營解析顏色
     const myIsLeft = (NET.mySlot === 0 || NET.mySlot === 1);
     const amIWinner = (banner.winnerTeam === 'LEFT' && myIsLeft) || (banner.winnerTeam === 'RIGHT' && !myIsLeft);
     banner.color = amIWinner ? '#38bdf8' : '#f43f5e';
   }
 
   data.players.forEach((pData, idx) => {
-    if (allPlayers[idx]) Object.assign(allPlayers[idx], pData);
+    if (allPlayers[idx]) {
+      // 🌟 本地操控的英雄 (NET.mySlot) 依靠預測運行，不被網路座標生硬覆蓋
+      if (idx === NET.mySlot) {
+        // 只同步房主算出的狀態/體力/能量，座標微幅修正
+        allPlayers[idx].energy = pData.energy;
+        allPlayers[idx].jumpExhaustion = pData.jumpExhaustion;
+        allPlayers[idx].isBlocking = pData.isBlocking;
+        allPlayers[idx].mudDebuffTimer = pData.mudDebuffTimer;
+        allPlayers[idx].depressedRallies = pData.depressedRallies;
+        allPlayers[idx].excitedRallies = pData.excitedRallies;
+        allPlayers[idx].softWallRallies = pData.softWallRallies;
+        allPlayers[idx].godspeedCharges = pData.godspeedCharges;
+        allPlayers[idx].greaseDebuffRallies = pData.greaseDebuffRallies;
+        // 誤差過大才校準拉回
+        if (Math.hypot(allPlayers[idx].x - pData.x, allPlayers[idx].y - pData.y) > 40) {
+          allPlayers[idx].x += (pData.x - allPlayers[idx].x) * 0.3;
+          allPlayers[idx].y += (pData.y - allPlayers[idx].y) * 0.3;
+        }
+      } else {
+        Object.assign(allPlayers[idx], pData);
+      }
+    }
   });
 
   updateSideUltHUD();
 }
-
 function fixedUpdate() {
   gameFrame++;
 
@@ -1661,12 +1699,23 @@ function fixedUpdate() {
 // 🌟 訪客按鍵呼叫防二觸與邊緣判定分流器
       executeGuestActionWithEdge(guestPlayer, rk);
     } else {
-      if (NET.conn && NET.conn.open) {
+if (NET.conn && NET.conn.open) {
         NET.conn.send({ type: 'INPUT', keys: keys });
       }
+
+      // 🌟 訪客客戶端預測 (0ms 本機先動)：自己的角色按下 A/D/W 立即位移，告別笨重感
+      const myHero = allPlayers[NET.mySlot];
+      if (myHero && !isPaused && !isSettlementOpen) {
+        const forwardDir = (NET.mode === 'COOP') ? 1 : -1;
+        myHero.vx = 0;
+        if (keys['a']) { myHero.vx = -forwardDir * myHero.effectiveSpeed; myHero.facing = -forwardDir; }
+        if (keys['d']) { myHero.vx = forwardDir * myHero.effectiveSpeed; myHero.facing = forwardDir; }
+        if (keys['w']) myHero.jump();
+        myHero.update();
+      }
+
       camera.update(ball);
-      return;
-    }
+      return;    }
   }
 
   // 🌟 本機玩家 (Slot 0) 移動
