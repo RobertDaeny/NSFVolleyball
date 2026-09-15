@@ -54,10 +54,9 @@ let calloutPopups = [], coinPopups = [], haloEffects = [];
 let timeSlowTimer = 0, chronoCasterSide = 'player', chronoAnimTimer = 0;
 let hitStopFrames = 0;
 
-const banner = { active: false, timer: 0, mainText: '', subText: '', color: '#38bdf8', winner: 'player' };
+const banner = { active: false, timer: 0, mainText: '', subText: '', color: '#38bdf8', winnerTeam: 'LEFT' };
 let pendingCoinReward = 0, pendingCoinReason = '';
 
-// 🌟 統計數據結構：包含 serviceAces 發球得分
 let proMatchStats = {
   user: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
   mate: { totalSpikes: 0, spikeKills: 0, toolOutKills: 0, serviceAces: 0, maxSpeed: 0, totalReceives: 0, perfectAbsorbs: 0, normalBumps: 0, deflects: 0, coverSaves: 0, totalBlocks: 0, roofKills: 0 },
@@ -87,7 +86,7 @@ class Player {
   }
 
   get isLocallyControlled() {
-    return this.slotIndex === NET.mySlot;
+    return (typeof NET !== 'undefined') ? (this.slotIndex === NET.mySlot) : (this.slotIndex === 0);
   }
 
   get effectiveSpeed() {
@@ -215,12 +214,16 @@ class Player {
     if (this.swingTimer > 0) this.swingTimer--;
     if (this.thrustTimer > 0) this.thrustTimer--;
 
-    if (this.wantsToBlock) {
-      this.blockTimer--;
-      this.isBlocking = (!this.isGrounded && this.y < WORLD.NET_TOP_Y + 50);
-      if (this.blockTimer <= 0 || this.isGrounded) { this.wantsToBlock = false; this.isBlocking = false; }
-    } else if (this.isLocallyControlled) {
-      this.isBlocking = false;
+    // 🌟 欄位攔網判定：真人操控者只看 wantsToBlock，絕不吃 AI 起跳自動亮盾
+    const isHuman = (typeof isSlotHumanControlled === 'function') ? isSlotHumanControlled(this) : this.isLocallyControlled;
+    if (isHuman) {
+      if (this.wantsToBlock) {
+        this.blockTimer--;
+        this.isBlocking = (!this.isGrounded && this.y < WORLD.NET_TOP_Y + 50);
+        if (this.blockTimer <= 0 || this.isGrounded) { this.wantsToBlock = false; this.isBlocking = false; }
+      } else {
+        this.isBlocking = false;
+      }
     } else {
       const isNetJump = Math.abs(this.jumpStartX - WORLD.NET_X) < 95;
       const isAttacking = this.swingTimer > 0 || this.thrustTimer > 0;
@@ -234,7 +237,7 @@ class Player {
     } else if (this.y >= WORLD.FLOOR_Y) {
       if (serveState.active && serveState.currentServer === this) {
         const isLandedInCourt = this.isLeft ? (this.x >= WORLD.LEFT) : (this.x <= WORLD.RIGHT);
-        if (isLandedInCourt) triggerFault(this.isLeft ? 'enemy' : 'player', 'FOOT FAULT!!', '發球未擊球前落地踩線進場');
+        if (isLandedInCourt) triggerFault(this.isLeft ? 'RIGHT' : 'LEFT', 'FOOT FAULT!!', '發球未擊球前落地踩線進場');
       }
       this.y = WORLD.FLOOR_Y; this.vy = 0; this.isGrounded = true;
       this.wantsToBlock = false; this.isBlocking = false; this.jumpStartX = this.x;
@@ -245,7 +248,7 @@ class Player {
       if (isServer) {
         if (this.isGrounded) {
           const isSteppedIn = this.isLeft ? (this.x >= WORLD.LEFT) : (this.x <= WORLD.RIGHT);
-          if (isSteppedIn) triggerFault(this.isLeft ? 'enemy' : 'player', 'FOOT FAULT!!', '發球員地面踩線違例');
+          if (isSteppedIn) triggerFault(this.isLeft ? 'RIGHT' : 'LEFT', 'FOOT FAULT!!', '發球員地面踩線違例');
         }
       } else {
         if (this.isLeft) {
@@ -272,14 +275,13 @@ class Player {
   }
 }
 
-// 🌟 物理 4 大客觀格子實例化 (Slot 0 ~ 3)
+// 🌟 客觀物理 4 大格子實例化 (Slot 0 ~ 3)
 const userPlayer = new Player('user', WORLD.LEFT - 100, true, 0);
 const mateAI     = new Player('mate', WORLD.LEFT + 240, true, 1);
 const enemyA     = new Player('enemyFront', WORLD.RIGHT - 240, false, 2);
 const enemyB     = new Player('enemyBack', WORLD.RIGHT + 100, false, 3);
 const allPlayers = [userPlayer, mateAI, enemyA, enemyB];
 
-// 🌟 全域狀態重置 (分場徹底隔離，不帶舊能量進場)
 function resetMatchState() {
   score.player = 0; score.enemy = 0;
   scoreDisplay.innerText = '0 : 0';
@@ -309,7 +311,6 @@ function resetMatchState() {
   updateSideUltHUD();
 }
 
-// 🌟 HUD 依 Slot 格子讀取數據
 function updateSideUltHUD() {
   const p1Actor = allPlayers[NET.mySlot] || userPlayer;
   const p2Actor = allPlayers[NET.mateSlot] || mateAI;
@@ -356,7 +357,7 @@ const ball = {
   opacity: 1.0, activeSkillTag: '', isSineFloat: false, isSkyComet: false, isPhantomDrop: false, glowColor: null,
   isBungeeGum: false, isGravityDrop: false, greaseCharges: 0, hasTossedFromGodspeed: false,
 
-  resetForServe(winner) {
+  resetForServe(winnerSide) {
     serveState.active = true; serveState.tossed = false; serveState.charging = false; serveState.chargePower = 0;
     this.isSpiked = false; this.isPerfectSpike = false; this.isFloat = false; this.isTacticalThrust = false;
     this.isBrokenSpike = false; this.isUltimate = false; this.isTopspin = false; this.topspinRating = 0.5;
@@ -368,9 +369,10 @@ const ball = {
     timeSlowTimer = 0; chronoAnimTimer = 0; hitStopFrames = 0;
     pendingCoinReward = 0; pendingCoinReason = '';
 
-    if (winner !== match.currentServingTeam) {
-      match.currentServingTeam = winner;
-      if (winner === 'player') match.playerServerIdx = (match.playerServerIdx + 1) % 2;
+    const servingTeam = (winnerSide === 'LEFT') ? 'player' : 'enemy';
+    if (servingTeam !== match.currentServingTeam) {
+      match.currentServingTeam = servingTeam;
+      if (servingTeam === 'player') match.playerServerIdx = (match.playerServerIdx + 1) % 2;
       else match.enemyServerIdx = (match.enemyServerIdx + 1) % 2;
     }
 
@@ -381,18 +383,15 @@ const ball = {
       userPlayer.forceGrounded(serveState.currentServer === userPlayer ? WORLD.LEFT - 100 : WORLD.LEFT + 180);
       mateAI.forceGrounded(serveState.currentServer === mateAI ? WORLD.LEFT - 100 : WORLD.LEFT + 320);
       enemyA.forceGrounded(WORLD.RIGHT - 320); enemyB.forceGrounded(WORLD.RIGHT - 180);
-
       this.x = serveState.currentServer.x + 15; this.y = WORLD.FLOOR_Y - 35;
     } else {
       serveState.currentServer = (match.enemyServerIdx === 0) ? enemyB : enemyA;
       userPlayer.forceGrounded(WORLD.LEFT + 180); mateAI.forceGrounded(WORLD.LEFT + 320);
       enemyA.forceGrounded(serveState.currentServer === enemyA ? WORLD.RIGHT + 100 : WORLD.RIGHT - 320);
       enemyB.forceGrounded(serveState.currentServer === enemyB ? WORLD.RIGHT + 100 : WORLD.RIGHT - 180);
-
       this.x = serveState.currentServer.x - 15; this.y = WORLD.FLOOR_Y - 35;
     }
 
-    // 🌟 依本機身分判定提示
     const myPlayer = allPlayers[NET.mySlot] || userPlayer;
     if (serveState.currentServer === myPlayer) {
       statusSubtext.innerText = '★ 我方發球：長按 [K] 高拋 ➔ [W+J] 跳發或 [W+L] 跳飄！';
@@ -402,21 +401,25 @@ const ball = {
       statusSubtext.innerText = `▲ 敵方 (${serveState.currentServer.name}) 發球中...`;
     }
 
-    // 若當前發球員是 AI，啟動 AI 發球計時器
-    const isServerHuman = (serveState.currentServer.slotIndex === NET.mySlot) ||
-      (NET.isMultiplayer && NET.isHost && serveState.currentServer.slotIndex === ((NET.mode === 'COOP') ? 1 : 2));
-    if (!isServerHuman) {
-      serveState.aiServeTimer = 75;
-    } else {
-      serveState.aiServeTimer = 0;
-    }
+    const isHumanServer = (typeof isSlotHumanControlled === 'function')
+      ? isSlotHumanControlled(serveState.currentServer)
+      : serveState.currentServer.isLocallyControlled;
+
+    serveState.aiServeTimer = !isHumanServer ? 75 : 0;
   }
 };
 
 const serveState = { active: true, currentServer: userPlayer, tossed: false, charging: false, chargePower: 0, aiServeTimer: 0 };
 const match = { currentServingTeam: 'player', playerServerIdx: 0, enemyServerIdx: 0, leftHits: 0, rightHits: 0, lastTouchFrame: -100, isBlockedBack: false, inServeRally: true };
 
-function pushCallout(x, y, text, color = '#facc15') { calloutPopups.push({ x, y: y - 28, text, color, timer: 45, maxTimer: 45 }); }
+// 🌟 pushCallout：若為房主，廣播給訪客同步繪製
+function pushCallout(x, y, text, color = '#facc15') { 
+  calloutPopups.push({ x, y: y - 28, text, color, timer: 45, maxTimer: 45 }); 
+  if (typeof NET !== 'undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
+    NET.conn.send({ type: 'CALLOUT_SYNC', x, y, text, color });
+  }
+}
+
 function triggerCoinPopup(x, y, amount) { playSound('coin'); coinPopups.push({ x, y: y - 35, amount, timer: 50, maxTimer: 50 }); }
 function triggerHalo(player, color, isTimingThreeState = false) {
   if (!player.isLeft) return; 
@@ -620,9 +623,10 @@ function recordTouch(hitter, isBlockTouch = false) {
   const isAttacking = hitter.swingTimer > 0 || hitter.thrustTimer > 0;
   const isOpponentBall = (ball.lastHitter && ball.lastHitter.isLeft !== hitter.isLeft);
 
+  const isHuman = (typeof isSlotHumanControlled === 'function') ? isSlotHumanControlled(hitter) : hitter.isLocallyControlled;
   let isLegitBlock = false;
   if (!match.inServeRally && isOpponentBall && !isAttacking && !hitter.isGrounded && ball.y < WORLD.NET_TOP_Y + 50) {
-    isLegitBlock = hitter.isLocallyControlled ? (hitter.isBlocking && Math.abs(hitter.x - WORLD.NET_X) < 110) : (Math.abs(hitter.jumpStartX - WORLD.NET_X) < 95 || isBlockTouch);
+    isLegitBlock = isHuman ? (hitter.isBlocking && Math.abs(hitter.x - WORLD.NET_X) < 110) : (Math.abs(hitter.jumpStartX - WORLD.NET_X) < 95 || isBlockTouch);
   }
 
   if (isLegitBlock) {
@@ -639,7 +643,7 @@ function recordTouch(hitter, isBlockTouch = false) {
     if (hitter.hasBlockSelfHitPrivilege) {
       hitter.hasBlockSelfHitPrivilege = false; 
     } else {
-      triggerFault(hitter.isLeft ? 'enemy' : 'player', 'DOUBLE HIT!!', '同一球員連續觸球違例');
+      triggerFault(hitter.isLeft ? 'RIGHT' : 'LEFT', 'DOUBLE HIT!!', '同一球員連續觸球違例');
       return false;
     }
   }
@@ -648,10 +652,10 @@ function recordTouch(hitter, isBlockTouch = false) {
 
   if (hitter.isLeft) {
     match.leftHits++;
-    if (match.leftHits > 3) { triggerFault('enemy', 'FOUR HITS!!', '我方超過 3 次擊球違例'); return false; }
+    if (match.leftHits > 3) { triggerFault('RIGHT', 'FOUR HITS!!', '左隊超過 3 次擊球違例'); return false; }
   } else {
     match.rightHits++;
-    if (match.rightHits > 3) { triggerFault('player', 'FOUR HITS!!', '敵方超過 3 次擊球違例'); return false; }
+    if (match.rightHits > 3) { triggerFault('LEFT', 'FOUR HITS!!', '右隊超過 3 次擊球違例'); return false; }
   }
 
   ball.lastHitter = hitter;
@@ -659,10 +663,11 @@ function recordTouch(hitter, isBlockTouch = false) {
   return true;
 }
 
-function triggerFault(winner, title, desc) {
+// 🌟 客觀勝負陣營判定：winnerTeam 為 'LEFT' 或 'RIGHT'
+function triggerFault(winnerTeam, title, desc) {
   if (banner.active || isSettlementOpen) return;
   playWhistle(true);
-  banner.winner = winner;
+  banner.winnerTeam = winnerTeam;
   timeSlowTimer = 0; chronoAnimTimer = 0;
   hitStopFrames = 15;
 
@@ -677,7 +682,7 @@ function triggerFault(winner, title, desc) {
   const baseDepressChance = isSevereMistake ? 0.50 : 0.18;
 
   allPlayers.forEach(p => {
-    const isWinnerSide = (winner === 'player' && p.isLeft) || (winner === 'enemy' && !p.isLeft);
+    const isWinnerSide = (winnerTeam === 'LEFT' && p.isLeft) || (winnerTeam === 'RIGHT' && !p.isLeft);
     const intVal = (p.card && p.card.stats && p.card.stats.int) ? p.card.stats.int : 20;
     const depressResist = Math.min(0.70, intVal * 0.015);
 
@@ -695,7 +700,7 @@ function triggerFault(winner, title, desc) {
 
   const isTouchOut = desc.includes('TOUCH OUT'), isAce = title.includes('ACE');
 
-  if (winner === 'player') { 
+  if (winnerTeam === 'LEFT') { 
     score.player++; 
     userPlayer.addEnergy(20);
     if (pendingCoinReward > 0) {
@@ -723,7 +728,11 @@ function triggerFault(winner, title, desc) {
 
   scoreDisplay.innerText = `${score.player} : ${score.enemy}`;
   banner.active = true; banner.timer = 85; banner.mainText = title; banner.subText = desc;
-  banner.color = (winner === 'player') ? '#38bdf8' : '#f43f5e';
+
+  // 🌟 自主色彩判定：依本機陣營判斷藍字/紅字
+  const myIsLeft = (typeof NET !== 'undefined') ? (NET.mySlot === 0 || NET.mySlot === 1) : true;
+  const amIWinner = (winnerTeam === 'LEFT' && myIsLeft) || (winnerTeam === 'RIGHT' && !myIsLeft);
+  banner.color = amIWinner ? '#38bdf8' : '#f43f5e';
 
   ball.vy = -Math.max(6.5, Math.abs(ball.vy) * 0.65);
   ball.vx *= 0.85;
@@ -731,11 +740,133 @@ function triggerFault(winner, title, desc) {
   if (typeof checkMatchWin === 'function') checkMatchWin();
 }
 
+// 🌟 房主檢查比賽結束，並透過 MATCH_SETTLEMENT 同步給訪客
+function checkMatchWin() {
+  if ((score.player >= 15 || score.enemy >= 15) && Math.abs(score.player - score.enemy) >= 2) {
+    const winnerSide = (score.player > score.enemy) ? 'LEFT' : 'RIGHT';
+    openSettlement(winnerSide);
+
+    if (typeof NET !== 'undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
+      NET.conn.send({
+        type: 'MATCH_SETTLEMENT',
+        stats: proMatchStats,
+        winnerSide: winnerSide,
+        score: score
+      });
+    }
+  }
+}
+
+// 🌟 結算面板：依 winnerSide 與本機陣營展示 VICTORY 或 DEFEAT
+function openSettlement(winnerSide = 'LEFT') {
+  isSettlementOpen = true; isPaused = true;
+  document.getElementById('settlement-modal').style.display = 'flex';
+
+  const myIsLeft = (typeof NET !== 'undefined') ? (NET.mySlot === 0 || NET.mySlot === 1) : true;
+  const playerWon = (winnerSide === 'LEFT' && myIsLeft) || (winnerSide === 'RIGHT' && !myIsLeft);
+
+  document.getElementById('settle-title').innerText = playerWon ? 'MATCH VICTORY!!' : 'MATCH DEFEAT...';
+  document.getElementById('settle-title').style.color = playerWon ? '#facc15' : '#f43f5e';
+  document.getElementById('settle-desc').innerText = playerWon ? '率先拿下 15 分局勝利！' : '惜敗，再接再厲！';
+  
+  if (playerWon) {
+    addCoins(40, '15 分勝場大獎', 800, 250);
+    document.getElementById('settle-coins-reward').innerText = '🪙 +40 排球金幣存入存檔！';
+  } else {
+    document.getElementById('settle-coins-reward').innerText = '🪙 惜敗無勝場金幣';
+  }
+
+  let bestRating = -1, mvpSlot = 'user';
+  for (let slot in ACTIVE_ROSTER) {
+    const s = proMatchStats[slot];
+    const aces = s.serviceAces || 0;
+    const rating = ((s.spikeKills + s.toolOutKills) * 25) + (aces * 25) + (s.roofKills * 30) + (s.perfectAbsorbs * 15);
+    if (rating > bestRating) { bestRating = rating; mvpSlot = slot; }
+  }
+
+  const baseExp = playerWon ? 150 : 60;
+  const tbody = document.getElementById('settle-table-body');
+  tbody.innerHTML = '';
+
+  for (let slot in ACTIVE_ROSTER) {
+    const card = ACTIVE_ROSTER[slot], s = proMatchStats[slot], isMvp = (slot === mvpSlot);
+    const aces = s.serviceAces || 0;
+    const personalBonus = ((s.spikeKills + s.toolOutKills) * 20) + (aces * 20) + (s.roofKills * 25) + (s.perfectAbsorbs * 15) + (isMvp ? 50 : 0);
+    const finalExp = baseExp + personalBonus;
+
+    // 只有本機背包裡的角色才累加 EXP 存檔；電腦臨時物件結算完不寫入存檔
+    const localInvCard = INVENTORY.find(c => c.name === card.name);
+    let levelUp = false;
+    if (localInvCard) {
+      localInvCard.exp += finalExp;
+      let reqExp = getRequiredExp(localInvCard.level);
+      while (localInvCard.exp >= reqExp && localInvCard.level < 20) {
+        localInvCard.exp -= reqExp; localInvCard.level++; localInvCard.freePts += 5; levelUp = true;
+        reqExp = getRequiredExp(localInvCard.level);
+      }
+    }
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="color: ${card.color}; font-weight: bold; font-size: 11px;">${card.name} ${isMvp ? '👑MVP' : ''} (Lv.${card.level}${levelUp ? '⬆️' : ''})</td>
+      <td>${s.totalSpikes}</td>
+      <td style="color: #ef4444; font-weight: bold;">${s.spikeKills}</td>
+      <td style="color: #10b981; font-weight: bold;">${s.toolOutKills}</td>
+      <td style="color: #facc15; font-weight: bold;">${aces}</td>
+      <td style="color: #facc15;">${s.maxSpeed.toFixed(1)}</td>
+      <td>${s.totalReceives}</td>
+      <td style="color: #10b981;">${s.perfectAbsorbs}</td>
+      <td style="color: #f97316;">${s.normalBumps}</td>
+      <td style="color: #ef4444;">${s.deflects}</td>
+      <td style="color: #38bdf8;">${s.coverSaves}</td>
+      <td>${s.totalBlocks}</td>
+      <td style="color: #facc15; font-weight: bold;">${s.roofKills}</td>
+      <td style="color: #38bdf8; font-weight: bold;">+${finalExp} EXP</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  
+  if (isCareerMode && playerWon) {
+    const stage = CAREER_STAGES.find(s => s.id === currentCareerStage);
+    if (stage) {
+      addCoins(stage.rewardCoins, `通過 STAGE 0${stage.id} 關卡大獎`, 800, 220);
+      let rewardText = `🏆 擊破【${stage.name}】！🪙 +${stage.rewardCoins} 幣`;
+      if (!UNLOCKED_COSMETICS.effects) UNLOCKED_COSMETICS.effects = ['fx_none'];
+      if (stage.rewardSkin && !UNLOCKED_COSMETICS.effects.includes(stage.rewardSkin)) {
+        UNLOCKED_COSMETICS.effects.push(stage.rewardSkin);
+        const skObj = COSMETICS_DB.effects.find(e => e.id === stage.rewardSkin);
+        rewardText += ` ＋ 🎽 解鎖限定光效【${skObj ? skObj.name : ''}】！`;
+      }
+      document.getElementById('settle-coins-reward').innerText = rewardText;
+      if (currentCareerStage === careerProgress && careerProgress < CAREER_STAGES.length) {
+        careerProgress++;
+      }
+    }
+  }
+
+  saveGameData();
+}
+
+// 🌟 結算再戰：連線時退回 30 秒戰術準備室，單人時直接開局
+function handleSettlementRematch() {
+  document.getElementById('settlement-modal').style.display = 'none';
+  isSettlementOpen = false;
+
+  if (typeof NET !== 'undefined' && NET.isMultiplayer) {
+    if (NET.conn && NET.conn.open) {
+      NET.conn.send({ type: 'REMATCH_PREP' });
+    }
+    startNetPreparation();
+  } else {
+    closeSettlementAndNextMatch();
+  }
+}
+
 function closeSettlementAndNextMatch() {
   document.getElementById('settlement-modal').style.display = 'none';
   isSettlementOpen = false; isPaused = false;
   resetMatchState();
-  ball.resetForServe('player');
+  ball.resetForServe('LEFT');
 }
 
 function returnToStartMenu() {
@@ -771,10 +902,10 @@ function startGameFromMenu() {
   document.getElementById('start-menu-modal').style.display = 'none';
   isGameStarted = true; isPaused = false;
   resetMatchState();
-  ball.resetForServe('player');
+  ball.resetForServe('LEFT');
 }
 
-// 🌟 全鍵盤 ESC 智能監聽：徹底杜絕死鎖
+// 🌟 全鍵盤 ESC 智能監聽
 const keys = {};
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase(); keys[k] = true;
@@ -784,31 +915,31 @@ window.addEventListener('keydown', (e) => {
       if (!isGameStarted) closeLockerToMenu();
       else toggleLocker();
     } else if (isSettlementOpen) {
-      closeSettlementAndNextMatch();
+      handleSettlementRematch();
     } else if (isGameStarted) {
       togglePauseMenu();
     }
   }
 
   if (e.key === 'Enter') {
-    if (isSettlementOpen) closeSettlementAndNextMatch();
+    if (isSettlementOpen) handleSettlementRematch();
   }
   if (k === 'b') debugHitbox = !debugHitbox;
 
-  // 🌟 動態主角錨定 (allPlayers[NET.mySlot])
+  // 🌟 本機玩家實體按鍵分流
   const myActor = allPlayers[NET.mySlot] || userPlayer;
 
   if (!isPaused && !isLockerOpen && !banner.active && !isSettlementOpen && isGameStarted && !isPauseMenuOpen) {
     if (serveState.active && serveState.currentServer === myActor) {
       if (k === 'k' && !serveState.tossed) serveState.charging = true;
-      if (k === 'j' && serveState.tossed) handleServeSpike();
-      if (k === 'l' && serveState.tossed) handleServeFloat();
+      if (k === 'j' && serveState.tossed) handleServeSpike(myActor);
+      if (k === 'l' && serveState.tossed) handleServeFloat(myActor);
     } else if (!serveState.active) {
       if (e.code === 'Space') myActor.triggerBlock();
-      if (k === 'j') handleUserAttack();
-      if (k === 'l') { if (!myActor.isGrounded) handleUserThrust(); else myActor.dive(); }
-      if (k === 'k') handleUserBump();
-      if (k === 'o') handleUserSet();
+      if (k === 'j') handleUserAttack(myActor);
+      if (k === 'l') { if (!myActor.isGrounded) handleUserThrust(myActor); else myActor.dive(); }
+      if (k === 'k') handleUserBump(myActor);
+      if (k === 'o') handleUserSet(myActor);
     }
   }
 });
@@ -826,6 +957,22 @@ window.addEventListener('keyup', (e) => {
   }
 });
 
+// 🌟 通用真人動作執行器 (支援房主本地與遠端訪客按鍵呼叫)
+function executePlayerAction(actor, inputKeys) {
+  if (!actor || !inputKeys) return;
+  if (serveState.active && serveState.currentServer === actor) {
+    if (inputKeys['k'] && !serveState.tossed) serveState.charging = true;
+    if (inputKeys['j'] && serveState.tossed) handleServeSpike(actor);
+    if (inputKeys['l'] && serveState.tossed) handleServeFloat(actor);
+  } else if (!serveState.active) {
+    if (inputKeys['space']) actor.triggerBlock();
+    if (inputKeys['j']) handleUserAttack(actor);
+    if (inputKeys['l']) { if (!actor.isGrounded) handleUserThrust(actor); else actor.dive(); }
+    if (inputKeys['k']) handleUserBump(actor);
+    if (inputKeys['o']) handleUserSet(actor);
+  }
+}
+
 function getDist(p, b = ball) {
   if (isNaN(b.x) || isNaN(b.y)) return 99999;
   const px = p.isDiving ? p.x + p.facing * 18 : p.x;
@@ -833,12 +980,11 @@ function getDist(p, b = ball) {
   return Math.hypot(px - b.x, py - b.y);
 }
 
-function handleServeSpike() {
-  const actor = allPlayers[NET.mySlot] || userPlayer;
+function handleServeSpike(actor) {
   if (getDist(actor) > 95) return;
   const isFootFault = actor.isLeft ? (actor.jumpStartX >= WORLD.LEFT) : (actor.jumpStartX <= WORLD.RIGHT);
   if (isFootFault) {
-    triggerFault(actor.isLeft ? 'enemy' : 'player', 'FOOT FAULT!!', '發球起跳踩線違例');
+    triggerFault(actor.isLeft ? 'RIGHT' : 'LEFT', 'FOOT FAULT!!', '發球起跳踩線違例');
     serveState.active = false; return;
   }
   actor.swingTimer = 12; serveState.active = false; recordTouch(actor);
@@ -880,12 +1026,11 @@ function handleServeSpike() {
   statusSubtext.innerText = '';
 }
 
-function handleServeFloat() {
-  const actor = allPlayers[NET.mySlot] || userPlayer;
+function handleServeFloat(actor) {
   if (getDist(actor) > 95) return;
   const isFootFault = actor.isLeft ? (actor.jumpStartX >= WORLD.LEFT) : (actor.jumpStartX <= WORLD.RIGHT);
   if (isFootFault) {
-    triggerFault(actor.isLeft ? 'enemy' : 'player', 'FOOT FAULT!!', '發球起跳踩線違例');
+    triggerFault(actor.isLeft ? 'RIGHT' : 'LEFT', 'FOOT FAULT!!', '發球起跳踩線違例');
     serveState.active = false; return;
   }
   actor.thrustTimer = 12; actor.thrustTargetX = ball.x; actor.thrustTargetY = ball.y;
@@ -907,8 +1052,7 @@ function handleServeFloat() {
   statusSubtext.innerText = '';
 }
 
-function handleUserAttack() {
-  const actor = allPlayers[NET.mySlot] || userPlayer;
+function handleUserAttack(actor) {
   const shoulderX = actor.x, shoulderY = actor.y - actor.radius * 1.5;
   const dx = (ball.x - shoulderX) * actor.facing, dy = -(ball.y - shoulderY);
   if (dx < -10 || dx > 80 || Math.abs(dy) > 80) return;
@@ -986,8 +1130,7 @@ function handleUserAttack() {
   if (curSpd > proMatchStats[actor.slotKey].maxSpeed) proMatchStats[actor.slotKey].maxSpeed = curSpd;
 }
 
-function handleUserThrust() {
-  const actor = allPlayers[NET.mySlot] || userPlayer;
+function handleUserThrust(actor) {
   const shoulderX = actor.x, shoulderY = actor.y - actor.radius * 1.5;
   const forwardDist = (ball.x - shoulderX) * actor.facing;
   const verticalDelta = ball.y - shoulderY;
@@ -1035,8 +1178,7 @@ function handleUserThrust() {
   if (curSpd > proMatchStats[actor.slotKey].maxSpeed) proMatchStats[actor.slotKey].maxSpeed = curSpd;
 }
 
-function handleUserBump() {
-  const actor = allPlayers[NET.mySlot] || userPlayer;
+function handleUserBump(actor) {
   const sk = actor.stats.skill;
   if (sk.id === 'sk_savage_roar' && actor.energy >= sk.cost) {
     actor.consumeSkill('DEF_SAVE');
@@ -1078,8 +1220,7 @@ function handleUserBump() {
   executePlayerTimingReceive(actor, wasBlocked);
 }
 
-function handleUserSet() {
-  const actor = allPlayers[NET.mySlot] || userPlayer;
+function handleUserSet(actor) {
   if (getDist(actor) > 85) return;
   if (!recordTouch(actor)) return;
 
@@ -1103,7 +1244,7 @@ function handlePhysics() {
   if (banner.active || isSettlementOpen) {
     if (banner.active) {
       banner.timer--;
-      if (banner.timer <= 0) { banner.active = false; ball.resetForServe(banner.winner); }
+      if (banner.timer <= 0) { banner.active = false; ball.resetForServe(banner.winnerTeam); }
     }
     if (hitStopFrames <= 0) {
       ball.x += ball.vx; ball.y += ball.vy; ball.vy += WORLD.GRAVITY;
@@ -1125,8 +1266,9 @@ function handlePhysics() {
   if (serveState.active && !serveState.tossed) {
     const s = serveState.currentServer;
     ball.x = s.x + (s.isLeft ? 20 : -12); ball.y = s.y - 10;
-    const isHumanServer = (s.slotIndex === NET.mySlot) ||
-      (NET.isMultiplayer && NET.isHost && s.slotIndex === ((NET.mode === 'COOP') ? 1 : 2));
+    const isHumanServer = (typeof isSlotHumanControlled === 'function')
+      ? isSlotHumanControlled(s)
+      : s.isLocallyControlled;
     if (isHumanServer && serveState.charging) {
       serveState.chargePower = Math.min(100, serveState.chargePower + 2.4);
     }
@@ -1136,7 +1278,7 @@ function handlePhysics() {
   if (serveState.active && serveState.tossed) {
     ball.x += ball.vx; ball.y += ball.vy; ball.vy += WORLD.GRAVITY * 0.72;
     if (ball.y >= WORLD.FLOOR_Y) {
-      triggerFault(serveState.currentServer.isLeft ? 'enemy' : 'player', 'FAULT!!', '發球拋球落地未擊中');
+      triggerFault(serveState.currentServer.isLeft ? 'RIGHT' : 'LEFT', 'FAULT!!', '發球拋球落地未擊中');
     }
     return;
   }
@@ -1207,10 +1349,11 @@ function handlePhysics() {
     allPlayers.forEach(p => {
       const isAttacking = p.swingTimer > 0 || p.thrustTimer > 0;
       const isOpponentBall = (ball.lastHitter && ball.lastHitter.isLeft !== p.isLeft);
+      const isHuman = (typeof isSlotHumanControlled === 'function') ? isSlotHumanControlled(p) : p.isLocallyControlled;
       let isEligibleBlock = false;
 
       if (isOpponentBall && !isAttacking && !p.isGrounded && ball.y < WORLD.NET_TOP_Y + 50) {
-        isEligibleBlock = p.isLocallyControlled ? (p.isBlocking && Math.abs(p.x - WORLD.NET_X) < 110) : (Math.abs(p.jumpStartX - WORLD.NET_X) < 95);
+        isEligibleBlock = isHuman ? (p.isBlocking && Math.abs(p.x - WORLD.NET_X) < 110) : (Math.abs(p.jumpStartX - WORLD.NET_X) < 95);
       }
 
       if (isEligibleBlock && getDist(p) < 70) {
@@ -1343,35 +1486,35 @@ function handlePhysics() {
       triggerScreenShake(10, 12); createShockwave(ball.x, WORLD.FLOOR_Y, '#ef4444'); 
     }
     const isOut = (ball.x < WORLD.LEFT || ball.x > WORLD.RIGHT);
-    const serverSide = serveState.currentServer ? (serveState.currentServer.isLeft ? 'player' : 'enemy') : 'player';
-    const receiverSide = serverSide === 'player' ? 'enemy' : 'player';
-    const receiverTouches = serverSide === 'player' ? match.rightHits : match.leftHits;
+    const serverSide = serveState.currentServer ? (serveState.currentServer.isLeft ? 'LEFT' : 'RIGHT') : 'LEFT';
+    const receiverSide = (serverSide === 'LEFT') ? 'RIGHT' : 'LEFT';
+    const receiverTouches = (serverSide === 'LEFT') ? match.rightHits : match.leftHits;
     const isAceRally = match.inServeRally && (receiverTouches <= 1);
 
     if (isOut) {
       if (ball.lastHitter) {
-        const hitterSide = ball.lastHitter.isLeft ? 'player' : 'enemy';
-        const winSide = hitterSide === 'player' ? 'enemy' : 'player';
+        const hitterSide = ball.lastHitter.isLeft ? 'LEFT' : 'RIGHT';
+        const winSide = (hitterSide === 'LEFT') ? 'RIGHT' : 'LEFT';
         if (isAceRally && hitterSide === receiverSide) {
           triggerFault(serverSide, 'SERVICE ACE!!', '發球強力破壞一傳直接得分!');
         } else {
-          triggerFault(winSide, 'OUT BALL!!', hitterSide === 'player' ? 'TOUCH OUT / 我方出界' : 'TOUCH OUT / 敵方出界');
+          triggerFault(winSide, 'OUT BALL!!', hitterSide === 'LEFT' ? 'TOUCH OUT / 左隊出界' : 'TOUCH OUT / 右隊出界');
         }
       } else { 
-        triggerFault('enemy', 'OUT BALL!!', '出界'); 
+        triggerFault('RIGHT', 'OUT BALL!!', '出界'); 
       }
     } else {
       if (ball.x < WORLD.NET_X) {
-        if (isAceRally && serverSide === 'enemy') {
-          triggerFault('enemy', 'SERVICE ACE!!', '敵方發球直接落地得分!');
+        if (isAceRally && serverSide === 'RIGHT') {
+          triggerFault('RIGHT', 'SERVICE ACE!!', '右隊發球直接落地得分!');
         } else {
-          triggerFault('enemy', 'BALL IN!!', '我方半場失守 (敵方得分)');
+          triggerFault('RIGHT', 'BALL IN!!', '左半場失守 (右隊得分)');
         }
       } else {
-        if (isAceRally && serverSide === 'player') {
-          triggerFault('player', 'SERVICE ACE!!', '發球無解直接落地得分 (ACE)!');
+        if (isAceRally && serverSide === 'LEFT') {
+          triggerFault('LEFT', 'SERVICE ACE!!', '發球無解直接落地得分 (ACE)!');
         } else {
-          triggerFault('player', (ball.isPerfectSpike || ball.isSkyComet) ? 'SUPER SPIKE KILL!!' : 'BALL IN!!', '敵方半場失守 (我方得分!)');
+          triggerFault('LEFT', (ball.isPerfectSpike || ball.isSkyComet) ? 'SUPER SPIKE KILL!!' : 'BALL IN!!', '右半場失守 (左隊得分!)');
         }
       }
     }
@@ -1398,15 +1541,19 @@ function createMudSplash(x, y, count = 10) {
   }
 }
 
+// 🌟 套用網路同步封包 (包含狀態機、Banner 與浮動文字)
 function applyWorldSync(data) {
   Object.assign(ball, data.ball);
   score.player = data.score.player;
   score.enemy = data.score.enemy;
   scoreDisplay.innerText = `${score.player} : ${score.enemy}`;
 
-  // 🌟 同步 Banner
   if (data.banner) {
     Object.assign(banner, data.banner);
+    // 訪客端依自己所屬陣營解析顏色
+    const myIsLeft = (NET.mySlot === 0 || NET.mySlot === 1);
+    const amIWinner = (banner.winnerTeam === 'LEFT' && myIsLeft) || (banner.winnerTeam === 'RIGHT' && !myIsLeft);
+    banner.color = amIWinner ? '#38bdf8' : '#f43f5e';
   }
 
   data.players.forEach((pData, idx) => {
@@ -1430,25 +1577,31 @@ function fixedUpdate() {
             isPerfectSpike: ball.isPerfectSpike, isFloat: ball.isFloat, activeSkillTag: ball.activeSkillTag
           },
           score: score,
-          banner: { active: banner.active, timer: banner.timer, mainText: banner.mainText, subText: banner.subText, color: banner.color },
+          banner: { active: banner.active, timer: banner.timer, mainText: banner.mainText, subText: banner.subText, color: banner.color, winnerTeam: banner.winnerTeam },
           players: allPlayers.map(p => ({
             x: p.x, y: p.y, vx: p.vx, vy: p.vy, facing: p.facing,
             squashX: p.squashX, squashY: p.squashY, isDiving: p.isDiving,
-            isBlocking: p.isBlocking, energy: p.energy, jumpExhaustion: p.jumpExhaustion
+            isBlocking: p.isBlocking, energy: p.energy, jumpExhaustion: p.jumpExhaustion,
+            depressedRallies: p.depressedRallies, excitedRallies: p.excitedRallies,
+            mudDebuffTimer: p.mudDebuffTimer, softWallRallies: p.softWallRallies,
+            godspeedCharges: p.godspeedCharges, greaseDebuffRallies: p.greaseDebuffRallies
           }))
         });
       }
 
-      // 房主代為處理遠端訪客按鍵
+      // 🌟 房主為遠端訪客執行動作分流
       const rk = NET.remoteKeys || {};
-      const targetPlayer = (NET.mode === 'COOP') ? mateAI : enemyA;
+      const guestSlot = (NET.mode === 'COOP') ? 1 : 2;
+      const guestPlayer = allPlayers[guestSlot];
       const forwardDir = (NET.mode === 'COOP') ? 1 : -1;
 
-      targetPlayer.vx = 0;
-      if (rk['a']) { targetPlayer.vx = -forwardDir * targetPlayer.effectiveSpeed; targetPlayer.facing = -forwardDir; }
-      if (rk['d']) { targetPlayer.vx = forwardDir * targetPlayer.effectiveSpeed; targetPlayer.facing = forwardDir; }
-      if (rk['w']) targetPlayer.jump();
-      if (rk['space']) targetPlayer.triggerBlock();
+      guestPlayer.vx = 0;
+      if (rk['a']) { guestPlayer.vx = -forwardDir * guestPlayer.effectiveSpeed; guestPlayer.facing = -forwardDir; }
+      if (rk['d']) { guestPlayer.vx = forwardDir * guestPlayer.effectiveSpeed; guestPlayer.facing = forwardDir; }
+      if (rk['w']) guestPlayer.jump();
+      
+      // 🌟 訪客按鍵呼叫同款玩家操作邏輯
+      executePlayerAction(guestPlayer, rk);
     } else {
       if (NET.conn && NET.conn.open) {
         NET.conn.send({ type: 'INPUT', keys: keys });
@@ -1458,7 +1611,7 @@ function fixedUpdate() {
     }
   }
 
-  // 🌟 本機玩家 (allPlayers[NET.mySlot]) 實體移動
+  // 🌟 本機玩家 (Slot 0) 移動
   const myPlayer = allPlayers[NET.mySlot] || userPlayer;
   myPlayer.vx = 0;
   if (keys['a']) { myPlayer.vx = -myPlayer.effectiveSpeed; myPlayer.facing = -1; }
@@ -1497,8 +1650,9 @@ function fixedUpdate() {
   });
 
   if (serveState.active && serveState.currentServer !== myPlayer) {
-    const isServerHuman = (serveState.currentServer.slotIndex === NET.mySlot) ||
-      (NET.isMultiplayer && NET.isHost && serveState.currentServer.slotIndex === ((NET.mode === 'COOP') ? 1 : 2));
+    const isServerHuman = (typeof isSlotHumanControlled === 'function')
+      ? isSlotHumanControlled(serveState.currentServer)
+      : serveState.currentServer.isLocallyControlled;
 
     if (!isServerHuman && serveState.aiServeTimer > 0) {
       serveState.aiServeTimer--;

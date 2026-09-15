@@ -270,7 +270,7 @@ function startPracticeMode() {
   document.getElementById('start-menu-modal').style.display = 'none';
   isGameStarted = true; isPaused = false;
   if (typeof resetMatchState === 'function') resetMatchState();
-  ball.resetForServe('player');
+  ball.resetForServe('LEFT');
 }
 
 // ========================================================
@@ -286,6 +286,7 @@ function toggleDifficultySelect(isCoop) {
 
 function startNetPreparation() {
   document.getElementById('multiplayer-modal').style.display = 'none';
+  document.getElementById('settlement-modal').style.display = 'none';
   document.getElementById('net-prep-modal').style.display = 'flex';
   netPrepSeconds = 30;
   isMyReady = false;
@@ -479,7 +480,6 @@ function finalizeNetStart() {
   clearInterval(netPrepTimer);
   document.getElementById('net-prep-modal').style.display = 'none';
 
-  // 雙方重新綁定實體並歸位
   if (typeof allPlayers !== 'undefined') {
     allPlayers.forEach(p => p.rebind(true));
   }
@@ -492,7 +492,7 @@ function finalizeNetStart() {
     if (NET.conn && NET.conn.open) {
       NET.conn.send({ type: 'START_MATCH' });
     }
-    ball.resetForServe('player');
+    ball.resetForServe('LEFT');
   }
 }
 
@@ -525,6 +525,7 @@ function startHosting() {
   NET.isMultiplayer = true;
   NET.mySlot = 0;
   NET.mateSlot = (selectedMode === 'COOP') ? 1 : 1;
+  NET.myTeam = 'LEFT';
   NET.roomCode = generateRoomCode();
 
   if (selectedMode === 'COOP') {
@@ -600,11 +601,13 @@ function joinRoom() {
         if (NET.mode === 'COOP') {
           NET.mySlot = 1;
           NET.mateSlot = 0;
+          NET.myTeam = 'LEFT';
           if (data.enemyFront) ACTIVE_ROSTER.enemyFront = data.enemyFront;
           if (data.enemyBack) ACTIVE_ROSTER.enemyBack = data.enemyBack;
         } else {
           NET.mySlot = 2;
           NET.mateSlot = 3;
+          NET.myTeam = 'RIGHT';
         }
         startNetPreparation();
       }
@@ -622,12 +625,22 @@ function setupDataConnection() {
       NET.remoteKeys = data.keys;
     } else if (data.type === 'STATE_SYNC') {
       applyWorldSync(data);
+    } else if (data.type === 'CALLOUT_SYNC') {
+      calloutPopups.push({ x: data.x, y: data.y - 28, text: data.text, color: data.color, timer: 45, maxTimer: 45 });
     } else if (data.type === 'LOBBY_SELECT_UPDATE') {
       handleRemoteLobbyUpdate(data);
     } else if (data.type === 'READY_CHECK') {
       handleRemoteReady(data);
     } else if (data.type === 'START_MATCH') {
       finalizeNetStart();
+    } else if (data.type === 'MATCH_SETTLEMENT') {
+      proMatchStats = data.stats;
+      score = data.score;
+      openSettlement(data.winnerSide);
+    } else if (data.type === 'REMATCH_PREP') {
+      document.getElementById('settlement-modal').style.display = 'none';
+      isSettlementOpen = false;
+      startNetPreparation();
     } else if (data.type === 'PEER_QUIT') {
       alert('⚠️ 對手已退出比賽，正在返回主選單...');
       location.reload();
@@ -916,92 +929,6 @@ function updateCoinHUD() {
 function closeGachaAnim() { document.getElementById('gacha-anim-modal').style.display = 'none'; }
 function closeTenGachaModal() { document.getElementById('gacha-ten-modal').style.display = 'none'; }
 
-function checkMatchWin() {
-  if ((score.player >= 15 || score.enemy >= 15) && Math.abs(score.player - score.enemy) >= 2) openSettlement();
-}
-
-function openSettlement() {
-  isSettlementOpen = true; isPaused = true;
-  document.getElementById('settlement-modal').style.display = 'flex';
-  const playerWon = score.player > score.enemy;
-  document.getElementById('settle-title').innerText = playerWon ? 'MATCH VICTORY!!' : 'MATCH DEFEAT...';
-  document.getElementById('settle-title').style.color = playerWon ? '#facc15' : '#f43f5e';
-  document.getElementById('settle-desc').innerText = playerWon ? '率先拿下 15 分局勝利！' : '惜敗，再接再厲！';
-  
-  if (playerWon) {
-    addCoins(40, '15 分勝場大獎', 800, 250);
-    document.getElementById('settle-coins-reward').innerText = '🪙 +40 排球金幣存入存檔！';
-  } else {
-    document.getElementById('settle-coins-reward').innerText = '🪙 惜敗無勝場金幣';
-  }
-
-  let bestRating = -1, mvpSlot = 'user';
-  for (let slot in ACTIVE_ROSTER) {
-    const s = proMatchStats[slot];
-    const aces = s.serviceAces || 0;
-    const rating = ((s.spikeKills + s.toolOutKills) * 25) + (aces * 25) + (s.roofKills * 30) + (s.perfectAbsorbs * 15);
-    if (rating > bestRating) { bestRating = rating; mvpSlot = slot; }
-  }
-
-  const baseExp = playerWon ? 150 : 60;
-  const tbody = document.getElementById('settle-table-body');
-  tbody.innerHTML = '';
-
-  for (let slot in ACTIVE_ROSTER) {
-    const card = ACTIVE_ROSTER[slot], s = proMatchStats[slot], isMvp = (slot === mvpSlot);
-    const aces = s.serviceAces || 0;
-    const personalBonus = ((s.spikeKills + s.toolOutKills) * 20) + (aces * 20) + (s.roofKills * 25) + (s.perfectAbsorbs * 15) + (isMvp ? 50 : 0);
-    const finalExp = baseExp + personalBonus;
-
-    card.exp += finalExp;
-    let reqExp = getRequiredExp(card.level), levelUp = false;
-    while (card.exp >= reqExp && card.level < 20) {
-      card.exp -= reqExp; card.level++; card.freePts += 5; levelUp = true;
-      reqExp = getRequiredExp(card.level);
-    }
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td style="color: ${card.color}; font-weight: bold; font-size: 11px;">${card.name} ${isMvp ? '👑MVP' : ''} (Lv.${card.level}${levelUp ? '⬆️' : ''})</td>
-      <td>${s.totalSpikes}</td>
-      <td style="color: #ef4444; font-weight: bold;">${s.spikeKills}</td>
-      <td style="color: #10b981; font-weight: bold;">${s.toolOutKills}</td>
-      <td style="color: #facc15; font-weight: bold;">${aces}</td>
-      <td style="color: #facc15;">${s.maxSpeed.toFixed(1)}</td>
-      <td>${s.totalReceives}</td>
-      <td style="color: #10b981;">${s.perfectAbsorbs}</td>
-      <td style="color: #f97316;">${s.normalBumps}</td>
-      <td style="color: #ef4444;">${s.deflects}</td>
-      <td style="color: #38bdf8;">${s.coverSaves}</td>
-      <td>${s.totalBlocks}</td>
-      <td style="color: #facc15; font-weight: bold;">${s.roofKills}</td>
-      <td style="color: #38bdf8; font-weight: bold;">+${finalExp} EXP</td>
-    `;
-    tbody.appendChild(tr);
-  }
-  
-  if (isCareerMode && playerWon) {
-    const stage = CAREER_STAGES.find(s => s.id === currentCareerStage);
-    if (stage) {
-      addCoins(stage.rewardCoins, `通過 STAGE 0${stage.id} 關卡大獎`, 800, 220);
-      let rewardText = `🏆 擊破【${stage.name}】！🪙 +${stage.rewardCoins} 幣`;
-      
-      if (!UNLOCKED_COSMETICS.effects) UNLOCKED_COSMETICS.effects = ['fx_none'];
-      if (stage.rewardSkin && !UNLOCKED_COSMETICS.effects.includes(stage.rewardSkin)) {
-        UNLOCKED_COSMETICS.effects.push(stage.rewardSkin);
-        const skObj = COSMETICS_DB.effects.find(e => e.id === stage.rewardSkin);
-        rewardText += ` ＋ 🎽 解鎖限定光效【${skObj ? skObj.name : ''}】！`;
-      }
-      document.getElementById('settle-coins-reward').innerText = rewardText;
-      if (currentCareerStage === careerProgress && careerProgress < CAREER_STAGES.length) {
-        careerProgress++;
-      }
-    }
-  }
-
-  saveGameData();
-}
-
 function openCareerMenu() {
   isCareerMode = true;
   document.getElementById('start-menu-modal').style.display = 'none';
@@ -1088,12 +1015,12 @@ function startCareerMatch(stageId) {
   isGameStarted = true;
   isPaused = false;
   if (typeof resetMatchState === 'function') resetMatchState();
-  ball.resetForServe('player');
+  ball.resetForServe('LEFT');
 }
 
 function triggerCosmeticGacha(isTen = false) {
   const cost = isTen ? 450 : 50;
-  if (userCoins < cost) { alert(`金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
 
   const availablePool = [];
   ['hats', 'faces'].forEach(cat => {
@@ -1129,7 +1056,7 @@ function triggerCosmeticGacha(isTen = false) {
 
 function triggerSkillGacha(isTen = false) {
   const cost = isTen ? 2350 : 250;
-  if (userCoins < cost) { alert(`金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
 
   const availableSkills = SKILL_POOL.filter(sk => !UNLOCKED_SKILLS.includes(sk.id));
   if (availableSkills.length === 0) {

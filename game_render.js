@@ -279,12 +279,12 @@ function drawPlayerEntity(player, targetCtx) {
     }
   }
 
-  // 🌟 主控箭頭指標：動態鎖定本機操控者 (NET.mySlot)
-  const isLocalControlled = (typeof NET !== 'undefined' && typeof NET.mySlot !== 'undefined')
+  // 🌟 主控箭頭指標：嚴格只繪製在「本機操控的球員（NET.mySlot）」頭頂！
+  const isMyLocalHero = (typeof NET !== 'undefined' && typeof NET.mySlot !== 'undefined')
     ? (player.slotIndex === NET.mySlot)
     : player.isUser;
 
-  if (isLocalControlled) {
+  if (isMyLocalHero) {
     targetCtx.fillStyle = '#facc15'; targetCtx.beginPath();
     targetCtx.moveTo(-7, -player.radius * 2 - 8); targetCtx.lineTo(7, -player.radius * 2 - 8); targetCtx.lineTo(0, -player.radius * 2);
     targetCtx.fill();
@@ -525,12 +525,12 @@ function renderChronoAnimation() {
 function render() {
   ctx.save();
   
-  // 體力條讀取本機主控 (NET.mySlot)
-  const myPlayer = (typeof allPlayers !== 'undefined' && typeof NET !== 'undefined')
+  // 體力條動態對齊本機主角 (NET.mySlot)
+  const myHero = (typeof allPlayers !== 'undefined' && typeof NET !== 'undefined')
     ? (allPlayers[NET.mySlot] || userPlayer)
     : userPlayer;
 
-  const pExh = myPlayer.jumpExhaustion;
+  const pExh = myHero.jumpExhaustion;
   staminaFill.style.width = (pExh * 100) + '%';
   if (pExh > 0.8) staminaFill.style.backgroundColor = '#10b981';
   else if (pExh > 0.55) staminaFill.style.backgroundColor = '#facc15';
@@ -543,7 +543,7 @@ function render() {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // 🌟 WebRTC 訪客視角鏡像翻轉 (PVP 模式下)
+  // 🌟 WebRTC 訪客鏡像視角翻轉
   const isGuestMirror = (typeof NET !== 'undefined' && NET.isMultiplayer && !NET.isHost && NET.mode === 'PVP');
   if (isGuestMirror) {
     ctx.save();
@@ -552,7 +552,7 @@ function render() {
   }
 
   // ==========================================
-  // 1. 世界座標層（受相機平移影響）
+  // 1. 世界座標層（受相機位移影響）
   // ==========================================
   ctx.save();
   ctx.translate(-camera.x, -camera.y);
@@ -636,7 +636,7 @@ function render() {
     ctx.restore();
   }
 
-  // 🌟 文字呼喊與跳幣：鏡像模式下二次翻轉文字，防止鏡像反字
+  // 🌟 文字呼喊與金幣浮空：鏡像模式下二次翻轉，防止鏡像反字！
   for (let i = calloutPopups.length - 1; i >= 0; i--) {
     const pop = calloutPopups[i];
     pop.timer--; pop.y -= 0.6;
@@ -673,16 +673,16 @@ function render() {
   ctx.restore(); // 結束世界座標層
 
   // ==========================================
-  // 2. 螢幕視窗層（不受相機位移影響）
+  // 2. 螢幕視窗層（不受相機平移影響）
   // ==========================================
   renderChronoAnimation();
   allPlayers.forEach(p => {
-    const isLocal = (typeof NET !== 'undefined' && typeof NET.mySlot !== 'undefined') ? (p.slotIndex === NET.mySlot) : p.isUser;
-    drawRadarBubble(p.x, p.y - p.radius, p.color, false, isLocal, p.radius);
+    const isHero = (typeof NET !== 'undefined' && typeof NET.mySlot !== 'undefined') ? (p.slotIndex === NET.mySlot) : p.isUser;
+    drawRadarBubble(p.x, p.y - p.radius, p.color, false, isHero, p.radius);
   });
   if (!isNaN(ball.x) && !isNaN(ball.y)) drawRadarBubble(ball.x, ball.y, '#facc15', true, false, ball.radius);
 
-  // 🌟 得分/出界全域橫幅
+  // 🌟 得分/出界全域橫幅 (Banner)
   if (banner.active) {
     ctx.save();
     if (isGuestMirror) {

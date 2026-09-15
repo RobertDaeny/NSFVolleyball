@@ -139,7 +139,7 @@ let INVENTORY = [
 
 let ACTIVE_ROSTER = { user: INVENTORY[0], mate: INVENTORY[1], enemyFront: INVENTORY[2], enemyBack: INVENTORY[3] };
 let userCoins = 99999;
-const STORAGE_KEY = 'VOLLEY_ARENA_SAVE_DATA_2026_SLOT_DECOUPLED';
+const STORAGE_KEY = 'VOLLEY_ARENA_SAVE_DATA_2026_FULL_PARITY';
 
 const CAREER_STAGES = [
   {
@@ -349,7 +349,7 @@ function deriveStats(card) {
 function getRequiredExp(level) { return Math.floor(100 * Math.pow(1.22, level - 1)); }
 
 // ========================================================
-// 網路連線狀態 (支援 Slot 架構與雙向握手)
+// 網路多人通訊狀態 (Slot 映射與陣營定錨)
 // ========================================================
 const NET = {
   isMultiplayer: false,
@@ -361,6 +361,7 @@ const NET = {
   pveDifficulty: 5,
   mySlot: 0,
   mateSlot: 1,
+  myTeam: 'LEFT',
   remoteKeys: { a: false, d: false, w: false, j: false, k: false, l: false, o: false, space: false },
   lastPing: 0
 };

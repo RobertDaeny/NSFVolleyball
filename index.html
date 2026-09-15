@@ -3,7 +3,7 @@
 <head>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <meta charset="UTF-8">
-<title>Volleyball 2v2 Arena [2026_SlotDecoupled]</title>
+<title>Volleyball 2v2 Arena [2026_FullParity]</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -111,7 +111,7 @@
     cursor: not-allowed !important; transform: none !important; opacity: 0.6;
   }
 
-  /* 結算表格：恢復清晰格線排版 */
+  /* 結算表格：標準細格線排版 */
   #settle-table-main {
     width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 12px;
     border: 1.5px solid #3b3678;
@@ -303,7 +303,7 @@
   </div>
 </div>
 
-<!-- ⏳ 連線賽前戰術配置室 (30 秒倒數 + 雙方 Ready 縮短為 5 秒) -->
+<!-- ⏳ 連線賽前戰術配置室 (30 秒倒數 + 雙方 Ready 縮為 5 秒) -->
 <div id="net-prep-modal">
   <div style="width: 1060px; background: #1e1b4b; border: 3px solid #facc15; border-radius: 24px; padding: 28px; box-shadow: 0 0 70px rgba(250, 204, 21, 0.45); display: flex; flex-direction: column; align-items: center;">
     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; border-bottom: 2px solid #4338ca; padding-bottom: 12px; margin-bottom: 18px;">
@@ -490,7 +490,7 @@
   </div>
 </div>
 
-<!-- 🪞 試衣化妝間 (支援全背包角色切換穿搭) -->
+<!-- 🪞 試衣化妝間 (支援全背包角色換裝) -->
 <div id="wardrobe-modal">
   <div style="position: relative; width: 1100px; height: 680px; background: #1e1b4b; border: 3.5px solid #facc15; border-radius: 24px; padding: 28px; display: grid; grid-template-columns: 340px 1fr; gap: 24px;">
     <div style="background: radial-gradient(circle at center, #312e81 0%, #0f172a 100%); border: 2px solid #6366f1; border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 20px;">
@@ -611,7 +611,7 @@
 
     <div style="display: flex; justify-content: center; gap: 15px; margin-top: 14px;">
       <button class="btn-home" onclick="returnToStartMenuFromSettle()">🏠 主選單</button>
-      <button class="btn-action" style="padding: 8px 24px; font-size: 14px;" onclick="closeSettlementAndNextMatch()">開始下一局比賽 [Enter]</button>
+      <button class="btn-action" style="padding: 8px 24px; font-size: 14px;" id="btn-settle-rematch" onclick="handleSettlementRematch()">開始下一局比賽 [Enter]</button>
     </div>
   </div>
 </div>

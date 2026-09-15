@@ -2,18 +2,19 @@
 // AI 戰術決策層：拋物線落點預判、三觸分配、智慧封網與新技能施放
 // ========================================================
 
-// 🌟 判定該角色是否被真人玩家控制（本機或連線遠端）
+// 🌟 核心身分仲裁：精準判斷該格子是否為「真人玩家」（本機或遠端訪客）
 function isSlotHumanControlled(player) {
   if (!player) return false;
-  // 本機控制者
   if (typeof NET !== 'undefined' && typeof NET.mySlot !== 'undefined') {
+    // 1. 本機操控者必定是真人
     if (player.slotIndex === NET.mySlot) return true;
-    // 若為房主，連線中的訪客也是真人，AI 嚴禁插手！
+    // 2. 若本機是房主，連線進來的訪客也是真人，AI 絕對不可插手！
     if (NET.isMultiplayer && NET.isHost) {
       const guestSlot = (NET.mode === 'COOP') ? 1 : 2;
       if (player.slotIndex === guestSlot) return true;
     }
   } else {
+    // 單人模式回歸基準判定
     if (player.isUser) return true;
   }
   return false;
@@ -47,7 +48,7 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
   const isPerceivedOut = isLeft ? (perceivedLandingX < WORLD.LEFT) : (perceivedLandingX > WORLD.RIGHT);
   const isBallThreat = (isLeft ? ball.vx <= 0 : ball.vx >= 0) && (ball.vy > 0.1 || match.isBlockedBack);
 
-  // 🌟 若負責執行的球員是真人，AI 大腦立刻退出，把控制權完全留給鍵盤/連線！
+  // 🌟 真人檢查：若執行者是真人，AI 大腦立刻物理退出，完全交給鍵盤/連線！
   const actorIsHuman = isSlotHumanControlled(actor);
   const partnerIsHuman = isSlotHumanControlled(partner);
 
@@ -192,7 +193,7 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
               createImpactSparks(ball.x, ball.y, 14, '#eab308');
             }
 
-            // 🌟 敵方前排偵測（動態對象）
+            // 🌟 尋找敵方前排封網者
             const oppFront = isLeft ? enemyA : allPlayers[NET.mySlot || 0];
             const isOpponentBlocking = oppFront && oppFront.isBlocking && Math.abs(oppFront.x - WORLD.NET_X) < 110;
 
@@ -261,7 +262,7 @@ function updateBlockAI() {
     const blocker = (distA <= distB) ? enemyA : enemyB;
     const defender = (blocker === enemyA) ? enemyB : enemyA;
 
-    // 若該位置不是真人，才執行 AI 封網移動
+    // 🌟 只有純電腦才能執行 AI 自動貼網起跳開盾！
     if (!isSlotHumanControlled(blocker)) {
       moveTowards(blocker, WORLD.NET_X + 42, blocker.effectiveSpeed);
       const inZone = Math.abs(blocker.x - WORLD.NET_X) < 95;
