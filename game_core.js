@@ -508,10 +508,9 @@ function executePlayerTimingReceive(player, isCover = false) {
 // 🌟 接球高潮閾值：球速必須突破 25 且通過機率檢定，才算神級吸震
     if (typeof triggerMangaShout === 'function' && ballSpeed > 25.0 && Math.random() < 0.5) {
       triggerMangaShout(player.playerName, `${player.playerName} 完美卸力接起！！`, '神級一傳吸震！反擊機會來了！', '#10b981');
-    }    }
+    }
 
-    player.jumpExhaustion = 1.0; player.depressedRallies = 0; player.addEnergy(30);
-    proMatchStats[player.slotKey].perfectAbsorbs++;
+    player.jumpExhaustion = 1.0; player.depressedRallies = 0; player.addEnergy(30);    proMatchStats[player.slotKey].perfectAbsorbs++;
 
     const finalTargetX = player.isLeft ? (WORLD.NET_X - 120) : (WORLD.NET_X + 120);
     const targetVy = -14.2;
