@@ -323,6 +323,10 @@ function startNetPreparation() {
     mySkillSel.innerHTML += `<option value="${sk.id}">[${sk.type}] ${sk.name}</option>`;
   });
 
+const myCloudId = (typeof currentCloudUser !== 'undefined' && currentCloudUser) ? currentCloudUser : '我方主控';
+  const myTitleEl = document.querySelector('#panel-my-prep h3');
+  if (myTitleEl) myTitleEl.innerText = `👤 [${myCloudId}] 的出戰配置`;
+
   if (NET.mode === 'COOP') {
     mateTitle.innerText = '🤝 隊友配置 (即時連動)';
     mateCharSel.disabled = true;
@@ -333,8 +337,7 @@ function startNetPreparation() {
     const diffNames = { 1: '入門新手', 2: '泥濘沼澤', 3: '常盤鋼鐵', 4: '疾風怒濤', 5: '神域全明星' };
     diffHint.innerText = `👾 挑戰難度：【${diffNames[NET.pveDifficulty] || '隨機難度'}】(電腦將於開賽時登場)`;
   } else {
-    mateTitle.innerText = '🤖 我的電腦隊友 (AI 搭檔)';
-    mateCharSel.disabled = false;
+    mateTitle.innerText = '🤖 我的電腦隊友 (AI 搭檔)';    mateCharSel.disabled = false;
     mateSkillSel.disabled = false;
     mateCharSel.innerHTML = '';
     INVENTORY.forEach((c, idx) => {

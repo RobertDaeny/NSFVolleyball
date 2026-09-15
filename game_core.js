@@ -140,13 +140,21 @@ class Player {
     this.ghostTrail = [];
   }
 
-  rebind(triggerHUD = true) {
+rebind(triggerHUD = true) {
     this.card = ACTIVE_ROSTER[this.slotKey];
     this.color = this.card.color; this.name = this.card.name;
     this.stats = deriveStats(this.card);
+
+    // 🌟 角色身分 ID 綁定：本機主控帶入 Firebase 帳號，其他格帶入角色卡名
+    const cloudName = (typeof currentCloudUser !== 'undefined' && currentCloudUser) ? currentCloudUser : '我方主控';
+    if (this.slotIndex === NET.mySlot) {
+      this.playerName = cloudName;
+    } else {
+      this.playerName = this.card.name;
+    }
+
     if (triggerHUD) updateSideUltHUD();
   }
-
   jump(power = null) {
     if (this.isGrounded && !this.isDiving) {
       this.jumpStartX = this.x;
@@ -497,6 +505,10 @@ function executePlayerTimingReceive(player, isCover = false) {
     createImpactSparks(ball.x, ball.y, 16, '#10b981');
     if (player.isLocallyControlled) addCoins(1, 'PERFECT ABSORB', player.x, player.y - player.radius * 2);
     pushCallout(player.x, player.y - player.radius * 2 - 15, 'PERFECT ABSORB!!', '#10b981');
+// 🌟 接球高潮閾值：球速必須突破 25 且通過機率檢定，才算神級吸震
+    if (typeof triggerMangaShout === 'function' && ballSpeed > 25.0 && Math.random() < 0.5) {
+      triggerMangaShout(player.playerName, `${player.playerName} 完美卸力接起！！`, '神級一傳吸震！反擊機會來了！', '#10b981');
+    }    }
 
     player.jumpExhaustion = 1.0; player.depressedRallies = 0; player.addEnergy(30);
     proMatchStats[player.slotKey].perfectAbsorbs++;
@@ -667,6 +679,19 @@ function recordTouch(hitter, isBlockTouch = false) {
 function triggerFault(winnerTeam, title, desc) {
   if (banner.active || isSettlementOpen) return;
   playWhistle(true);
+// 🌟 失分與犯規：觸發撕裂感失誤播報
+  const lastHitterName = ball.lastHitter ? (ball.lastHitter.playerName || ball.lastHitter.name) : '球員';
+  if (typeof triggerMangaShout === 'function') {
+    if (desc.includes('DOUBLE')) {
+      triggerMangaShout(lastHitterName, `${lastHitterName} 連觸違例自爆 ...！`, '致命二次觸球！痛失球權！', '#f43f5e');
+    } else if (desc.includes('出界') || desc.includes('OUT')) {
+      triggerMangaShout(lastHitterName, `${lastHitterName} 進攻出界了啊啊啊！`, '用力過猛！球直接飛出場外！', '#f59e0b');
+    } else if (desc.includes('ROOF') || desc.includes('攔死')) {
+      triggerMangaShout(lastHitterName, `${lastHitterName} 被網前徹底死蓋封殺！！`, '絕望的銅牆鐵壁！完全過不去！', '#ec4899');
+    } else if (title.includes('ACE')) {
+      triggerMangaShout(lastHitterName, `${lastHitterName} 無解發球得分 (ACE)！！`, '完全接不住！落地開花！', '#facc15');
+    }
+  }
   banner.winnerTeam = winnerTeam;
   timeSlowTimer = 0; chronoAnimTimer = 0;
   hitStopFrames = 15;
@@ -814,9 +839,17 @@ function openSettlement(winnerSide = 'LEFT') {
         reqExp = getRequiredExp(localInvCard.level);
       }
     }
+// 🌟 結算身分判定：如果是真人操控的格子，優先冠上玩家 ID
+    const slotIdxMap = { user: 0, mate: 1, enemyFront: 2, enemyBack: 3 };
+    const actorPlayer = allPlayers[slotIdxMap[slot]];
+    let ownerName = '';
+    if (actorPlayer && actorPlayer.playerName && actorPlayer.playerName !== card.name) {
+      ownerName = `[${actorPlayer.playerName}] `;
+    }
+
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td style="color: ${card.color}; font-weight: bold; font-size: 11px;">${card.name} ${isMvp ? '👑MVP' : ''} (Lv.${card.level}${levelUp ? '⬆️' : ''})</td>
+      <td style="color: ${card.color}; font-weight: bold; font-size: 11px;">${ownerName}${card.name} ${isMvp ? '👑MVP' : ''} (Lv.${card.level}${levelUp ? '⬆️' : ''})</td>
       <td>${s.totalSpikes}</td>
       <td style="color: #ef4444; font-weight: bold;">${s.spikeKills}</td>
       <td style="color: #10b981; font-weight: bold;">${s.toolOutKills}</td>
@@ -831,8 +864,7 @@ function openSettlement(winnerSide = 'LEFT') {
       <td style="color: #facc15; font-weight: bold;">${s.roofKills}</td>
       <td style="color: #38bdf8; font-weight: bold;">+${finalExp} EXP</td>
     `;
-    tbody.appendChild(tr);
-  }
+    tbody.appendChild(tr);  }
   
   if (isCareerMode && playerWon) {
     const stage = CAREER_STAGES.find(s => s.id === currentCareerStage);
@@ -1164,7 +1196,10 @@ function handleUserAttack(actor) {
       playSound('perfect_spike'); triggerScreenShake(8, 9); createImpactSparks(ball.x, ball.y, 14, '#ef4444');
       pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'PERFECT SPIKE!!', '#ef4444');
       pendingCoinReward = 1; pendingCoinReason = 'PERFECT SPIKE';
-    } else {
+// 🌟 扣球高潮閾值：只有發動技能或速度超過 30 的下釘球才准叫！
+      if (typeof triggerMangaShout === 'function' && (isSkillActivated || effectivePower > 30)) {
+        triggerMangaShout(actor.playerName, `${actor.playerName} 狂暴下釘暴扣！！`, '勢不可擋的雷霆重槌！防線崩塌！', '#ef4444');
+      }    } else {
       ball.vx = actor.facing * (effectivePower * 0.72); ball.vy = 16.5;
       ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = false; ball.armorPiercing = 0; ball.glowColor = null;
       playSound('perfect_spike'); triggerScreenShake(9, 10); createImpactSparks(ball.x, ball.y, 16, '#facc15');
@@ -1534,6 +1569,10 @@ function handlePhysics() {
         if (p.isLocallyControlled) { 
           addCoins(2, 'DIVE SAVE', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
           pushCallout(p.x, p.y - p.radius * 2 - 15, 'SUPER DIVE SAVE!!', '#38bdf8');
+// 🌟 魚躍高潮閾值：地板救球永遠值得大叫！
+        if (typeof triggerMangaShout === 'function') {
+          triggerMangaShout(p.playerName, `${p.playerName} 魚躍極限起球！！`, '不可思議的地面撲救！球還活著！', '#38bdf8');
+        }
         }
       }
     }

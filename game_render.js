@@ -284,13 +284,35 @@ function drawPlayerEntity(player, targetCtx) {
     ? (player.slotIndex === NET.mySlot)
     : player.isUser;
 
+// 🌟 頭頂浮動 ID 膠囊名牌與黃色主控箭頭
+  const displayName = player.playerName || (player.card ? player.card.name : 'Player');
+  targetCtx.save();
+  targetCtx.font = '900 11px -apple-system, sans-serif';
+  const nameWidth = targetCtx.measureText(displayName).width;
+  const tagY = -player.radius * 2 - 14;
+
+  // 膠囊底框
+  targetCtx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+  targetCtx.beginPath();
+  targetCtx.roundRect(-nameWidth / 2 - 6, tagY - 10, nameWidth + 12, 14, 6);
+  targetCtx.fill();
+  targetCtx.strokeStyle = isMyLocalHero ? '#facc15' : (player.isLeft ? '#38bdf8' : '#f43f5e');
+  targetCtx.lineWidth = 1.5;
+  targetCtx.stroke();
+
+  // 玩家文字
+  targetCtx.fillStyle = isMyLocalHero ? '#fef08a' : '#ffffff';
+  targetCtx.textAlign = 'center';
+  targetCtx.fillText(displayName, 0, tagY);
+
   if (isMyLocalHero) {
     targetCtx.fillStyle = '#facc15'; targetCtx.beginPath();
-    targetCtx.moveTo(-7, -player.radius * 2 - 8); targetCtx.lineTo(7, -player.radius * 2 - 8); targetCtx.lineTo(0, -player.radius * 2);
+    targetCtx.moveTo(-5, -player.radius * 2 - 2); targetCtx.lineTo(5, -player.radius * 2 - 2); targetCtx.lineTo(0, -player.radius * 2 + 4);
     targetCtx.fill();
   }
   targetCtx.restore();
 
+  targetCtx.restore();
   drawPlayerStatusEmotes(player, targetCtx);
 
   if (player.swingTimer > 0) {
@@ -681,6 +703,8 @@ function render() {
     drawRadarBubble(p.x, p.y - p.radius, p.color, false, isHero, p.radius);
   });
   if (!isNaN(ball.x) && !isNaN(ball.y)) drawRadarBubble(ball.x, ball.y, '#facc15', true, false, ball.radius);
+// 🌟 右上角熱血播報員：動態撕裂漫畫爆炸框
+  drawMangaBroadcastBox();
 
   // 🌟 得分/出界全域橫幅 (Banner)
   if (banner.active) {
@@ -715,4 +739,84 @@ function render() {
   }
 
   ctx.restore(); // 還原畫布最頂層 save
+}
+// ========================================================
+// 📢 右上角日漫風格撕裂震動爆炸框 (Manga Callout Box)
+// ========================================================
+let mangaPopup = { active: false, timer: 0, text: '', speaker: '', color: '#facc15', sub: '' };
+
+// 🌟 漫畫廣播冷卻計時器：防洗版，每次叫完至少冷卻 10 秒
+let mangaCooldown = 0;
+
+function triggerMangaShout(speaker, text, sub = '', color = '#facc15') {
+  if (mangaCooldown > 0) return; // 冷卻中嚴禁插話
+  mangaPopup = { active: true, timer: 65, speaker, text, sub, color };
+  mangaCooldown = 600; // 鎖定 600 幀
+}
+function drawMangaBroadcastBox() {
+  if (mangaCooldown > 0) mangaCooldown--;
+  if (!mangaPopup.active || mangaPopup.timer <= 0) return;
+  mangaPopup.timer--;
+  ctx.save();
+  // 隨機高頻微幅震動（Jitter / 呀啊啊啊震顫感）
+  const jitterX = (Math.random() - 0.5) * 6;
+  const jitterY = (Math.random() - 0.5) * 6;
+  const cx = 1320 + jitterX, cy = 105 + jitterY;
+  const w = 480, h = 130;
+
+  // 1. 繪製多角尖刺爆炸框 (Jagged Comic Burst)
+  ctx.translate(cx, cy);
+  ctx.beginPath();
+  const spikes = 22, rotOffset = (mangaPopup.timer % 4) * 0.02;
+  for (let i = 0; i < spikes; i++) {
+    const angle = (i / spikes) * Math.PI * 2 + rotOffset;
+    const rOuter = (i % 2 === 0) ? (w / 2 + 18) : (w / 2 - 15);
+    const ryOuter = (i % 2 === 0) ? (h / 2 + 14) : (h / 2 - 10);
+    const px = Math.cos(angle) * rOuter;
+    const py = Math.sin(angle) * ryOuter;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+
+  // 雙層漫畫立體厚邊
+  ctx.fillStyle = '#09090b';
+  ctx.fill();
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = '#000000';
+  ctx.stroke();
+
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = mangaPopup.color;
+  ctx.stroke();
+
+  // 2. 播報員頭銜
+  ctx.fillStyle = '#cbd5e1';
+  ctx.font = '900 13px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`🎙️ LIVE 播報特寫 ⚡`, 0, -h / 2 + 26);
+
+  // 3. 漫畫粗黑傾斜震顫大字
+  ctx.save();
+  ctx.rotate(-0.03);
+  ctx.font = '900 24px "Impact", -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+
+  // 粗黑立體描邊投影
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 6;
+  ctx.strokeText(mangaPopup.text, 0, 8);
+  ctx.fillStyle = mangaPopup.color;
+  ctx.fillText(mangaPopup.text, 0, 8);
+  ctx.restore();
+
+  // 4. 副標題說明
+  if (mangaPopup.sub) {
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(mangaPopup.sub, 0, h / 2 - 22);
+  }
+
+  ctx.restore();
 }
