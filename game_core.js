@@ -795,7 +795,16 @@ function openSettlement(winnerSide = 'LEFT') {
     const finalExp = baseExp + personalBonus;
 
     // 只有本機背包裡的角色才累加 EXP 存檔；電腦臨時物件結算完不寫入存檔
-    const localInvCard = INVENTORY.find(c => c.name === card.name);
+// 🌟 連線模式防串存檔：只有「本機玩家自己出戰操控的角色 (NET.mySlot)」才享有存檔升級加點！
+    let shouldUpdateLocalExp = true;
+    if (typeof NET !== 'undefined' && NET.isMultiplayer) {
+      const mySlotKey = allPlayers[NET.mySlot] ? allPlayers[NET.mySlot].slotKey : 'user';
+      if (slot !== mySlotKey) {
+        shouldUpdateLocalExp = false; // 對手或隊友出的角色，本機背包不存檔、不升級
+      }
+    }
+
+    const localInvCard = shouldUpdateLocalExp ? INVENTORY.find(c => c.id === card.id || c.name === card.name) : null;
     let levelUp = false;
     if (localInvCard) {
       localInvCard.exp += finalExp;
@@ -805,7 +814,6 @@ function openSettlement(winnerSide = 'LEFT') {
         reqExp = getRequiredExp(localInvCard.level);
       }
     }
-
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td style="color: ${card.color}; font-weight: bold; font-size: 11px;">${card.name} ${isMvp ? '👑MVP' : ''} (Lv.${card.level}${levelUp ? '⬆️' : ''})</td>
@@ -957,6 +965,9 @@ window.addEventListener('keyup', (e) => {
   }
 });
 
+// 🌟 記錄訪客上一幀的按鍵狀態（過濾邊緣觸發，杜絕連擊二觸）
+let lastRemoteKeys = {};
+
 // 🌟 通用真人動作執行器 (支援房主本地與遠端訪客按鍵呼叫)
 function executePlayerAction(actor, inputKeys) {
   if (!actor || !inputKeys) return;
@@ -973,6 +984,50 @@ function executePlayerAction(actor, inputKeys) {
   }
 }
 
+// 🌟 專用訪客動作分流器：補齊放開 K 拋球，並只在「剛按下一瞬間」觸發擊球動作
+function executeGuestActionWithEdge(guestPlayer, currentKeys) {
+  if (!guestPlayer || !currentKeys) return;
+
+  const justPressed = {};
+  const justReleased = {};
+  const checkKeys = ['w', 'a', 's', 'd', 'j', 'k', 'l', 'o', 'space'];
+  
+  for (let k of checkKeys) {
+    if (currentKeys[k] && !lastRemoteKeys[k]) justPressed[k] = true;
+    if (!currentKeys[k] && lastRemoteKeys[k]) justReleased[k] = true;
+  }
+  lastRemoteKeys = { ...currentKeys };
+
+  // 發球階段
+  if (serveState.active && serveState.currentServer === guestPlayer) {
+    if (justPressed['k'] && !serveState.tossed) {
+      serveState.charging = true; // 開始蓄力
+    }
+    // 🌟 解決訪客 K 丟不出去：只要訪客放開 K，房主立刻結算拋球！
+    if (justReleased['k'] && serveState.charging && !serveState.tossed) {
+      serveState.charging = false;
+      serveState.tossed = true;
+      const pRatio = Math.max(0.35, serveState.chargePower / 100);
+      ball.vx = guestPlayer.isLeft ? 1.0 : -1.0;
+      ball.vy = guestPlayer.stats.jump * (0.80 + pRatio * 0.65);
+      playSound('set');
+      statusSubtext.innerText = '高拋完成！助跑 ➔ [W+J] 跳發暴扣 或 [W+L] 跳飄！';
+    }
+    if (justPressed['j'] && serveState.tossed) handleServeSpike(guestPlayer);
+    if (justPressed['l'] && serveState.tossed) handleServeFloat(guestPlayer);
+  } 
+  // 常規攻防階段：嚴格只在剛按下的那一幀 (justPressed) 觸發一次，徹底消滅二觸！
+  else if (!serveState.active) {
+    if (justPressed['space']) guestPlayer.triggerBlock();
+    if (justPressed['j']) handleUserAttack(guestPlayer);
+    if (justPressed['l']) { 
+      if (!guestPlayer.isGrounded) handleUserThrust(guestPlayer); 
+      else guestPlayer.dive(); 
+    }
+    if (justPressed['k']) handleUserBump(guestPlayer);
+    if (justPressed['o']) handleUserSet(guestPlayer);
+  }
+}
 function getDist(p, b = ball) {
   if (isNaN(b.x) || isNaN(b.y)) return 99999;
   const px = p.isDiving ? p.x + p.facing * 18 : p.x;
@@ -1600,8 +1655,8 @@ function fixedUpdate() {
       if (rk['d']) { guestPlayer.vx = forwardDir * guestPlayer.effectiveSpeed; guestPlayer.facing = forwardDir; }
       if (rk['w']) guestPlayer.jump();
       
-      // 🌟 訪客按鍵呼叫同款玩家操作邏輯
-      executePlayerAction(guestPlayer, rk);
+// 🌟 訪客按鍵呼叫防二觸與邊緣判定分流器
+      executeGuestActionWithEdge(guestPlayer, rk);
     } else {
       if (NET.conn && NET.conn.open) {
         NET.conn.send({ type: 'INPUT', keys: keys });
@@ -1755,3 +1810,33 @@ loadGameData();
 allPlayers.forEach(p => p.rebind(true));
 updateSideUltHUD();
 requestAnimationFrame(mainLoop);
+// 🌟 解決切視窗/分頁時間凍結：使用不受背景降頻限制的 Web Worker 維持 60FPS 連線心跳
+const bgHeartbeatBlob = new Blob([`
+  let bgTimer = null;
+  self.onmessage = function(e) {
+    if (e.data === 'start') {
+      if (!bgTimer) bgTimer = setInterval(() => self.postMessage('tick'), 1000 / 60);
+    } else if (e.data === 'stop') {
+      clearInterval(bgTimer);
+      bgTimer = null;
+    }
+  };
+`], { type: 'application/javascript' });
+
+const bgHeartbeat = new Worker(URL.createObjectURL(bgHeartbeatBlob));
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    bgHeartbeat.postMessage('start');
+  } else {
+    bgHeartbeat.postMessage('stop');
+  }
+});
+
+bgHeartbeat.onmessage = function(e) {
+  if (e.data === 'tick' && document.hidden) {
+    if (!isPaused && !isSettlementOpen && isGameStarted) {
+      fixedUpdate(); // 房主切去其他分頁，遊戲物理與廣播依然正常跑！
+    }
+  }
+};
