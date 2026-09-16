@@ -34,7 +34,8 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
   const actor = (timeA <= timeB) ? pA : pB;
   const partner = (actor === pA) ? pB : pA;
 
-  if (actor.reactionTimer > 0) return;
+// 🌟 若 AI 正在承受重扣震退硬直中，大腦暫停尋路與操作，乖乖被推後滑行！
+  if (actor.reactionTimer > 0 || (typeof actor.stunTimer !== 'undefined' && actor.stunTimer > 0)) return;
 
   let skillNoise = 0;
   if (ball.isSineFloat) skillNoise = Math.sin(gameFrame * 0.25) * 45;

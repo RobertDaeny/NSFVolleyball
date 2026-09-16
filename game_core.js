@@ -82,9 +82,9 @@ class Player {
     this.mudDebuffTimer = 0; this.softWallRallies = 0;
     this.godspeedCharges = 0; this.greaseDebuffRallies = 0;
     this.ghostTrail = [];
+this.stunTimer = 0; // 🌟 接收重扣後的地面僵直時間 (幀)
     this.rebind(false);
   }
-
   get isLocallyControlled() {
     return (typeof NET !== 'undefined') ? (this.slotIndex === NET.mySlot) : (this.slotIndex === 0);
   }
@@ -202,6 +202,12 @@ dive() {
     if (this.despairTimer > 0) this.despairTimer--;
     if (this.recheckDelay > 0) this.recheckDelay--;
     if (this.mudDebuffTimer > 0) this.mudDebuffTimer--;
+
+// 🌟 處理被重扣震退時的硬直與地板滑行摩擦力
+    if (this.stunTimer > 0) {
+      this.stunTimer--;
+      this.vx *= 0.82; // 每幀迅速衰減，向後滑行 20~30 像素後平穩煞車
+    }
 
     if (this.isGrounded) {
       if (Math.abs(this.vx) < 0.1) this.jumpExhaustion = Math.min(1.0, this.jumpExhaustion + 0.0035);
@@ -461,7 +467,9 @@ function executePlayerTimingReceive(player, isCover = false) {
   if (ball.isPhantomDrop) extraDefPenalty += 16.0; 
   if (player.greaseDebuffRallies > 0) extraDefPenalty += 8.0;
 
-  const isOpponentBall = ball.lastHitter && (ball.lastHitter.isLeft !== player.isLeft);
+// 🌟 修正：因為 recordTouch 剛把 lastHitter 改成自己，所以只要前一擊或不是自接，就是對手的來球！
+  const isOpponentBall = (typeof match.lastTouchFrame !== 'undefined') && (!player.hasBlockSelfHitPrivilege);
+
 
   if (isOpponentBall && ball.greaseCharges > 0) {
     ball.greaseCharges--;
@@ -482,6 +490,26 @@ let baseDef = player.stats.defense;
 
   const effectiveDef = Math.max(0, baseDef - extraDefPenalty);
   proMatchStats[player.slotKey].totalReceives++;
+
+// 🌟 只有「站立接球 (K 鍵)」且「對方打過來的球」才計算震退，L 魚躍 (isDiving) 嚴格排除！
+  if (!player.isDiving && isOpponentBall) {
+    // 🌟 跳發暴扣額外帶有下墜衝擊力，彌補長途飛行造成的球速衰減
+    let extraServePressure = (ball.isSpiked && match.inServeRally) ? 3.5 : 0;
+    const pressure = Math.max(0, (ballSpeed * 0.95 + extraServePressure) - effectiveDef);
+    
+    // 🌟 門檻由 2.5 下調至 0.5，讓有助跑的優質重扣與跳發能穩定打出震退！
+    if (pressure > 0.5) {
+      const kbReduction = (typeof player.hasKnockbackResist !== 'undefined' && player.hasKnockbackResist) ? 0.75 : 1.0;
+      const pushDir = ball.vx > 0 ? 1 : -1;
+      
+      // 初速度與硬直時間隨壓迫值平滑漸進 (微震退 ~ 大震退)
+      player.vx = pushDir * Math.min(7.5, 2.5 + pressure * 0.5) * kbReduction;
+      player.stunTimer = Math.floor(Math.min(50, 24 + pressure * 3.0) * kbReduction);
+
+      createImpactSparks(player.x, WORLD.FLOOR_Y, 6, '#f97316');
+      triggerScreenShake(3, 4);
+    }
+  }
 
   if (isCover) {
     proMatchStats[player.slotKey].coverSaves++;
@@ -520,6 +548,23 @@ let baseDef = player.stats.defense;
     createImpactSparks(ball.x, ball.y, 16, '#10b981');
     if (player.isLocallyControlled) addCoins(1, 'PERFECT ABSORB', player.x, player.y - player.radius * 2);
     pushCallout(player.x, player.y - player.radius * 2 - 15, 'PERFECT ABSORB!!', '#10b981');
+
+if (!player.isDiving && isOpponentBall) {
+      // 只要對面球速超過 16.0，即使完美吸震也享有真實後座力位移
+      if (ballSpeed > 16.0) {
+        const kbReduction = (typeof player.hasKnockbackResist !== 'undefined' && player.hasKnockbackResist) ? 0.75 : 1.0;
+        const pushDir = -player.facing; // 朝身後方向倒退
+        
+        // 完美吸震受力較穩：後退初速 3.0 ~ 5.5 px/f，硬直僅 18 ~ 26 幀 (約 0.3~0.4 秒)
+        const perfPressure = (ballSpeed - 16.0) * 0.45;
+        player.vx = pushDir * Math.min(5.5, 2.5 + perfPressure) * kbReduction;
+        player.stunTimer = Math.floor(Math.min(26, 18 + perfPressure * 1.5) * kbReduction);
+
+        createImpactSparks(player.x, WORLD.FLOOR_Y, 8, '#10b981'); // 腳底噴發綠色卸力摩擦火花
+        triggerScreenShake(3, 4); // 扎實手感震顫
+      }
+    }
+
 // 🌟 接球高潮閾值：球速必須突破 25 且通過機率檢定，才算神級吸震
     if (typeof triggerMangaShout === 'function' && ballSpeed > 25.0 && Math.random() < 0.5) {
       triggerMangaShout(player.playerName, `${player.playerName} 完美卸力接起！！`, '神級一傳吸震！反擊機會來了！', '#10b981');
@@ -1852,15 +1897,18 @@ if (NET.conn && NET.conn.open) {
 
 // 🌟 本機玩家移動（支援自定義鍵與 Space/W 雙跳躍）
   const myPlayer = allPlayers[NET.mySlot] || userPlayer;
-  myPlayer.vx = 0;
-  const isLeftPress = keys[KEY_BINDS.left];
-  const isRightPress = keys[KEY_BINDS.right];
-  const isJumpPress = keys[KEY_BINDS.jump] || (KEY_BINDS.jumpAlt && keys[KEY_BINDS.jumpAlt]) || keys['w'];
 
-  if (isLeftPress) { myPlayer.vx = -myPlayer.effectiveSpeed; myPlayer.facing = -1; }
-  if (isRightPress) { myPlayer.vx = myPlayer.effectiveSpeed; myPlayer.facing = 1; }
-  if (isJumpPress) myPlayer.jump();
+  // 🌟 核心約束：只要還在接重扣硬直中 (stunTimer > 0)，禁止任何按鍵操控，讓後退滑行完整跑完！
+  if (myPlayer.stunTimer <= 0) {
+    myPlayer.vx = 0;
+    const isLeftPress = keys[KEY_BINDS.left];
+    const isRightPress = keys[KEY_BINDS.right];
+    const isJumpPress = keys[KEY_BINDS.jump] || (KEY_BINDS.jumpAlt && keys[KEY_BINDS.jumpAlt]) || keys['w'];
 
+    if (isLeftPress) { myPlayer.vx = -myPlayer.effectiveSpeed; myPlayer.facing = -1; }
+    if (isRightPress) { myPlayer.vx = myPlayer.effectiveSpeed; myPlayer.facing = 1; }
+    if (isJumpPress) myPlayer.jump();
+  }
   // 處理 K 鍵緩衝檢定
   if (receiveInputBuffer > 0) {
     receiveInputBuffer--;
