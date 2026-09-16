@@ -144,6 +144,7 @@ rebind(triggerHUD = true) {
     this.card = ACTIVE_ROSTER[this.slotKey];
     this.color = this.card.color; this.name = this.card.name;
     this.stats = deriveStats(this.card);
+this.highestRank3Tier = (this.card && this.card.highestRank3Tier) ? this.card.highestRank3Tier : null;
 
     // 🌟 角色身分 ID 綁定：本機主控帶入 Firebase 帳號，其他格帶入角色卡名
     const cloudName = (typeof currentCloudUser !== 'undefined' && currentCloudUser) ? currentCloudUser : '我方主控';
@@ -261,14 +262,30 @@ dive() {
       this.wantsToBlock = false; this.isBlocking = false; this.jumpStartX = this.x;
     }
 
-    if (serveState.active) {
-      const isServer = (serveState.currentServer === this);
+if (serveState.active) {
+      // 🌟 發球期：改用 slotIndex 比對
+      const isServer = (serveState.currentServer && serveState.currentServer.slotIndex === this.slotIndex);
+
       if (isServer) {
-        if (this.isGrounded) {
+        // 發球員：底線外自由走動與退後助跑
+        if (this.isLeft) {
+          if (this.x < 50) this.x = 50;
+          if (this.x > WORLD.LEFT - 10 && this.isGrounded && !serveState.tossed) {
+            this.x = WORLD.LEFT - 10;
+          }
+        } else {
+          if (this.x > WORLD.WIDTH - 50) this.x = WORLD.WIDTH - 50;
+          if (this.x < WORLD.RIGHT + 10 && this.isGrounded && !serveState.tossed) {
+            this.x = WORLD.RIGHT + 10;
+          }
+        }
+
+        if (this.isGrounded && serveState.tossed) {
           const isSteppedIn = this.isLeft ? (this.x >= WORLD.LEFT) : (this.x <= WORLD.RIGHT);
-          if (isSteppedIn) triggerFault(this.isLeft ? 'RIGHT' : 'LEFT', 'FOOT FAULT!!', '發球員地面踩線違例');
+          if (isSteppedIn) triggerFault(this.isLeft ? 'RIGHT' : 'LEFT', 'FOOT FAULT!!', '發球未擊球前落地踩線進場');
         }
       } else {
+        // 非發球員留守場內
         if (this.isLeft) {
           if (this.x < WORLD.LEFT + this.radius) this.x = WORLD.LEFT + this.radius;
           if (this.x > WORLD.NET_X - this.radius - 8) this.x = WORLD.NET_X - this.radius - 8;
@@ -278,10 +295,13 @@ dive() {
         }
       }
     } else {
+      // 🌟🌟🌟 補回遺失的「常規對戰期球網剛體與邊界空氣牆」！
       if (this.isLeft) {
         if (this.x < 50) this.x = 50;
+        // 左隊絕對禁止穿過球網中線：
         if (this.x > WORLD.NET_X - this.radius - 8) this.x = WORLD.NET_X - this.radius - 8;
       } else {
+        // 右隊絕對禁止穿過球網中線：
         if (this.x < WORLD.NET_X + this.radius + 8) this.x = WORLD.NET_X + this.radius + 8;
         if (this.x > WORLD.WIDTH - 50) this.x = WORLD.WIDTH - 50;
       }
@@ -424,6 +444,14 @@ const ball = {
       : serveState.currentServer.isLocallyControlled;
 
     serveState.aiServeTimer = !isHumanServer ? 75 : 0;
+// 🌟🌟🌟 就貼在這裡！房主決定發球員後，立刻發封包通知訪客「換誰發球」
+    if (typeof NET !== 'undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
+      NET.conn.send({
+        type: 'SERVE_START_SYNC',
+        serverSlot: serveState.currentServer.slotIndex,
+        servingTeam: match.currentServingTeam
+      });
+    }
   }
 };
 
@@ -449,12 +477,21 @@ function broadcastMangaShout(speaker, text, sub = '', color = '#facc15') {
 
 function triggerCoinPopup(x, y, amount) { playSound('coin'); coinPopups.push({ x, y: y - 35, amount, timer: 50, maxTimer: 50 }); }
 function triggerHalo(player, color, isTimingThreeState = false) {
-  if (!player.isLeft) return; 
+  if (!player) return;
   haloEffects.push({
     player, color, r: player.radius * 0.8,
-    maxR: player.radius * (isTimingThreeState ? 2.2 : 1.7),
-    alpha: 1.0, isTimingThreeState, life: isTimingThreeState ? 18 : 14, maxLife: isTimingThreeState ? 18 : 14
+    maxR: player.radius * (isTimingThreeState ? 2.4 : 1.8),
+    alpha: 1.0, isTimingThreeState, life: isTimingThreeState ? 20 : 16, maxLife: isTimingThreeState ? 20 : 16
   });
+
+  if (typeof NET !== 'undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
+    NET.conn.send({
+      type: 'HALO_SYNC',
+      slotIndex: player.slotIndex,
+      color: color,
+      isTimingThreeState: isTimingThreeState
+    });
+  }
 }
 
 function executePlayerTimingReceive(player, isCover = false) {
@@ -767,43 +804,40 @@ function recordTouch(hitter, isBlockTouch = false) {
 function triggerFault(winnerTeam, title, desc) {
   if (banner.active || isSettlementOpen) return;
   playWhistle(true);
-// 🌟 沿用 Banner 判決邏輯：精準區分 Touch Out、暴扣得分與真實失誤
-  if (typeof triggerMangaShout === 'function') {
+// 🌟 沿用 Banner 判決邏輯：全面走廣播通道，徹底閉環同步給訪客端！
+  if (typeof broadcastMangaShout === 'function') {
     const isTouchOut = desc.includes('TOUCH OUT');
     const isAce = title.includes('ACE');
     const isRoof = desc.includes('ROOF') || desc.includes('攔死');
     const isDouble = desc.includes('DOUBLE');
     const isNetFault = desc.includes('NET') || desc.includes('觸網') || desc.includes('踩線');
 
-    // 找出得分方主攻手與失分球員身分
     const hitter = ball.lastHitter;
     const hitterName = hitter ? (hitter.playerName || hitter.name) : '球員';
 
     if (isDouble) {
-      triggerMangaShout(hitterName, `${hitterName} 連觸違例自爆 ...！`, '致命二次觸球！痛失球權！', '#f43f5e');
+      broadcastMangaShout(hitterName, `${hitterName} 連觸違例自爆 ...！`, '致命二次觸球！痛失球權！', '#f43f5e');
     } else if (isNetFault) {
-      triggerMangaShout(hitterName, `${hitterName} 嚴重違例失誤！`, '痛失寶貴比分！', '#f43f5e');
+      broadcastMangaShout(hitterName, `${hitterName} 嚴重違例失誤！`, '痛失寶貴比分！', '#f43f5e');
     } else if (isRoof) {
-      triggerMangaShout(hitterName, `${hitterName} 被網前徹底死蓋封殺！！`, '絕望的銅牆鐵壁！無情下釘！', '#ec4899');
+      broadcastMangaShout(hitterName, `${hitterName} 被網前徹底死蓋封殺！！`, '絕望的銅牆鐵壁！無情下釘！', '#ec4899');
     } else if (isAce) {
-      triggerMangaShout(hitterName, `${hitterName} 破壞性發球得分 (ACE)！！`, '完全無法防守！直接開花！', '#facc15');
+      broadcastMangaShout(hitterName, `${hitterName} 破壞性發球得分 (ACE)！！`, '完全無法防守！直接開花！', '#facc15');
     } else if (isTouchOut) {
-      // 🌟 徹底解決接噴誤判：這是「防守方接噴彈出場外」，對攻方而言是神級打手出界得分！
       const winnerSidePlayers = (winnerTeam === 'LEFT') ? [allPlayers[0], allPlayers[1]] : [allPlayers[2], allPlayers[3]];
       const attacker = winnerSidePlayers.find(p => p.swingTimer > 0 || p.thrustTimer > 0) || winnerSidePlayers[0];
       const attackerName = attacker.playerName || attacker.name;
-      triggerMangaShout(attackerName, `${attackerName} 打手出界得分 (TOUCH OUT)！！`, `${hitterName} 接球震飛出場！精妙造打手！`, '#10b981');
+      broadcastMangaShout(attackerName, `${attackerName} 打手出界得分 (TOUCH OUT)！！`, `${hitterName} 接球震飛出場！精妙造打手！`, '#10b981');
     } else if (title.includes('SPIKE') || title.includes('IN')) {
-      // 純進攻界內扣殺得分
       const winnerSidePlayers = (winnerTeam === 'LEFT') ? [allPlayers[0], allPlayers[1]] : [allPlayers[2], allPlayers[3]];
       const attacker = winnerSidePlayers.find(p => p.swingTimer > 0 || p.thrustTimer > 0) || winnerSidePlayers[0];
       const attackerName = attacker.playerName || attacker.name;
-      triggerMangaShout(attackerName, `${attackerName} 強力暴扣直接落地得分！！`, '勢不可擋！乾淨俐落釘地板！', '#38bdf8');
+      broadcastMangaShout(attackerName, `${attackerName} 強力暴扣直接落地得分！！`, '勢不可擋！乾淨俐落釘地板！', '#38bdf8');
     } else if (desc.includes('出界') || title.includes('OUT')) {
-      // 真正的無人觸球「自己打飛出界」
-      triggerMangaShout(hitterName, `${hitterName} 進攻出界了啊啊啊！`, '用力過猛！球直接飛出場外！', '#f59e0b');
+      broadcastMangaShout(hitterName, `${hitterName} 進攻出界了啊啊啊！`, '用力過猛！球直接飛出場外！', '#f59e0b');
     }
   }
+
   banner.winnerTeam = winnerTeam;
   timeSlowTimer = 0; chronoAnimTimer = 0;
   hitStopFrames = 15;
@@ -1524,6 +1558,24 @@ function moveTowards(char, targetX, speed) {
   else { char.vx = 0; }
 }
 
+// 🌟 專供訪客客戶端獨立運行的微粒動畫與銷毀器
+function updateVisualEffectsOnly() {
+  for (let i = visualEffects.length - 1; i >= 0; i--) {
+    const fx = visualEffects[i];
+    if (fx.type === 'shockwave') {
+      fx.radius += 5.5; fx.alpha -= 0.08; if (fx.alpha <= 0) visualEffects.splice(i, 1);
+    } else if (fx.type === 'spark') {
+      fx.x += fx.vx; fx.y += fx.vy; fx.life--; if (fx.life <= 0) visualEffects.splice(i, 1);
+    } else if (fx.type === 'mud_drop') {
+      fx.x += fx.vx; fx.y += fx.vy; fx.vy += 0.25; fx.life--;
+      if (fx.life <= 0 || fx.y >= WORLD.FLOOR_Y) visualEffects.splice(i, 1);
+    } else if (fx.type === 'skin_mote') {
+      fx.x += fx.vx; fx.y += fx.vy; fx.life--;
+      if (fx.life <= 0) visualEffects.splice(i, 1);
+    }
+  }
+}
+
 function handlePhysics() {
   if (banner.active || isSettlementOpen) {
     if (banner.active) {
@@ -1860,13 +1912,21 @@ function createMudSplash(x, y, count = 10) {
 
 // 🌟 套用網路同步封包 (包含狀態機、Banner 與浮動文字)
 function applyWorldSync(data) {
-  // 🌟 客戶端球體平滑：保留原本狀態標籤，但座標採用微插值過渡，撫平掉幀抖動
+  // 1. 同步發球狀態與發球員身分
+  if (data.serveInfo) {
+    serveState.active = data.serveInfo.active;
+    serveState.tossed = data.serveInfo.tossed;
+    serveState.charging = data.serveInfo.charging;
+    if (allPlayers[data.serveInfo.serverSlot]) {
+      serveState.currentServer = allPlayers[data.serveInfo.serverSlot];
+    }
+  }
+
+  // 2. 球體平滑
   const snapDist = Math.hypot(ball.x - data.ball.x, ball.y - data.ball.y);
   if (snapDist > 250 || serveState.active) {
-    // 瞬移或發球重置時直接瞬移對齊
     Object.assign(ball, data.ball);
   } else {
-    // 平時用 0.85 比例柔和逼近，消除肉眼微跳頓
     ball.x += (data.ball.x - ball.x) * 0.85;
     ball.y += (data.ball.y - ball.y) * 0.85;
     ball.vx = data.ball.vx;
@@ -1884,6 +1944,12 @@ function applyWorldSync(data) {
   score.enemy = data.score.enemy;
   scoreDisplay.innerText = `${score.player} : ${score.enemy}`;
 
+  if (data.chrono) {
+    timeSlowTimer = data.chrono.timeSlowTimer;
+    chronoAnimTimer = data.chrono.chronoAnimTimer;
+    chronoCasterSide = data.chrono.chronoCasterSide;
+  }
+
   if (data.banner) {
     Object.assign(banner, data.banner);
     const myIsLeft = (NET.mySlot === 0 || NET.mySlot === 1);
@@ -1891,14 +1957,13 @@ function applyWorldSync(data) {
     banner.color = amIWinner ? '#38bdf8' : '#f43f5e';
   }
 
-data.players.forEach((pData, idx) => {
+  data.players.forEach((pData, idx) => {
     if (allPlayers[idx]) {
-      // 🌟 同步 ID 姓名：非本機控制的角色，採用遠端傳來的名字
       if (idx !== NET.mySlot && pData.playerName) {
         allPlayers[idx].playerName = pData.playerName;
       }
 
-if (idx === NET.mySlot) {
+      if (idx === NET.mySlot) {
         allPlayers[idx].energy = pData.energy;
         allPlayers[idx].jumpExhaustion = pData.jumpExhaustion;
         allPlayers[idx].isBlocking = pData.isBlocking;
@@ -1909,15 +1974,18 @@ if (idx === NET.mySlot) {
         allPlayers[idx].godspeedCharges = pData.godspeedCharges;
         allPlayers[idx].greaseDebuffRallies = pData.greaseDebuffRallies;
 
-        // 🌟 修復核心：若處於發球狀態，禁止本地預測拉扯，強制鎖定房主端座標！
-        if (typeof serveState !== 'undefined' && serveState.active) {
+        // 🌟 只在靜止待命且玩家未按移動鍵時對齊，助跑與跳發不干擾
+        const isStationaryPrep = (serveState.active && !serveState.tossed && !serveState.charging);
+        const isPressingMove = keys[KEY_BINDS.left] || keys[KEY_BINDS.right] || keys['a'] || keys['d'];
+
+        if (isStationaryPrep && !isPressingMove) {
           allPlayers[idx].x = pData.x;
           allPlayers[idx].y = pData.y;
           allPlayers[idx].vx = 0;
           allPlayers[idx].vy = 0;
-        } else if (Math.hypot(allPlayers[idx].x - pData.x, allPlayers[idx].y - pData.y) > 40) {
-          allPlayers[idx].x += (pData.x - allPlayers[idx].x) * 0.3;
-          allPlayers[idx].y += (pData.y - allPlayers[idx].y) * 0.3;
+        } else if (Math.hypot(allPlayers[idx].x - pData.x, allPlayers[idx].y - pData.y) > 50) {
+          allPlayers[idx].x += (pData.x - allPlayers[idx].x) * 0.25;
+          allPlayers[idx].y += (pData.y - allPlayers[idx].y) * 0.25;
         }
       } else {
         Object.assign(allPlayers[idx], pData);
@@ -1933,8 +2001,14 @@ function fixedUpdate() {
   if (typeof NET !== 'undefined' && NET.isMultiplayer) {
     if (NET.isHost) {
       if (NET.conn && NET.conn.open) {
-        NET.conn.send({
+NET.conn.send({
           type: 'STATE_SYNC',
+          serveInfo: {
+            active: serveState.active,
+            serverSlot: serveState.currentServer ? serveState.currentServer.slotIndex : 0,
+            tossed: serveState.tossed,
+            charging: serveState.charging
+          },
           ball: {
             x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, rotation: ball.rotation,
             opacity: ball.opacity, glowColor: ball.glowColor, isSpiked: ball.isSpiked,
@@ -1942,11 +2016,13 @@ function fixedUpdate() {
           },
           score: score,
           banner: { active: banner.active, timer: banner.timer, mainText: banner.mainText, subText: banner.subText, color: banner.color, winnerTeam: banner.winnerTeam },
-players: allPlayers.map(p => ({
+          chrono: { timeSlowTimer, chronoAnimTimer, chronoCasterSide },
+          players: allPlayers.map(p => ({
             x: p.x, y: p.y, vx: p.vx, vy: p.vy, facing: p.facing,
             playerName: p.playerName || p.name,
             squashX: p.squashX, squashY: p.squashY, isDiving: p.isDiving,
-            isBlocking: p.isBlocking, energy: p.energy, jumpExhaustion: p.jumpExhaustion,
+            isBlocking: p.isBlocking, swingTimer: p.swingTimer, thrustTimer: p.thrustTimer,
+            energy: p.energy, jumpExhaustion: p.jumpExhaustion,
             depressedRallies: p.depressedRallies, excitedRallies: p.excitedRallies,
             mudDebuffTimer: p.mudDebuffTimer, softWallRallies: p.softWallRallies,
             godspeedCharges: p.godspeedCharges, greaseDebuffRallies: p.greaseDebuffRallies
@@ -1979,12 +2055,16 @@ if (NET.conn && NET.conn.open) {
         myHero.vx = 0;
         if (keys['a']) { myHero.vx = -forwardDir * myHero.effectiveSpeed; myHero.facing = -forwardDir; }
         if (keys['d']) { myHero.vx = forwardDir * myHero.effectiveSpeed; myHero.facing = forwardDir; }
-        if (keys['w']) myHero.jump();
+if (keys['w']) myHero.jump();
+        if (keys[KEY_BINDS.thrust] && myHero.isGrounded && !myHero.isDiving) myHero.dive();
         myHero.update();
       }
 
-      camera.update(ball);
-      return;    }
+camera.update(ball);
+      // 🌟 訪客雖然不跑本機實體物理，但必須維持視覺特效 (VFX) 的生命週期倒數，防止粒子黏在畫面上！
+      updateVisualEffectsOnly();
+      return;
+    }
   }
 
 // 🌟 本機玩家移動（支援自定義鍵與 Space/W 雙跳躍）

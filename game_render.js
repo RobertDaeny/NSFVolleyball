@@ -84,14 +84,21 @@ const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e =
   targetCtx.stroke();
   targetCtx.shadowBlur = 0;
 
-  if (player.isBlocking) {
+if (player.isBlocking) {
     targetCtx.save();
-    targetCtx.strokeStyle = '#facc15'; targetCtx.lineWidth = 6; targetCtx.beginPath();
-    const hx = player.isLeft ? 15 : -15;
-    targetCtx.moveTo(hx, -player.radius * 2); targetCtx.lineTo(hx, -player.radius * 2 - 20); targetCtx.stroke();
+    targetCtx.strokeStyle = '#facc15';
+    targetCtx.lineWidth = 8;
+    targetCtx.shadowColor = '#facc15';
+    targetCtx.shadowBlur = 16;
     targetCtx.beginPath();
-    targetCtx.arc(hx, -player.radius * 2 - 10, 18, -Math.PI * 0.45, Math.PI * 0.45, !player.isLeft);
-    targetCtx.stroke(); targetCtx.restore();
+    const hx = player.isLeft ? 16 : -16;
+    targetCtx.moveTo(hx, -player.radius * 2 + 5);
+    targetCtx.lineTo(hx, -player.radius * 2 - 25);
+    targetCtx.stroke();
+    targetCtx.beginPath();
+    targetCtx.arc(hx, -player.radius * 2 - 10, 22, -Math.PI * 0.5, Math.PI * 0.5, !player.isLeft);
+    targetCtx.stroke();
+    targetCtx.restore();
   }
 
   // 3. 臉部五官與配件 (原邏輯完整保留)...

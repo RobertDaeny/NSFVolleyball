@@ -777,16 +777,32 @@ function confirmNetPrepReady() {
   const myCharObj = INVENTORY.find(c => c.id === myCharId) || INVENTORY[0];
   const mateCharObj = INVENTORY.find(c => c.id === mateCharId) || INVENTORY[1];
 
-const payload = {
+// 🌟 計算當前角色最高三階階級，直接打包傳送
+  const getRank3Tier = (c) => {
+    let t = null;
+    [c.equipSlotA, c.equipSlotB].forEach(id => {
+      const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e => e.instanceId === id) : null;
+      if (eq && eq.rank >= 3) {
+        if (eq.tier === 'SSR') t = 'SSR';
+        else if (eq.tier === 'SR' && t !== 'SSR') t = 'SR';
+        else if (eq.tier === 'R' && !t) t = 'R';
+      }
+    });
+    return t;
+  };
+
+  const payload = {
     type: 'READY_CHECK',
     ready: true,
     p1: { 
       name: myCharObj.name, color: myCharObj.color, stats: myCharObj.stats, skillId: mySkillId, 
-      cosmetics: myCharObj.cosmetics, equipSlotA: myCharObj.equipSlotA, equipSlotB: myCharObj.equipSlotB 
+      cosmetics: myCharObj.cosmetics, 
+      highestRank3Tier: getRank3Tier(myCharObj)
     },
     p2: (NET.mode === 'PVP') ? { 
       name: mateCharObj.name, color: mateCharObj.color, stats: mateCharObj.stats, skillId: mateSkillId, 
-      cosmetics: mateCharObj.cosmetics, equipSlotA: mateCharObj.equipSlotA, equipSlotB: mateCharObj.equipSlotB 
+      cosmetics: mateCharObj.cosmetics, 
+      highestRank3Tier: getRank3Tier(mateCharObj)
     } : null
   };
 
@@ -816,20 +832,20 @@ function handleRemoteReady(data) {
 
 if (NET.isHost) {
     if (NET.mode === 'COOP') {
-      ACTIVE_ROSTER.mate = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, equipSlotA: data.p1.equipSlotA, equipSlotB: data.p1.equipSlotB };
+      ACTIVE_ROSTER.mate = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, highestRank3Tier: data.p1.highestRank3Tier };
     } else {
-      ACTIVE_ROSTER.enemyFront = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, equipSlotA: data.p1.equipSlotA, equipSlotB: data.p1.equipSlotB };
+      ACTIVE_ROSTER.enemyFront = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, highestRank3Tier: data.p1.highestRank3Tier };
       if (data.p2) {
-        ACTIVE_ROSTER.enemyBack = { id: 'remote_guest_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics, equipSlotA: data.p2.equipSlotA, equipSlotB: data.p2.equipSlotB };
+        ACTIVE_ROSTER.enemyBack = { id: 'remote_guest_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics, highestRank3Tier: data.p2.highestRank3Tier };
       }
     }
   } else {
     if (NET.mode === 'COOP') {
-      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, equipSlotA: data.p1.equipSlotA, equipSlotB: data.p1.equipSlotB };
+      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, highestRank3Tier: data.p1.highestRank3Tier };
     } else {
-      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, equipSlotA: data.p1.equipSlotA, equipSlotB: data.p1.equipSlotB };
+      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, highestRank3Tier: data.p1.highestRank3Tier };
       if (data.p2) {
-        ACTIVE_ROSTER.mate = { id: 'remote_host_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics, equipSlotA: data.p2.equipSlotA, equipSlotB: data.p2.equipSlotB };
+        ACTIVE_ROSTER.mate = { id: 'remote_host_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics, highestRank3Tier: data.p2.highestRank3Tier };
       }
     }
   }
@@ -1014,6 +1030,35 @@ function setupDataConnection() {
       // 🌟 房主發送獎勵給訪客
       if (data.targetSlot === NET.mySlot && typeof addCoins === 'function') {
         addCoins(data.amount, data.desc, data.x, data.y);
+      }
+    
+} else if (data.type === 'SERVE_START_SYNC') {
+      if (typeof serveState !== 'undefined') {
+        serveState.active = true;
+        serveState.tossed = false;
+        serveState.charging = false;
+        serveState.chargePower = 0;
+        if (allPlayers[data.serverSlot]) {
+          serveState.currentServer = allPlayers[data.serverSlot];
+        }
+      }
+      if (typeof match !== 'undefined') {
+        match.currentServingTeam = data.servingTeam;
+        match.inServeRally = true;
+      }
+    } else if (data.type === 'HALO_SYNC') {
+      const targetP = allPlayers[data.slotIndex];
+      if (targetP && typeof haloEffects !== 'undefined') {
+        haloEffects.push({
+          player: targetP,
+          color: data.color,
+          r: targetP.radius * 0.8,
+          maxR: targetP.radius * (data.isTimingThreeState ? 2.4 : 1.8),
+          alpha: 1.0,
+          isTimingThreeState: data.isTimingThreeState,
+          life: data.isTimingThreeState ? 20 : 16,
+          maxLife: data.isTimingThreeState ? 20 : 16
+        });
       }
     } else if (data.type === 'LOBBY_SELECT_UPDATE') {
       handleRemoteLobbyUpdate(data);
