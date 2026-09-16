@@ -541,9 +541,9 @@
   </div>
 </div>
 
-<!-- 🎰 轉蛋專區 (GACHA ARCADE) -->
+<!-- 🎰 轉蛋專區 (GACHA ARCADE) - 2x2 對齊 -->
 <div id="gacha-arcade-modal">
-  <div class="arcade-frame">
+  <div class="arcade-frame" style="width: 1100px; height: 860px; max-height: 92vh; overflow-y: auto; padding: 24px 30px;">
     <div class="arcade-header">
       <h2 style="color: #facc15; font-size: 24px; font-weight: 900; letter-spacing: 2px;">🎰 排球競技轉蛋大街 (GACHA ARCADE)</h2>
       <div style="display: flex; gap: 14px; align-items: center;">
@@ -552,12 +552,30 @@
       </div>
     </div>
 
-    <div class="gacha-machines-row">
-      <div class="machine-card" style="border-color: #ef4444;">
+    <!-- 🌟 改為 2 欄 2 列 完美對齊 -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 10px 15px;">
+      <!-- 1. 裝備轉蛋 -->
+      <div class="machine-card" style="border-color: #a855f7; height: 350px;">
+        <div class="machine-title" style="color: #c084fc;">裝備轉蛋</div>
+        <div class="globe-dome" style="border-color: #a855f7; width: 130px; height: 110px;">
+          <div class="floating-capsule" style="width: 72px; height: 72px; border-radius: 50%; background: radial-gradient(circle, #7e22ce 0%, #0f172a 100%); border: 3px solid #c084fc; box-shadow: 0 0 20px rgba(192,132,252,0.7);">
+            <span style="font-size: 18px; font-weight: 900; color: #facc15;">EQUIP</span>
+          </div>
+        </div>
+        <div class="turn-knob-slot" style="border-color: #a855f7;"><div class="turn-knob" style="background: #a855f7;"></div></div>
+        <div style="font-size: 11px; color: #d8b4fe;">單抽 150 幣 / 十連 1350 幣 (R70% SR25% SSR5%)</div>
+        <div class="gacha-btn-group">
+          <button class="btn-action" style="background: #9333ea;" onclick="promptConfirmGacha('equip', false, 150)">一抽 (150 幣)</button>
+          <button class="btn-action" style="background: #7e22ce;" onclick="promptConfirmGacha('equip', true, 1350)">十抽 (1350 幣)</button>
+        </div>
+      </div>
+
+      <!-- 2. 時尚轉蛋 -->
+      <div class="machine-card" style="border-color: #ef4444; height: 350px;">
         <div class="machine-title" style="color: #ef4444;">時尚轉蛋</div>
-        <div class="globe-dome" style="border-color: #ef4444;">
-          <div class="floating-capsule" style="width: 76px; height: 76px; border-radius: 50%; background: linear-gradient(180deg, #fff 0%, #fff 48%, #dc2626 52%, #dc2626 100%); border: 3px solid #0f172a; box-shadow: 0 0 15px rgba(220,38,38,0.6);">
-            <span style="font-size: 32px; font-weight: 900; color: #0f172a;">?</span>
+        <div class="globe-dome" style="border-color: #ef4444; width: 130px; height: 110px;">
+          <div class="floating-capsule" style="width: 72px; height: 72px; border-radius: 50%; background: linear-gradient(180deg, #fff 0%, #fff 48%, #dc2626 52%, #dc2626 100%); border: 3px solid #0f172a; box-shadow: 0 0 15px rgba(220,38,38,0.6);">
+            <span style="font-size: 28px; font-weight: 900; color: #0f172a;">?</span>
           </div>
         </div>
         <div class="turn-knob-slot"><div class="turn-knob"></div></div>
@@ -568,11 +586,12 @@
         </div>
       </div>
 
-      <div class="machine-card" style="border-color: #facc15;">
+      <!-- 3. 角色轉蛋 -->
+      <div class="machine-card" style="border-color: #facc15; height: 350px;">
         <div class="machine-title" style="color: #facc15;">角色轉蛋</div>
-        <div class="globe-dome" style="border-color: #facc15;">
-          <div class="floating-capsule" style="width: 76px; height: 76px; border-radius: 50%; background: #94a3b8; border: 3.5px solid #0f172a; box-shadow: 0 0 20px rgba(250,204,21,0.5);">
-            <span style="font-size: 36px; font-weight: 900; color: #0f172a;">?</span>
+        <div class="globe-dome" style="border-color: #facc15; width: 130px; height: 110px;">
+          <div class="floating-capsule" style="width: 72px; height: 72px; border-radius: 50%; background: #94a3b8; border: 3.5px solid #0f172a; box-shadow: 0 0 20px rgba(250,204,21,0.5);">
+            <span style="font-size: 32px; font-weight: 900; color: #0f172a;">?</span>
           </div>
         </div>
         <div class="turn-knob-slot" style="border-color: #facc15;"><div class="turn-knob" style="background: #ef4444;"></div></div>
@@ -583,11 +602,12 @@
         </div>
       </div>
 
-      <div class="machine-card" style="border-color: #38bdf8;">
+      <!-- 4. 技能轉蛋 -->
+      <div class="machine-card" style="border-color: #38bdf8; height: 350px;">
         <div class="machine-title" style="color: #38bdf8;">技能轉蛋</div>
-        <div class="globe-dome" style="border-color: #38bdf8;">
-          <div class="floating-capsule" style="width: 82px; height: 82px; border-radius: 50%; background: radial-gradient(circle, #0284c7 0%, #0f172a 100%); border: 3px solid #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.7);">
-            <span style="font-size: 22px; font-weight: 900; color: #f43f5e; text-shadow: 0 0 8px #f43f5e;">Skill</span>
+        <div class="globe-dome" style="border-color: #38bdf8; width: 130px; height: 110px;">
+          <div class="floating-capsule" style="width: 76px; height: 76px; border-radius: 50%; background: radial-gradient(circle, #0284c7 0%, #0f172a 100%); border: 3px solid #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.7);">
+            <span style="font-size: 20px; font-weight: 900; color: #f43f5e; text-shadow: 0 0 8px #f43f5e;">Skill</span>
           </div>
         </div>
         <div class="turn-knob-slot" style="border-color: #38bdf8;"><div class="turn-knob" style="background: #38bdf8;"></div></div>
@@ -607,8 +627,8 @@
     <h3 style="color: #facc15; font-size: 20px; font-weight: 900; margin-bottom: 12px;">⚠️ 抽取確認</h3>
     <p id="confirm-gacha-text" style="font-size: 14px; color: #f8fafc; line-height: 1.6; margin-bottom: 20px;"></p>
     <div style="display: flex; gap: 12px; justify-content: center;">
-      <button class="btn-sound" onclick="closeConfirmGacha()">取消</button>
-      <button class="btn-action" style="background: #10b981; border-color: #34d399;" onclick="executeConfirmedGacha()">確定抽取！</button>
+      <button class="btn-sound" onclick="window.closeConfirmGacha()">取消</button>
+      <button class="btn-action" style="background: #10b981; border-color: #34d399;" onclick="window.executeConfirmedGacha()">確定抽取！</button>
     </div>
   </div>
 </div>
@@ -667,50 +687,80 @@
 
 <!-- 更衣室視窗 -->
 <div id="locker-modal">
-  <div class="locker-box">
-    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid #4338ca; padding-bottom: 12px; margin-bottom: 16px;">
-      <h2 style="color: #facc15; font-size: 18px;">🏟️ 球員屬性與戰術技能配置</h2>
+  <div class="locker-box" style="width: 1140px; max-height: 94vh; overflow-y: auto; padding: 20px 24px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid #4338ca; padding-bottom: 10px; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h2 style="color: #facc15; font-size: 18px;">🏟️ 球員屬性與戰術配置</h2>
+        <span style="font-size: 11px; color: #94a3b8;">(支援雙裝備槽位・裝備主屬加成反饋)</span>
+      </div>
       <span style="font-size: 12px; color: #38bdf8; font-weight: 800; border: 1.5px solid #6366f1; padding: 4px 12px; border-radius: 8px; background: #0f172a;">按 [ESC] 離開</span>
     </div>    
-    <div class="roster-tabs" id="roster-tabs" style="display: flex; gap: 10px; margin-bottom: 16px;"></div>
-    <div class="locker-grid-ms">
+
+    <!-- 選手分頁 Tab -->
+    <div class="roster-tabs" id="roster-tabs" style="display: flex; gap: 10px; margin-bottom: 12px;"></div>
+
+    <!-- 上半部：三欄（選手資訊、一級屬性配點、二級實戰數值） -->
+    <div class="locker-grid-ms" style="display: grid; grid-template-columns: 280px 360px 1fr; gap: 14px; margin-bottom: 14px;">
+      <!-- 欄 1：選手卡牌概覽與槽位裝備展示 -->
       <div class="card-summary">
         <div style="text-align: center;">
-          <div id="card-avatar" style="width: 60px; height: 60px; border-radius: 50%; margin: 0 auto 8px; border: 3px solid #fff;"></div>
+          <div id="card-avatar" style="width: 54px; height: 54px; border-radius: 50%; margin: 0 auto 6px; border: 3px solid #fff;"></div>
           <h3 id="card-name" style="font-size: 15px;">青空主攻手</h3>
-          <p id="card-desc" style="font-size: 11px; color: #a5b4fc; margin-top: 3px;">Lv.1</p>
-          <div style="font-size: 11px; color: #38bdf8; margin-top: 3px;" id="card-exp">EXP: 0 / 100</div>
+          <p id="card-desc" style="font-size: 11px; color: #a5b4fc; margin-top: 2px;">Lv.1</p>
+          <div style="font-size: 11px; color: #38bdf8; margin-top: 2px;" id="card-exp">EXP: 0 / 100</div>
         </div>
-        <div style="width: 100%; margin: 6px 0;">
+
+        <div style="width: 100%; margin: 4px 0;">
           <label style="font-size: 11px; color: #94a3b8;">出場陣容交換：</label>
-          <select id="bench-select" style="width: 100%; padding: 5px; background: #1e1b4b; color: #fff; border: 1px solid #4338ca; border-radius: 6px; font-size: 12px;" onchange="swapActivePlayer(this.value)"></select>
+          <select id="bench-select" style="width: 100%; padding: 4px; background: #1e1b4b; color: #fff; border: 1px solid #4338ca; border-radius: 6px; font-size: 11px;" onchange="swapActivePlayer(this.value)"></select>
         </div>
-        <div style="width: 100%; margin: 6px 0;">
+
+        <div style="width: 100%; margin: 4px 0;">
           <label style="font-size: 11px; color: #facc15; font-weight: bold;">⚡ 裝備主動技能：</label>
-          <select id="skill-select" style="width: 100%; padding: 5px; background: #1e1b4b; color: #38bdf8; border: 1.5px solid #6366f1; border-radius: 6px; font-size: 11px; font-weight: bold;" onchange="equipSkillToActivePlayer(this.value)"></select>
-          <p id="skill-card-desc" style="font-size: 10px; color: #a5b4fc; margin-top: 4px; line-height: 1.3; min-height: 32px;"></p>
+          <select id="skill-select" style="width: 100%; padding: 4px; background: #1e1b4b; color: #38bdf8; border: 1.5px solid #6366f1; border-radius: 6px; font-size: 11px; font-weight: bold;" onchange="equipSkillToActivePlayer(this.value)"></select>
+          <p id="skill-card-desc" style="font-size: 10px; color: #a5b4fc; margin-top: 3px; line-height: 1.3; min-height: 28px;"></p>
         </div>
-        <button class="btn-sound" style="width: 100%; font-size: 11px;" onclick="rollStagedStats()">🎲 隨機分配點數</button>
+
+        <!-- 🌟 當前穿戴裝備展示格（支援點擊卸下） -->
+        <div style="width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px; margin: 4px 0;">
+          <div style="font-size: 11px; font-weight: bold; color: #facc15; margin-bottom: 4px;">🛡️ 身上穿戴裝備</div>
+          <div id="equipped-preview-mount"></div>
+        </div>
+
+        <button class="btn-sound" style="width: 100%; font-size: 11px; margin-top: 4px;" onclick="rollStagedStats()">🎲 隨機分配點數</button>
       </div>
 
+      <!-- 欄 2：一級母體屬性 (帶加乘括號標註) -->
       <div class="panel-column">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px solid #4338ca; padding-bottom: 4px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #4338ca; padding-bottom: 4px;">
           <span style="font-size: 12px;">未分配 AP: <strong id="free-pts-display" style="color: #facc15; font-size: 15px;">5</strong></span>
           <span style="font-size: 11px; color: #94a3b8;">(單項上限 60)</span>
         </div>
         <div id="stats-mount"></div>
-        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px;">
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
           <button class="btn-sound" onclick="resetStagedStats()">重置</button>
           <button class="btn-action" onclick="saveStagedStats()">💾 儲存配點 (存檔)</button>
         </div>
       </div>
 
+      <!-- 欄 3：二級實戰戰鬥數值 (帶加乘反饋) -->
       <div class="panel-column">
-        <div style="margin-bottom: 10px; border-bottom: 1px solid #4338ca; padding-bottom: 4px; color: #38bdf8; font-size: 12px; font-weight: bold;">📊 實戰戰鬥數值 (Combat Specs)</div>
+        <div style="margin-bottom: 8px; border-bottom: 1px solid #4338ca; padding-bottom: 4px; color: #38bdf8; font-size: 12px; font-weight: bold;">📊 實戰戰鬥數值 (Combat Specs)</div>
         <div id="derived-mount"></div>
-        <div style="font-size: 11px; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
-          * 按 [B] 鍵可隨時啟動螢光綠偵錯終端，實時監測攔網抗性、下旋與技能判定！
+        <div style="font-size: 10px; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
+          * 數值括號內顯示格式為：總值 (基礎 + 裝備加成)。三階滿階裝備將於腳底綻放專屬階級升騰光暈！
         </div>
+      </div>
+    </div>
+
+    <!-- 🌟 下半部：全寬橫向滾動裝備庫 (裝備背包 + 穿戴/強化/突破/重鑄) -->
+    <div style="background: #18153d; border: 1.5px solid #6366f1; border-radius: 12px; padding: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <div style="font-size: 13px; font-weight: bold; color: #facc15;">🎒 裝備庫存背包 (點擊穿戴至當前球員・滑鼠移入看詳細詞條)</div>
+        <div style="font-size: 11px; color: #38bdf8;" id="equip-count-display">持有裝備: 0 件</div>
+      </div>
+      <div id="inventory-equips-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; max-height: 220px; overflow-y: auto; padding-right: 4px;">
+        <!-- JS 動態渲染卡牌 -->
       </div>
     </div>
   </div>
@@ -1056,5 +1106,28 @@ function resetDefaultKeybinds() {
   renderKeybindList();
 }
 </script>
+<!-- 🔨 裝備副詞條重鑄彈窗 -->
+<div id="reforge-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); z-index: 40000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="width: 440px; background: #1e1b4b; border: 2.5px solid #38bdf8; border-radius: 20px; padding: 24px; text-align: center; box-shadow: 0 0 50px rgba(56, 189, 248, 0.4);">
+    <h3 style="color: #38bdf8; font-size: 20px; font-weight: 900; margin-bottom: 6px;">🔨 副詞條重鑄洗練</h3>
+    <p style="font-size: 11px; color: #94a3b8; margin-bottom: 16px;">重新隨機 Roll 既有副詞條數值高低 (追求頂標)</p>
+    <div id="reforge-item-info" style="background: #0f172a; border: 1px solid #4338ca; border-radius: 10px; padding: 12px; margin-bottom: 16px; text-align: left; font-size: 12px;"></div>
+    <div style="display: flex; gap: 10px;">
+      <button class="btn-sound" style="flex: 1;" onclick="closeReforgeModal()">關閉</button>
+      <button class="btn-action" style="flex: 1; background: #0284c7;" id="btn-do-reforge" onclick="executeReforgeAction()">進行重鑄</button>
+    </div>
+  </div>
+</div>
+
+<!-- ⚡ 裝備同名突破吞噬彈窗 -->
+<div id="breakthrough-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); z-index: 40000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="width: 520px; background: #1e1b4b; border: 2.5px solid #facc15; border-radius: 20px; padding: 24px; text-align: center; box-shadow: 0 0 50px rgba(250, 204, 21, 0.4);">
+    <h3 style="color: #facc15; font-size: 20px; font-weight: 900; margin-bottom: 6px;">⚡ 裝備同名突破升階</h3>
+    <p style="font-size: 11px; color: #94a3b8; margin-bottom: 14px;">請選擇一件「要被吃掉」的同名裝備 (升階 100% 成功)</p>
+    <div id="breakthrough-target-info" style="background: #0f172a; border: 1px solid #6366f1; border-radius: 10px; padding: 10px; margin-bottom: 12px; text-align: left; font-size: 12px;"></div>
+    <div id="breakthrough-materials-list" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;"></div>
+    <button class="btn-sound" style="width: 100%;" onclick="closeBreakthroughModal()">取消</button>
+  </div>
+</div>
 </body>
 </html>

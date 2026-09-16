@@ -6,7 +6,70 @@ function drawPlayerEntity(player, targetCtx) {
   const effectObj = (typeof COSMETICS_DB !== 'undefined') ? COSMETICS_DB.effects.find(e => e.id === cosmetics.effect) : null;
   const glowColor = effectObj ? effectObj.glow : null;
 
-  // 1. 拖曳微粒殘影
+  // 🌟 核心：三階滿階裝備腳底光暈 (N 白光 / R 紅光 / SSR 黃金光芒)
+  let highestRank3Tier = null;
+  if (player.card) {
+    const slots = [player.card.equipSlotA, player.card.equipSlotB];
+    slots.forEach(instId => {
+      if (!instId) return;
+      const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e => e.instanceId === instId) : null;
+      if (eq && eq.rank >= 3) {
+        if (eq.tier === 'SSR') highestRank3Tier = 'SSR';
+        else if (eq.tier === 'R' && highestRank3Tier !== 'SSR') highestRank3Tier = 'R';
+        else if (eq.tier === 'N' && !highestRank3Tier) highestRank3Tier = 'N';
+      }
+    });
+  }
+
+  // 繪製腳底地面光環與向上微升粒子
+  if (highestRank3Tier) {
+    targetCtx.save();
+    targetCtx.translate(player.x, WORLD.FLOOR_Y);
+
+    let haloColor = 'rgba(255, 255, 255, 0.45)';
+    let haloGlow = '#ffffff';
+    let pCount = 1;
+
+    if (highestRank3Tier === 'R') {
+      haloColor = 'rgba(239, 68, 68, 0.55)';
+      haloGlow = '#ef4444';
+    } else if (highestRank3Tier === 'SSR') {
+      haloColor = 'rgba(250, 204, 21, 0.65)';
+      haloGlow = '#facc15';
+      pCount = 2;
+    }
+
+    // 1. 地面扁平光環
+    targetCtx.beginPath();
+    targetCtx.ellipse(0, 0, player.radius * 1.5, player.radius * 0.45, 0, 0, Math.PI * 2);
+    targetCtx.fillStyle = haloColor;
+    targetCtx.shadowColor = haloGlow;
+    targetCtx.shadowBlur = 16;
+    targetCtx.fill();
+    targetCtx.lineWidth = 1.5;
+    targetCtx.strokeStyle = haloGlow;
+    targetCtx.stroke();
+    targetCtx.restore();
+
+    // 2. 生成自腳底向上漂浮放射的光塵微粒
+    if (typeof gameFrame !== 'undefined' && gameFrame % 4 === 0 && typeof visualEffects !== 'undefined') {
+      for (let k = 0; k < pCount; k++) {
+        visualEffects.push({
+          type: 'skin_mote',
+          color: haloGlow,
+          x: player.x + (Math.random() - 0.5) * (player.radius * 2),
+          y: WORLD.FLOOR_Y - Math.random() * 6,
+          vx: (Math.random() - 0.5) * 0.4,
+          vy: -Math.random() * 1.2 - 0.6, // 向上冉冉升騰
+          size: 2.2,
+          life: 24,
+          maxLife: 24
+        });
+      }
+    }
+  }
+
+  // 1. 拖曳微粒殘影 (維持原有)
   if (player.ghostTrail && player.ghostTrail.length > 0) {
     player.ghostTrail.forEach(t => {
       targetCtx.save();
@@ -52,7 +115,7 @@ function drawPlayerEntity(player, targetCtx) {
     targetCtx.stroke(); targetCtx.restore();
   }
 
-  // 3. 臉部五官與配件
+  // 3. 臉部五官與配件 (原邏輯完整保留)...
   if (!player.isDiving) {
     const eyeX = player.facing * 8;
     targetCtx.fillStyle = 'rgba(244, 114, 182, 0.6)'; targetCtx.beginPath();

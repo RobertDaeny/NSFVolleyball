@@ -1,5 +1,5 @@
 // ========================================================
-// 靜態資料庫：常數、存檔、Web Audio、選手庫、技能與關卡時裝
+// 靜態資料庫：常數、存檔、選手庫、技能、18件裝備庫與數值演算
 // ========================================================
 const WORLD = {
   WIDTH: 3000, HEIGHT: 850, FLOOR_Y: 620,
@@ -8,73 +8,252 @@ const WORLD = {
 };
 const VIEW_W = 1600, VIEW_H = 500;
 
+// 18 件核心裝備母體庫 (3 部位 × 2 主屬性 × 3 稀有度)
+const EQUIP_DB = [
+  // --- 護腕類 (Wristbands) ---
+  {
+    id: 'eq_wrist_str_ssr', name: '泰坦重裝護腕', slot: 'wrist', tier: 'SSR', mainStat: 'str',
+    baseRange: [5, 8], refineGain: 0.7,
+    perks: {
+      rank1: { desc: '常規扣殺擊球容錯角度 +5°', spikeAngleBonus: 0.08 },
+      rank2: { desc: '扣殺穿網時撞擊阻尼衰減降低 15%', pierceDampBonus: 0.15 },
+      rank3: { desc: '滿階特權：打手出界 (Tool Out) 彈射向外偏折 15°', toolOutAngleBonus: 0.26 }
+    },
+    subStatPool: ['ap', 'spikeSpeed', 'reach']
+  },
+  {
+    id: 'eq_wrist_dex_ssr', name: '神意流光護腕', slot: 'wrist', tier: 'SSR', mainStat: 'dex',
+    baseRange: [5, 8], refineGain: 0.7,
+    perks: {
+      rank1: { desc: '扣殺下旋力 (Topspin) +12%', topspinBonus: 0.12 },
+      rank2: { desc: '跳飄球氣流晃動幅度 +20%', floatWaveBonus: 0.20 },
+      rank3: { desc: '滿階特權：扣殺急墜提早 5 幀啟動，落點極度陡峭', sharpCutEarlyDrop: true }
+    },
+    subStatPool: ['ap', 'spikeSpeed', 'sweet']
+  },
+  {
+    id: 'eq_wrist_str_sr', name: '破陣合金護腕', slot: 'wrist', tier: 'SR', mainStat: 'str',
+    baseRange: [3, 5], refineGain: 0.5,
+    perks: {
+      rank1: { desc: '常規扣殺擊球容錯角度 +3°', spikeAngleBonus: 0.05 },
+      rank2: { desc: '扣殺穿網阻尼衰減降低 8%', pierceDampBonus: 0.08 },
+      rank3: { desc: '滿階特權：打手出界彈射向外偏折 8°', toolOutAngleBonus: 0.14 }
+    },
+    subStatPool: ['ap', 'spikeSpeed']
+  },
+  {
+    id: 'eq_wrist_dex_sr', name: '精密氣壓護腕', slot: 'wrist', tier: 'SR', mainStat: 'dex',
+    baseRange: [3, 5], refineGain: 0.5,
+    perks: {
+      rank1: { desc: '扣殺下旋力 +8%', topspinBonus: 0.08 },
+      rank2: { desc: '跳飄球氣流晃動幅度 +12%', floatWaveBonus: 0.12 },
+      rank3: { desc: '滿階特權：扣殺下旋提早 3 幀啟動', sharpCutEarlyDrop: true }
+    },
+    subStatPool: ['spikeSpeed', 'sweet']
+  },
+  {
+    id: 'eq_wrist_str_r', name: '鍛造鐵腕', slot: 'wrist', tier: 'R', mainStat: 'str',
+    baseRange: [1, 3], refineGain: 0.3,
+    perks: {
+      rank1: { desc: '扣球出膛初速 +0.2 px/f', spikeSpeedBonus: 0.2 },
+      rank2: { desc: '站立平推初速 +0.4 px/f', pushSpeedBonus: 0.4 },
+      rank3: { desc: '滿階特權：站立平推初速 +1.0 px/f', pushSpeedBonus: 1.0 }
+    },
+    subStatPool: ['spikeSpeed']
+  },
+  {
+    id: 'eq_wrist_dex_r', name: '控球繃帶', slot: 'wrist', tier: 'R', mainStat: 'dex',
+    baseRange: [1, 3], refineGain: 0.3,
+    perks: {
+      rank1: { desc: '二傳微偏容錯率提升', setterErrorReduce: 0.1 },
+      rank2: { desc: '下旋下墜微幅增加', topspinBonus: 0.04 },
+      rank3: { desc: '滿階特權：扣殺下旋力 +8%', topspinBonus: 0.08 }
+    },
+    subStatPool: ['sweet']
+  },
+
+  // --- 護膝類 (Kneepads) ---
+  {
+    id: 'eq_knee_agi_ssr', name: '神域不倒翁護膝', slot: 'knee', tier: 'SSR', mainStat: 'agi',
+    baseRange: [5, 8], refineGain: 0.7,
+    perks: {
+      rank1: { desc: '魚躍撲救滑行距離 +10%', diveDistBonus: 0.10 },
+      rank2: { desc: '魚躍撲救起身硬直縮短 6 幀', diveRecoveryBonus: 6 },
+      rank3: { desc: '滿階特權：魚躍防守免除卸力打折，以 85% 滿額卸力起球', diveDefBuff: 0.15 }
+    },
+    subStatPool: ['reach', 'staminaRecovery', 'energyGain']
+  },
+  {
+    id: 'eq_knee_dex_ssr', name: '絕對領域護膝', slot: 'knee', tier: 'SSR', mainStat: 'dex',
+    baseRange: [5, 8], refineGain: 0.7,
+    perks: {
+      rank1: { desc: '接球覆蓋半徑額外 +3.0px', reachBonus: 3.0 },
+      rank2: { desc: '地面被重扣震退硬直時間縮短 8 幀', knockbackStunReduce: 8 },
+      rank3: { desc: '滿階特權：完美起球 (PERFECT ABSORB) 額外返還 15 點能量', perfectEnergyBonus: 15 }
+    },
+    subStatPool: ['reach', 'sweet', 'energyGain']
+  },
+  {
+    id: 'eq_knee_agi_sr', name: '迅捷減震護膝', slot: 'knee', tier: 'SR', mainStat: 'agi',
+    baseRange: [3, 5], refineGain: 0.5,
+    perks: {
+      rank1: { desc: '魚躍撲救滑行距離 +6%', diveDistBonus: 0.06 },
+      rank2: { desc: '魚躍起身硬直縮短 3 幀', diveRecoveryBonus: 3 },
+      rank3: { desc: '滿階特權：魚躍防守卸力率提升至 78%', diveDefBuff: 0.08 }
+    },
+    subStatPool: ['reach', 'staminaRecovery']
+  },
+  {
+    id: 'eq_knee_dex_sr', name: '守護者護膝', slot: 'knee', tier: 'SR', mainStat: 'dex',
+    baseRange: [3, 5], refineGain: 0.5,
+    perks: {
+      rank1: { desc: '接球覆蓋半徑額外 +1.8px', reachBonus: 1.8 },
+      rank2: { desc: '地面重扣震退硬直縮短 4 幀', knockbackStunReduce: 4 },
+      rank3: { desc: '滿階特權：完美起球額外返還 10 點能量', perfectEnergyBonus: 10 }
+    },
+    subStatPool: ['sweet', 'energyGain']
+  },
+  {
+    id: 'eq_knee_agi_r', name: '輕量彈力帶', slot: 'knee', tier: 'R', mainStat: 'agi',
+    baseRange: [1, 3], refineGain: 0.3,
+    perks: {
+      rank1: { desc: '轉身微調延遲減少 1 幀', reactionReduce: 1 },
+      rank2: { desc: '魚躍初速微量增加', diveDistBonus: 0.03 },
+      rank3: { desc: '滿階特權：魚躍撲救距離 +5%', diveDistBonus: 0.05 }
+    },
+    subStatPool: ['staminaRecovery']
+  },
+  {
+    id: 'eq_knee_dex_r', name: '基礎防摔墊', slot: 'knee', tier: 'R', mainStat: 'dex',
+    baseRange: [1, 3], refineGain: 0.3,
+    perks: {
+      rank1: { desc: '卸力值額外 +1.0', defRawBonus: 1.0 },
+      rank2: { desc: '震退硬直微幅降低', knockbackStunReduce: 2 },
+      rank3: { desc: '滿階特權：被重扣震退硬直縮短 3 幀', knockbackStunReduce: 3 }
+    },
+    subStatPool: ['reach']
+  },
+
+  // --- 球鞋類 (Footwear) ---
+  {
+    id: 'eq_shoe_jump_ssr', name: '天際逐月戰靴', slot: 'shoe', tier: 'SSR', mainStat: 'jump',
+    baseRange: [5, 8], refineGain: 0.7,
+    perks: {
+      rank1: { desc: '垂直起跳摸高甜點半徑擴大 +6px', sweetSpotWindow: 6 },
+      rank2: { desc: '助跑動能 (Run Momentum) 累積加快 20%', momentumRate: 0.20 },
+      rank3: { desc: '滿階特權：大腿疲勞 (Jump Exhaustion) 衰減速度減半，起跳摸高不失速', exhaustionResist: 0.5 }
+    },
+    subStatPool: ['staminaRecovery', 'energyGain', 'spikeSpeed']
+  },
+  {
+    id: 'eq_shoe_agi_ssr', name: '瞬步雷光排球鞋', slot: 'shoe', tier: 'SSR', mainStat: 'agi',
+    baseRange: [5, 8], refineGain: 0.7,
+    perks: {
+      rank1: { desc: '常規橫移跑速增加 +0.4 px/f', runSpeedBonus: 0.4 },
+      rank2: { desc: '站立完全不動時，大腿體力恢復加快 25%', staminaIdleRate: 0.25 },
+      rank3: { desc: '滿階特權：網前攔網有效判定半徑擴大 +8px (達 78px)', blockReachBonus: 8 }
+    },
+    subStatPool: ['staminaRecovery', 'energyGain', 'reach']
+  },
+  {
+    id: 'eq_shoe_jump_sr', name: '反重力氣墊鞋', slot: 'shoe', tier: 'SR', mainStat: 'jump',
+    baseRange: [3, 5], refineGain: 0.5,
+    perks: {
+      rank1: { desc: '垂直起跳甜點半徑擴大 +4px', sweetSpotWindow: 4 },
+      rank2: { desc: '助跑動能累積加快 10%', momentumRate: 0.10 },
+      rank3: { desc: '滿階特權：大腿疲勞衰減速度降低 25%', exhaustionResist: 0.25 }
+    },
+    subStatPool: ['staminaRecovery', 'energyGain']
+  },
+  {
+    id: 'eq_shoe_agi_sr', name: '疾風低筒鞋', slot: 'shoe', tier: 'SR', mainStat: 'agi',
+    baseRange: [3, 5], refineGain: 0.5,
+    perks: {
+      rank1: { desc: '常規橫移跑速增加 +0.25 px/f', runSpeedBonus: 0.25 },
+      rank2: { desc: '站立大腿體力恢復加快 15%', staminaIdleRate: 0.15 },
+      rank3: { desc: '滿階特權：網前攔網判定半徑擴大 +5px', blockReachBonus: 5 }
+    },
+    subStatPool: ['staminaRecovery', 'reach']
+  },
+  {
+    id: 'eq_shoe_jump_r', name: '彈簧訓練鞋', slot: 'shoe', tier: 'R', mainStat: 'jump',
+    baseRange: [1, 3], refineGain: 0.3,
+    perks: {
+      rank1: { desc: '起跳高度微幅增加', jumpRawBonus: 0.1 },
+      rank2: { desc: '助跑動能累積微量提升', momentumRate: 0.05 },
+      rank3: { desc: '滿階特權：垂直起跳初速微增 +0.2 px/f', jumpRawBonus: 0.2 }
+    },
+    subStatPool: ['staminaRecovery']
+  },
+  {
+    id: 'eq_shoe_agi_r', name: '橡膠膠底鞋', slot: 'shoe', tier: 'R', mainStat: 'agi',
+    baseRange: [1, 3], refineGain: 0.3,
+    perks: {
+      rank1: { desc: '跑動煞車慣性略微減輕', brakeBonus: 0.1 },
+      rank2: { desc: '橫移速度微增 +0.08 px/f', runSpeedBonus: 0.08 },
+      rank3: { desc: '滿階特權：常規橫移跑速增加 +0.15 px/f', runSpeedBonus: 0.15 }
+    },
+    subStatPool: ['energyGain']
+  }
+];
+
+// 副詞條定義池與數值區間
+const SUBSTAT_RANGES = {
+  ap: { name: '破甲穿透 (AP)', unit: '', R: [0.5, 1.0], SR: [1.0, 1.8], SSR: [1.8, 2.5] },
+  reach: { name: '接球覆蓋 (Reach)', unit: 'px', R: [1.0, 2.5], SR: [2.5, 4.0], SSR: [4.0, 6.0] },
+  sweet: { name: '甜蜜窗口 (Sweet)', unit: 'px', R: [1.0, 2.0], SR: [2.0, 3.5], SSR: [3.5, 5.0] },
+  spikeSpeed: { name: '扣球初速 (Spd)', unit: 'px/f', R: [0.4, 0.8], SR: [0.8, 1.4], SSR: [1.4, 2.2] },
+  staminaRecovery: { name: '大腿回氣 (Rec)', unit: '%', R: [5, 10], SR: [10, 18], SSR: [18, 25] },
+  energyGain: { name: '大招充能 (Energy)', unit: '%', R: [4, 8], SR: [8, 14], SSR: [14, 20] }
+};
+
+// 技能庫 (保留原有完整技能)
 const SKILL_POOL = [
-  { id: 'sk_breaker', name: '破城重槌', cost: 100, type: 'SPIKE', desc: '【扣殺技】滿能量空中按J：破甲+9.0，大幅削弱敵方剛性，90%擊碎金盾！', armorPiercing: 9.0, speedMult: 1.08, extraDown: 0, glowColor: '#ef4444' },
-  { id: 'sk_deep_impact', name: '深海重砲', cost: 140, type: 'SPIKE', desc: '【扣殺技】滿能量空中按J：長線平抽速度+18%，超強下旋咬入底線！', armorPiercing: 4.5, speedMult: 1.18, extraDown: 0.0002, glowColor: '#38bdf8' },
-  { id: 'sk_steepexec', name: '斷頭台下釘', cost: 120, type: 'SPIKE', desc: '【扣殺技】滿能量空中按J：直插三米線大角度下釘，速度快且角度刁鑽！', armorPiercing: 6.0, speedMult: 0.95, extraDown: 0.00035, glowColor: '#facc15' },
-  { id: 'sk_phantom', name: '幻影抹手', cost: 100, type: 'THRUST', desc: '【進攻技】滿能量空中按L：觸碰攔網50%高速打手出界！若未成功返還50%能量！', armorPiercing: 0, speedMult: 1.25, extraDown: 0, glowColor: '#10b981' },
-  { id: 'sk_solar_sine', name: '落日正弦', cost: 120, type: 'SERVE_FLOAT', desc: '【發球技】滿能量K高拋後空中按L：高拋跳飄，空中正弦波劇烈晃動，收斂落入界內！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#f59e0b' },
-  { id: 'sk_sky_comet', name: '天際墜石', cost: 120, type: 'SERVE_SPIKE', desc: '【發球技】滿能量K高拋後空中按J：高拋衝向天花板頂部，精確下釘敵方深場(Vy>36)！', armorPiercing: 7.5, speedMult: 1.0, extraDown: 0.0004, glowColor: '#facc15' },
-  { id: 'sk_phantom_drop', name: '幽靈吊球', cost: 80, type: 'SET_ATTACK', desc: '【二傳/進攻技】滿能量第2觸空中按L：過網隱形，敵方反應延遲！碰球或被擋回立刻現形！', armorPiercing: 0, speedMult: 0.85, extraDown: 0, glowColor: null },
-  { id: 'sk_chrono_spike', name: '閃電速攻', cost: 120, type: 'SET_TACTIC', desc: '【戰術技】滿能量處理球時按O：觸發時流差與時鐘逆轉，敵方全員減速50%，畫面蒙上灰版！', armorPiercing: 3.0, speedMult: 1.2, extraDown: 0, glowColor: '#ec4899' },
-  { id: 'sk_rolling_thunder', name: '雷霆瞬步', cost: 75, type: 'DEF_SAVE', desc: '【防守技】滿能量按K(限定己方半場)：化為殘影瞬移至球落點，免連按100%觸發完美吸震！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#38bdf8' },
-  { id: 'sk_mud_spike', name: '泥沼重扣', cost: 110, type: 'SPIKE', desc: '【扣殺技】滿能量空中按J：包裹厚重泥濘暴扣！敵方若接起將陷入泥濘Debuff，移動與起跳大幅減速！', armorPiercing: 5.0, speedMult: 1.12, extraDown: 0.0001, glowColor: '#78350f' },
-  { id: 'sk_bungee_gum', name: '伸縮自在的愛', cost: 110, type: 'SPIKE', desc: '【扣殺/抹手】空中按J/L：低手接起時反彈高度驟降70%，向前微弱滾動軟墜極難起球！', armorPiercing: 3.0, speedMult: 1.05, extraDown: 0, glowColor: '#f472b6' },
-  { id: 'sk_iron_wall', name: '銅牆鐵壁', cost: 130, type: 'BLOCK', desc: '【攔網技】網前按Space：碰到球100%觸發定格特寫，3.5倍速垂直下釘直接死蓋得分！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#fbbf24' },
-  { id: 'sk_soft_wall', name: '引力柔網', cost: 100, type: 'BLOCK_STANCE', desc: '【攔網持續態】網前按Space：持續3回合！攔網碰球100%化為慢速One Touch緩送後排，絕不被打穿！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#2dd4bf' },
-  { id: 'sk_shock_return', name: '暴風反彈', cost: 95, type: 'DEF_SAVE', desc: '【防守技】接球時消耗：即使接噴必定過網，球化為超音速暴風(速度34)直貫敵場！', armorPiercing: 8.0, speedMult: 1.3, extraDown: 0, glowColor: '#0ea5e9' },
-  { id: 'sk_godspeed_toss', name: '神速二傳', cost: 105, type: 'SET_TACTIC', desc: '【二傳持續態】按O托球觸發：持續3次二傳！隊友進攻初速無條件獲得+4.0絕對加成！', armorPiercing: 4.0, speedMult: 1.2, extraDown: 0, glowColor: '#eab308' },
-  { id: 'sk_greased_ball', name: '油滑脫手', cost: 115, type: 'SPIKE', desc: '【進攻技】滿能量空中按J：附帶滑油傳染2次觸碰！防守方耐受值(Defense)下降8點持續3回合！', armorPiercing: 6.0, speedMult: 1.1, extraDown: 0, glowColor: '#1e293b' },
-  { id: 'sk_gravity_drop', name: '重力斷崖', cost: 125, type: 'SPIKE', desc: '【扣殺技】空中按J：過網前高速平直，越過白帶瞬間引力暴增12倍垂直砸地！', armorPiercing: 5.5, speedMult: 1.25, extraDown: 0.0005, glowColor: '#7e22ce' },
-  { id: 'sk_savage_roar', name: '野蠻怒吼', cost: 90, type: 'DEF_SAVE', desc: '【戰吼技】按K立即釋放：我軍全員獲得3回合不可消除亢奮，敵軍全員覆蓋3回合沮喪！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#dc2626' }
+  { id: 'sk_breaker', name: '破城重槌', cost: 100, type: 'SPIKE', desc: '【扣殺技】空中按J：破甲+9.0，大幅削弱敵方剛性，90%擊碎金盾！', armorPiercing: 9.0, speedMult: 1.08, extraDown: 0, glowColor: '#ef4444' },
+  { id: 'sk_deep_impact', name: '深海重砲', cost: 140, type: 'SPIKE', desc: '【扣殺技】空中按J：長線平抽速度+18%，超強下旋咬入底線！', armorPiercing: 4.5, speedMult: 1.18, extraDown: 0.0002, glowColor: '#38bdf8' },
+  { id: 'sk_steepexec', name: '斷頭台下釘', cost: 120, type: 'SPIKE', desc: '【扣殺技】空中按J：直插三米線大角度下釘，速度快且角度刁鑽！', armorPiercing: 6.0, speedMult: 0.95, extraDown: 0.00035, glowColor: '#facc15' },
+  { id: 'sk_phantom', name: '幻影抹手', cost: 100, type: 'THRUST', desc: '【進攻技】空中按L：觸碰攔網50%高速打手出界！若未成功返還50%能量！', armorPiercing: 0, speedMult: 1.25, extraDown: 0, glowColor: '#10b981' },
+  { id: 'sk_solar_sine', name: '落日正弦', cost: 120, type: 'SERVE_FLOAT', desc: '【發球技】K高拋後空中按L：高拋跳飄，空中正弦波劇烈晃動收斂！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#f59e0b' },
+  { id: 'sk_sky_comet', name: '天際墜石', cost: 120, type: 'SERVE_SPIKE', desc: '【發球技】K高拋後空中按J：衝向天花板頂部，精確垂直下釘敵方深場！', armorPiercing: 7.5, speedMult: 1.0, extraDown: 0.0004, glowColor: '#facc15' },
+  { id: 'sk_phantom_drop', name: '幽靈吊球', cost: 80, type: 'SET_ATTACK', desc: '【二傳/進攻技】第2觸空中按L：過網隱形，碰球或被擋回立刻現形！', armorPiercing: 0, speedMult: 0.85, extraDown: 0, glowColor: null },
+  { id: 'sk_chrono_spike', name: '閃電速攻', cost: 120, type: 'SET_TACTIC', desc: '【戰術技】處理球按O：觸發時流差，敵方全員減速50%，畫面蒙上灰版！', armorPiercing: 3.0, speedMult: 1.2, extraDown: 0, glowColor: '#ec4899' },
+  { id: 'sk_rolling_thunder', name: '雷霆瞬步', cost: 75, type: 'DEF_SAVE', desc: '【防守技】己方半場按K：化為殘影瞬移至球落點，100%觸發完美吸震！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#38bdf8' },
+  { id: 'sk_mud_spike', name: '泥沼重扣', cost: 110, type: 'SPIKE', desc: '【扣殺技】空中按J：包裹厚重泥濘暴扣！敵方若接起陷入泥濘減速！', armorPiercing: 5.0, speedMult: 1.12, extraDown: 0.0001, glowColor: '#78350f' },
+  { id: 'sk_bungee_gum', name: '伸縮自在的愛', cost: 110, type: 'SPIKE', desc: '【扣殺/抹手】按J/L：低手接起時反彈高度驟降70%，向前微弱軟墜！', armorPiercing: 3.0, speedMult: 1.05, extraDown: 0, glowColor: '#f472b6' },
+  { id: 'sk_iron_wall', name: '銅牆鐵壁', cost: 130, type: 'BLOCK', desc: '【攔網技】網前按Space：碰到球觸發定格特寫，3.5倍速垂直下釘死蓋！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#fbbf24' },
+  { id: 'sk_soft_wall', name: '引力柔網', cost: 100, type: 'BLOCK_STANCE', desc: '【攔網持續態】網前按Space：持續3回合！碰球100%化為慢速One Touch緩送！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#2dd4bf' },
+  { id: 'sk_shock_return', name: '暴風反彈', cost: 95, type: 'DEF_SAVE', desc: '【防守技】接球消耗：即使接噴必定過網，球化為超音速暴風直貫敵場！', armorPiercing: 8.0, speedMult: 1.3, extraDown: 0, glowColor: '#0ea5e9' },
+  { id: 'sk_godspeed_toss', name: '神速二傳', cost: 105, type: 'SET_TACTIC', desc: '【二傳持續態】托球觸發：持續3次二傳！隊友進攻初速獲得+4.0絕對加成！', armorPiercing: 4.0, speedMult: 1.2, extraDown: 0, glowColor: '#eab308' },
+  { id: 'sk_greased_ball', name: '油滑脫手', cost: 115, type: 'SPIKE', desc: '【進攻技】空中按J：附帶滑油！防守方耐受值下降8點持續3回合！', armorPiercing: 6.0, speedMult: 1.1, extraDown: 0, glowColor: '#1e293b' },
+  { id: 'sk_gravity_drop', name: '重力斷崖', cost: 125, type: 'SPIKE', desc: '【扣殺技】空中按J：過網瞬間引力暴增12倍垂直砸地！', armorPiercing: 5.5, speedMult: 1.25, extraDown: 0.0005, glowColor: '#7e22ce' },
+  { id: 'sk_savage_roar', name: '野蠻怒吼', cost: 90, type: 'DEF_SAVE', desc: '【戰吼技】按K立即釋放：我軍3回合不可消除亢奮，敵軍全員覆蓋沮喪！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#dc2626' }
 ];
 
 const COSMETICS_DB = {
   hats: [
-    { id: 'hat_none', name: '無頭飾', desc: '卸下頭飾' },
-    { id: 'hat_santa', name: '聖誕帽', desc: '節慶紅白毛球帽' },
-    { id: 'hat_tophat', name: '高禮帽', desc: '優雅紳士高筒黑帽' },
-    { id: 'hat_pompadour', name: '飛機頭', desc: '霸氣復古機車搖滾頭' },
-    { id: 'hat_afro', name: '爆炸頭', desc: '經典蓬鬆復古爆炸頭' },
-    { id: 'hat_party', name: '派對尖帽', desc: '歡樂彩色條紋派對帽' },
-    { id: 'hat_rabbit', name: '兔耳朵', desc: '俏皮晃動兔耳頭箍' },
-    { id: 'hat_sprout', name: '頭上長草', desc: '萌萌小樹苗嫩芽' },
-    { id: 'hat_head_shades', name: '頭頂墨鏡', desc: '隨興推在額頭的酷墨鏡' },
-    { id: 'hat_cap_red', name: '紅鴨舌帽', desc: '運動街頭棒球帽（紅）' },
-    { id: 'hat_cap_blue', name: '藍鴨舌帽', desc: '運動街頭棒球帽（藍）' },
-    { id: 'hat_cap_black', name: '黑鴨舌帽', desc: '百搭街頭棒球帽（黑）' },
-    { id: 'hat_helmet', name: '鋼鐵頭盔', desc: '前排重裝防護全罩頭盔' },
-    { id: 'hat_cat', name: '黑貓耳', desc: '敏捷靈動貓耳頭飾' },
-    { id: 'hat_dog', name: '柴犬耳', desc: '垂耳元氣犬耳' },
-    { id: 'hat_crown', name: '黃金小王冠', desc: '榮耀王者迷你皇冠' },
-    { id: 'hat_halo', name: '天使光環', desc: '懸浮頭頂的純潔光環' },
-    { id: 'hat_devil', name: '惡魔尖角', desc: '深紅危險小惡魔角' },
-    { id: 'hat_viking', name: '維京角盔', desc: '狂野雙牛角戰士盔' },
-    { id: 'hat_chef', name: '主廚高帽', desc: '專業白色高筒廚師帽' },
-    { id: 'hat_bandana', name: '熱血頭帶', desc: '必勝紅白文字頭帶' },
-    { id: 'hat_straw', name: '冒險草帽', desc: '經典紅色緞帶草帽' }
+    { id: 'hat_none', name: '無頭飾', desc: '卸下頭飾' }, { id: 'hat_santa', name: '聖誕帽', desc: '節慶紅白毛球帽' },
+    { id: 'hat_tophat', name: '高禮帽', desc: '優雅紳士高筒黑帽' }, { id: 'hat_pompadour', name: '飛機頭', desc: '霸氣復古機車搖滾頭' },
+    { id: 'hat_afro', name: '爆炸頭', desc: '經典蓬鬆復古爆炸頭' }, { id: 'hat_party', name: '派對尖帽', desc: '歡樂彩色條紋派對帽' },
+    { id: 'hat_rabbit', name: '兔耳朵', desc: '俏皮晃動兔耳頭箍' }, { id: 'hat_sprout', name: '頭上長草', desc: '萌萌小樹苗嫩芽' },
+    { id: 'hat_head_shades', name: '頭頂墨鏡', desc: '隨興推在額頭的酷墨鏡' }, { id: 'hat_cap_red', name: '紅鴨舌帽', desc: '運動街頭棒球帽（紅）' },
+    { id: 'hat_cap_blue', name: '藍鴨舌帽', desc: '運動街頭棒球帽（藍）' }, { id: 'hat_cap_black', name: '黑鴨舌帽', desc: '百搭街頭棒球帽（黑）' },
+    { id: 'hat_helmet', name: '鋼鐵頭盔', desc: '前排重裝防護全罩頭盔' }, { id: 'hat_cat', name: '黑貓耳', desc: '敏捷靈動貓耳頭飾' },
+    { id: 'hat_dog', name: '柴犬耳', desc: '垂耳元氣犬耳' }, { id: 'hat_crown', name: '黃金小王冠', desc: '榮耀王者迷你皇冠' },
+    { id: 'hat_halo', name: '天使光環', desc: '懸浮頭頂的純潔光環' }, { id: 'hat_devil', name: '惡魔尖角', desc: '深紅危險小惡魔角' },
+    { id: 'hat_viking', name: '維京角盔', desc: '狂野雙牛角戰士盔' }, { id: 'hat_chef', name: '主廚高帽', desc: '專業白色高筒廚師帽' },
+    { id: 'hat_bandana', name: '熱血頭帶', desc: '必勝紅白文字頭帶' }, { id: 'hat_straw', name: '冒險草帽', desc: '經典紅色緞帶草帽' }
   ],
   faces: [
-    { id: 'face_none', name: '無臉飾', desc: '卸下臉飾' },
-    { id: 'face_shades', name: '帥氣墨鏡', desc: '巨星防眩深黑墨鏡' },
-    { id: 'face_mustache', name: '八字鬍', desc: '紳士翹角小八字鬍' },
-    { id: 'face_goatee', name: '山羊鬍', desc: '個性十足的山羊長鬍鬚' },
-    { id: 'face_mask', name: '防疫口罩', desc: '立體防塵純白口罩' },
-    { id: 'face_spiral_glasses', name: '螺旋眼鏡', desc: '圈圈眼搞笑深度近視鏡' },
-    { id: 'face_ruby_earring', name: '紅寶石耳環', desc: '左耳微閃璀璨紅寶石' },
-    { id: 'face_blush', name: '紅暈腮紅', desc: '害羞粉嫩大紅臉蛋' },
-    { id: 'face_monocle', name: '單片眼鏡', desc: '英倫老派金色鏈條單鏡' },
-    { id: 'face_bandage', name: '鼻樑創可貼', desc: '熱血運動受傷交叉貼' },
-    { id: 'face_cigar', name: '硬漢雪茄', desc: '吞雲吐霧的硬派雪茄' },
-    { id: 'face_eye_patch', name: '海盜眼罩', desc: '漆黑皮革單眼眼罩' },
-    { id: 'face_fox_mask', name: '半面狐面', desc: '和風紅白花紋狐狸面具' },
-    { id: 'face_bubble_gum', name: '吹泡泡糖', desc: '嘴邊粉紅大泡泡' },
-    { id: 'face_scuba', name: '浮潛呼吸管', desc: '水下專業咬嘴呼吸管' },
-    { id: 'face_vr', name: '未來VR鏡', desc: '發光矩陣賽博護目鏡' },
-    { id: 'face_clown_nose', name: '小丑紅鼻', desc: '圓滾滾紅色海綿鼻' },
-    { id: 'face_rose', name: '口銜玫瑰', desc: '優雅深紅帶刺玫瑰花' },
-    { id: 'face_scar', name: '戰士刀疤', desc: '左眼深邃男子漢傷痕' },
-    { id: 'face_toast', name: '遲到咬吐司', desc: '嘴裡叼著快遲到的土司片' },
+    { id: 'face_none', name: '無臉飾', desc: '卸下臉飾' }, { id: 'face_shades', name: '帥氣墨鏡', desc: '巨星防眩深黑墨鏡' },
+    { id: 'face_mustache', name: '八字鬍', desc: '紳士翹角小八字鬍' }, { id: 'face_goatee', name: '山羊鬍', desc: '個性十足的山羊長鬍鬚' },
+    { id: 'face_mask', name: '防疫口罩', desc: '立體防塵純白口罩' }, { id: 'face_spiral_glasses', name: '螺旋眼鏡', desc: '圈圈眼搞笑深度近視鏡' },
+    { id: 'face_ruby_earring', name: '紅寶石耳環', desc: '左耳微閃璀璨紅寶石' }, { id: 'face_blush', name: '紅暈腮紅', desc: '害羞粉嫩大紅臉蛋' },
+    { id: 'face_monocle', name: '單片眼鏡', desc: '英倫老派金色鏈條單鏡' }, { id: 'face_bandage', name: '鼻樑創可貼', desc: '熱血運動受傷交叉貼' },
+    { id: 'face_cigar', name: '硬漢雪茄', desc: '吞雲吐霧的硬派雪茄' }, { id: 'face_eye_patch', name: '海盜眼罩', desc: '漆黑皮革單眼眼罩' },
+    { id: 'face_fox_mask', name: '半面狐面', desc: '和風紅白花紋狐狸面具' }, { id: 'face_bubble_gum', name: '吹泡泡糖', desc: '嘴邊粉紅大泡泡' },
+    { id: 'face_scuba', name: '浮潛呼吸管', desc: '水下專業咬嘴呼吸管' }, { id: 'face_vr', name: '未來VR鏡', desc: '發光矩陣賽博護目鏡' },
+    { id: 'face_clown_nose', name: '小丑紅鼻', desc: '圓滾滾紅色海綿鼻' }, { id: 'face_rose', name: '口銜玫瑰', desc: '優雅深紅帶刺玫瑰花' },
+    { id: 'face_scar', name: '戰士刀疤', desc: '左眼深邃男子漢傷痕' }, { id: 'face_toast', name: '遲到咬吐司', desc: '嘴裡叼著快遲到的土司片' },
     { id: 'face_gas_mask', name: '防毒濾嘴', desc: '工業風重裝呼吸面罩' }
   ],
   effects: [
@@ -86,12 +265,11 @@ const COSMETICS_DB = {
   ]
 };
 
-let UNLOCKED_COSMETICS = {
-  hats: ['hat_none'],
-  faces: ['face_none'],
-  effects: ['fx_none']
-};
+let UNLOCKED_COSMETICS = { hats: ['hat_none'], faces: ['face_none'], effects: ['fx_none'] };
 let UNLOCKED_SKILLS = ['sk_breaker'];
+
+// 玩家擁有的裝備背包清單
+let INVENTORY_EQUIPS = [];
 
 const GACHA_POOL = [
   { name: '黑岩霸生', tier: 'SSR', color: '#0f172a', desc: '極限物理輸出·直線下釘重砲手！', base: { str: 38, agi: 18, jump: 32, dex: 15, int: 14 }, bonusPts: 10 },
@@ -131,32 +309,17 @@ const GACHA_POOL = [
 ];
 
 let INVENTORY = [
-  { id: 'c1', name: '青空主攻手', tier: 'N', color: '#38bdf8', level: 1, exp: 0, freePts: 5, baseStats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, stats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' } },
-  { id: 'c2', name: '森綠自由人', tier: 'N', color: '#34d399', level: 1, exp: 0, freePts: 5, baseStats: { str: 20, agi: 24, jump: 20, dex: 20, int: 20 }, stats: { str: 20, agi: 24, jump: 20, dex: 20, int: 20 }, equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' } },
-  { id: 'c3', name: '緋紅副攻手', tier: 'N', color: '#f472b6', level: 1, exp: 0, freePts: 5, baseStats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, stats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' } },
-  { id: 'c4', name: '紫電二傳手', tier: 'N', color: '#c084fc', level: 1, exp: 0, freePts: 5, baseStats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, stats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' } }
+  { id: 'c1', name: '青空主攻手', tier: 'N', color: '#38bdf8', level: 1, exp: 0, freePts: 5, baseStats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, stats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' }, equipSlotA: null, equipSlotB: null },
+  { id: 'c2', name: '森綠自由人', tier: 'N', color: '#34d399', level: 1, exp: 0, freePts: 5, baseStats: { str: 20, agi: 24, jump: 20, dex: 20, int: 20 }, stats: { str: 20, agi: 24, jump: 20, dex: 20, int: 20 }, equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' }, equipSlotA: null, equipSlotB: null },
+  { id: 'c3', name: '緋紅副攻手', tier: 'N', color: '#f472b6', level: 1, exp: 0, freePts: 5, baseStats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, stats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' }, equipSlotA: null, equipSlotB: null },
+  { id: 'c4', name: '紫電二傳手', tier: 'N', color: '#c084fc', level: 1, exp: 0, freePts: 5, baseStats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, stats: { str: 20, agi: 22, jump: 20, dex: 20, int: 20 }, equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' }, equipSlotA: null, equipSlotB: null }
 ];
 
 let ACTIVE_ROSTER = { user: INVENTORY[0], mate: INVENTORY[1], enemyFront: INVENTORY[2], enemyBack: INVENTORY[3] };
-// ========================================================
-// ☁️ Firebase 雲端資料庫初始化 (專案: nsfwvolley-b5ee1)
-// ========================================================
-const firebaseConfig = {
-  apiKey: "AIzaSyCsPtYyZbhFpWjI1SYcfrJVxkc1U8T8HkQ",
-  authDomain: "nsfwvolley-b5ee1.firebaseapp.com",
-  projectId: "nsfwvolley-b5ee1",
-  storageBucket: "nsfwvolley-b5ee1.firebasestorage.app",
-  messagingSenderId: "486325994967",
-  appId: "1:486325994967:web:3c385f9b3db94a1bbe7792",
-  measurementId: "G-K6XRBRG29K"
-};
+let userCoins = 99999;
+const STORAGE_KEY = 'VOLLEY_ARENA_SAVE_DATA_2026_EQUIP_PATCH';
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-
-let currentCloudUser = localStorage.getItem('VOLLEY_CLOUD_USER') || null;
-let userCoins = 99999; // 封測期間維持 99999，正式公測由你後台一鍵重置
-const STORAGE_KEY = 'VOLLEY_ARENA_LOCAL_CACHE';
+// 關卡純時裝
 const CAREER_STAGES = [
   {
     id: 1, name: '青葉新秀高校', subtitle: '初階考核·基礎攻防', color: '#34d399', rewardCoins: 200, rewardSkin: null,
@@ -194,6 +357,118 @@ let careerProgress = 1;
 let currentCareerStage = 1;
 let isCareerMode = false;
 
+// 強化金幣指數成長計算: Base * (1.35)^(level-1)
+function getEquipRefineCost(level) {
+  if (level >= 10) return null;
+  const cost = Math.round(80 * Math.pow(1.35, level));
+  return cost;
+}
+
+// 重鑄金幣成長計算: 50 + 35 * (reforgeCount)^1.35
+function getEquipReforgeCost(reforgeCount) {
+  return Math.round(50 + 35 * Math.pow(reforgeCount, 1.35));
+}
+
+// 建立隨機裝備實體
+function generateEquipmentInstance(itemId) {
+  const dbItem = EQUIP_DB.find(e => e.id === itemId);
+  if (!dbItem) return null;
+
+  const baseRoll = Math.floor(Math.random() * (dbItem.baseRange[1] - dbItem.baseRange[0] + 1)) + dbItem.baseRange[0];
+  
+  // 隨機 1 ~ 2 條副詞條
+  const subCount = (dbItem.tier === 'SSR' || Math.random() < 0.5) ? 2 : 1;
+  const pool = [...dbItem.subStatPool];
+  const chosenSubs = [];
+
+  for (let i = 0; i < subCount; i++) {
+    if (pool.length === 0) break;
+    const rIdx = Math.floor(Math.random() * pool.length);
+    const subType = pool.splice(rIdx, 1)[0];
+    const range = SUBSTAT_RANGES[subType][dbItem.tier];
+    const val = parseFloat((range[0] + Math.random() * (range[1] - range[0])).toFixed(1));
+    chosenSubs.push({ type: subType, val: val, min: range[0], max: range[1] });
+  }
+
+  return {
+    instanceId: 'eq_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+    itemId: dbItem.id,
+    name: dbItem.name,
+    slot: dbItem.slot,
+    tier: dbItem.tier,
+    refineLevel: 0,
+    rank: 0, // 0~3 階
+    reforgeCount: 0,
+    mainStatType: dbItem.mainStat,
+    baseRoll: baseRoll,
+    subStats: chosenSubs
+  };
+}
+
+// 核心數值衍生: 角色五維累加裝備主屬性 + 二級詞條與特權解鎖
+function deriveStats(card) {
+  const s = { ...card.stats };
+  let bonusAP = 0, bonusReach = 0, bonusSweet = 0, bonusSpikeSpeed = 0;
+  let bonusStaminaRec = 1.0, bonusEnergyGain = 1.0;
+  let perks = {};
+
+  // 結算 Slot A 與 Slot B 穿戴裝備
+  const slots = [card.equipSlotA, card.equipSlotB];
+  slots.forEach(eqInstId => {
+    if (!eqInstId) return;
+    const eq = INVENTORY_EQUIPS.find(e => e.instanceId === eqInstId);
+    if (!eq) return;
+
+    const dbItem = EQUIP_DB.find(e => e.id === eq.itemId);
+    // 主屬性結算
+    const mainVal = eq.baseRoll + (eq.refineLevel * (dbItem ? dbItem.refineGain : 0.5));
+    if (s[eq.mainStatType] !== undefined) {
+      s[eq.mainStatType] += mainVal;
+    }
+
+    // 副詞條結算
+    if (eq.subStats) {
+      eq.subStats.forEach(sub => {
+        if (sub.type === 'ap') bonusAP += sub.val;
+        else if (sub.type === 'reach') bonusReach += sub.val;
+        else if (sub.type === 'sweet') bonusSweet += sub.val;
+        else if (sub.type === 'spikeSpeed') bonusSpikeSpeed += sub.val;
+        else if (sub.type === 'staminaRecovery') bonusStaminaRec += (sub.val / 100);
+        else if (sub.type === 'energyGain') bonusEnergyGain += (sub.val / 100);
+      });
+    }
+
+    // 突破特權階梯解鎖
+    if (dbItem && dbItem.perks) {
+      if (eq.rank >= 1 && dbItem.perks.rank1) perks = Object.assign(perks, dbItem.perks.rank1);
+      if (eq.rank >= 2 && dbItem.perks.rank2) perks = Object.assign(perks, dbItem.perks.rank2);
+      if (eq.rank >= 3 && dbItem.perks.rank3) perks = Object.assign(perks, dbItem.perks.rank3);
+    }
+  });
+
+  const baseSpeed = 5.2 + (s.agi * 0.12) + (perks.runSpeedBonus || 0);
+  const power = 18.5 + (s.str * 0.25) + bonusSpikeSpeed;
+  const defense = 10.0 + (s.dex * 0.25) + (s.agi * 0.15) + (perks.defRawBonus || 0);
+  const blockRigidity = (defense * 1.05) + (s.str * 0.12) + (s.jump * 0.15);
+  const oneTouchAbsorb = Math.min(75, Math.floor(35 + (s.dex * 0.8)));
+  const sweetWindow = Math.floor(34 + (s.dex * 0.4) + bonusSweet);
+// 🌟 素體 56 點起算，依公式累加 DEX 與 INT，再加上裝備副詞條與特權，不設上限
+  const reach = 56 + (s.dex * 0.25) + (s.int * 0.15) + bonusReach + (perks.reachBonus || 0);
+  const reactionDelay = Math.max(3, Math.round(16 - (s.int * 0.25) - (s.agi * 0.15) - (perks.reactionReduce || 0)));
+  const skillObj = SKILL_POOL.find(sk => sk.id === card.equippedSkill) || SKILL_POOL[0];
+
+  return {
+    speed: baseSpeed, jump: -9.8 - (s.jump * 0.10) - (perks.jumpRawBonus || 0), diveSpeed: baseSpeed * 1.25,
+    power: power, defense: defense, blockRigidity: blockRigidity,
+    oneTouchAbsorb: oneTouchAbsorb, sweetWindow: sweetWindow, reach: reach, reactionDelay: reactionDelay,
+    technique: 0.45 + (s.dex * 0.02), intellect: s.int,
+    outballThreshold: Math.max(8, 60 - s.int * 1.5), skill: skillObj,
+    // 專屬裝備加成導出
+    bonusAP: bonusAP, bonusStaminaRec: bonusStaminaRec, bonusEnergyGain: bonusEnergyGain,
+    perks: perks
+  };
+}
+
 let audioCtx = null, customAudio = new Audio();
 customAudio.loop = true;
 let isAudioLoaded = false;
@@ -204,10 +479,8 @@ function playSound(type) {
   const now = audioCtx.currentTime;
   try {
     const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-    // 🌟 這裡只宣告一次全域音量乘數！
     const sfxVol = (typeof globalSfxVolume !== 'undefined') ? globalSfxVolume : 0.85;
     osc.connect(gain); gain.connect(audioCtx.destination);
-
     if (type === 'pia') { 
       osc.type = 'triangle'; osc.frequency.setValueAtTime(680, now); osc.frequency.exponentialRampToValueAtTime(130, now + 0.08);
       gain.gain.setValueAtTime(0.75 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
@@ -277,7 +550,7 @@ function playWhistle(isScore = false) {
   if (audioCtx.state === 'suspended') audioCtx.resume();
   try {
     const now = audioCtx.currentTime, osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-    const sfxVol = (typeof globalSfxVolume !== 'undefined') ? globalSfxVolume : 0.85; // 🌟 補回這行宣告！
+    const sfxVol = (typeof globalSfxVolume !== 'undefined') ? globalSfxVolume : 0.85;
     osc.type = 'sine'; osc.frequency.setValueAtTime(isScore ? 2600 : 2400, now);
     gain.gain.setValueAtTime(0.18 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + (isScore ? 0.15 : 0.4));
     osc.connect(gain); gain.connect(audioCtx.destination);
@@ -289,36 +562,32 @@ function saveGameData() {
   const data = {
     coins: userCoins,
     inventory: INVENTORY,
+    inventoryEquips: INVENTORY_EQUIPS,
     careerProgress: careerProgress,
     unlockedCosmetics: UNLOCKED_COSMETICS,
     unlockedSkills: UNLOCKED_SKILLS,
     rosterIds: { user: ACTIVE_ROSTER.user.id, mate: ACTIVE_ROSTER.mate.id, enemyFront: ACTIVE_ROSTER.enemyFront.id, enemyBack: ACTIVE_ROSTER.enemyBack.id }
   };
-  // 1. 本地快速快取
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
-
-  // 2. 雲端同步保存
-  if (currentCloudUser) {
-    db.collection('players').doc(currentCloudUser).set({
-      gameData: JSON.stringify(data),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true }).catch(err => console.error("雲端存檔失敗:", err));
-  }
 }
+
 function loadGameData() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const data = JSON.parse(saved);
-      if (data.coins !== undefined) userCoins = Math.max(99999, data.coins);
+      if (data.coins !== undefined) userCoins = data.coins;
       if (data.careerProgress !== undefined) careerProgress = data.careerProgress;
       if (data.unlockedCosmetics) UNLOCKED_COSMETICS = data.unlockedCosmetics;
       if (Array.isArray(data.unlockedSkills)) UNLOCKED_SKILLS = data.unlockedSkills;
+      if (Array.isArray(data.inventoryEquips)) INVENTORY_EQUIPS = data.inventoryEquips;
       if (Array.isArray(data.inventory) && data.inventory.length >= 4) {
         INVENTORY = data.inventory;
         INVENTORY.forEach(card => {
           if (!card.equippedSkill) card.equippedSkill = 'sk_breaker';
           if (!card.cosmetics) card.cosmetics = { hat: 'hat_none', face: 'face_none', effect: 'fx_none' };
+          if (card.equipSlotA === undefined) card.equipSlotA = null;
+          if (card.equipSlotB === undefined) card.equipSlotB = null;
         });
       }
       if (data.rosterIds) {
@@ -346,39 +615,14 @@ function loadGameData() {
 }
 
 function resetLocalStorageData() {
-  if (confirm('確定要清除所有存檔資料嗎？這將重置金幣、抽卡名冊與角色等級。')) {
+  if (confirm('確定要清除所有存檔資料嗎？這將重置金幣、裝備、名冊與角色等級。')) {
     localStorage.removeItem(STORAGE_KEY);
     location.reload();
   }
 }
 
-function deriveStats(card) {
-  const s = card.stats;
-const baseSpeed = 5.2 + (s.agi * 0.12); // 🌟 補回這行計算！
-  const power = 18.5 + (s.str * 0.25);
-  const defense = 10.0 + (s.dex * 0.25) + (s.agi * 0.15);
-  const blockRigidity = (defense * 1.05) + (s.str * 0.12) + (s.jump * 0.15);
-  const oneTouchAbsorb = Math.min(75, Math.floor(35 + (s.dex * 0.8)));
-const sweetWindow = Math.floor(34 + (s.dex * 0.4));
-  // 🌟 DEX 與 INT 共同提供接球覆蓋面：新手 64px 起跳，滿等 60 可達 80px
-  const reach = Math.max(70, 56 + (s.dex * 0.25) + (s.int * 0.15));
-  const reactionDelay = Math.max(3, Math.round(16 - (s.int * 0.25) - (s.agi * 0.15)));
-  const skillObj = SKILL_POOL.find(sk => sk.id === card.equippedSkill) || SKILL_POOL[0];
-
-  return {
-    speed: baseSpeed, jump: -9.8 - (s.jump * 0.10), diveSpeed: baseSpeed * 1.25,
-power: power, defense: defense, blockRigidity: blockRigidity,
-    oneTouchAbsorb: oneTouchAbsorb, sweetWindow: sweetWindow, reach: reach, reactionDelay: reactionDelay,
-    technique: 0.45 + (s.dex * 0.02), intellect: s.int,
-    outballThreshold: Math.max(8, 60 - s.int * 1.5), skill: skillObj
-  };
-}
-
 function getRequiredExp(level) { return Math.floor(100 * Math.pow(1.22, level - 1)); }
 
-// ========================================================
-// 網路多人通訊狀態 (Slot 映射與陣營定錨)
-// ========================================================
 const NET = {
   isMultiplayer: false,
   isHost: false,
@@ -393,52 +637,3 @@ const NET = {
   remoteKeys: { a: false, d: false, w: false, j: false, k: false, l: false, o: false, space: false },
   lastPing: 0
 };
-// ========================================================
-// ☁️ Firebase 雲端認證與存檔載入
-// ========================================================
-function handleFirebaseAuth(username, password) {
-  const userRef = db.collection('players').doc(username);
-  
-  userRef.get().then((doc) => {
-    if (doc.exists) {
-      const userData = doc.data();
-      if (userData.password !== password) {
-        alert('❌ 密碼錯誤！請重新輸入。');
-        return;
-      }
-      // 登入成功，讀取雲端進度覆蓋本機
-      currentCloudUser = username;
-      localStorage.setItem('VOLLEY_CLOUD_USER', username);
-      if (userData.gameData) {
-        localStorage.setItem(STORAGE_KEY, userData.gameData);
-      }
-      alert(`✅ 歡迎回來，[${username}]！已載入雲端進度。`);
-      location.reload();
-    } else {
-      // 註冊全新雲端帳號
-      userRef.set({
-        username: username,
-        password: password,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      }).then(() => {
-        currentCloudUser = username;
-        localStorage.setItem('VOLLEY_CLOUD_USER', username);
-        // 將初始存檔同步至雲端
-        saveGameData();
-        alert(`🎉 帳號 [${username}] 註冊成功！雲端存檔已建立。`);
-        location.reload();
-      });
-    }
-  }).catch((err) => {
-    alert('雲端連線失敗: ' + err.message);
-  });
-}
-
-// 畫面載入時更新登入狀態文字
-window.addEventListener('DOMContentLoaded', () => {
-  const btnAuth = document.getElementById('btn-cloud-auth');
-  if (btnAuth && currentCloudUser) {
-    btnAuth.innerText = `👤 雲端球團: ${currentCloudUser}`;
-    btnAuth.style.background = '#047857';
-  }
-});

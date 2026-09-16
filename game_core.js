@@ -168,7 +168,9 @@ rebind(triggerHUD = true) {
         if (isVictim) exhMult *= 0.50;
       }
       this.vy = baseJump * exhMult;
-      this.jumpExhaustion = Math.max(0.35, this.jumpExhaustion * 0.78);
+      const pPerks = (this.stats && this.stats.perks) ? this.stats.perks : {};
+      const exFactor = pPerks.exhaustionResist ? 0.89 : 0.78;
+      this.jumpExhaustion = Math.max(0.35, this.jumpExhaustion * exFactor);
       this.isGrounded = false; this.squashX = 0.75; this.squashY = 1.3;
     }
   }
@@ -485,8 +487,9 @@ function executePlayerTimingReceive(player, isCover = false) {
   }
 
 let baseDef = player.stats.defense;
-  // 🌟 L 鍵魚躍削弱：極限救險時手型不穩，防守卸力值打 7 折，不再享受滿額獎勵
-  if (player.isDiving) baseDef *= 0.70;
+  const pPerks = (player.stats && player.stats.perks) ? player.stats.perks : {};
+  const diveRatio = Math.min(0.85, 0.70 + (pPerks.diveDefBuff || 0));
+  if (player.isDiving) baseDef *= diveRatio;
 
   const effectiveDef = Math.max(0, baseDef - extraDefPenalty);
   proMatchStats[player.slotKey].totalReceives++;
@@ -1649,8 +1652,13 @@ function handlePhysics() {
           if (mate.isLeft !== p.isLeft) mate.reactionTimer = Math.max(mate.reactionTimer, mate.stats.reactionDelay);
         });
 
-        if (isBreakThrough) {
-          ball.vx *= 0.84; ball.vy = Math.max(3.0, ball.vy * 0.75);
+if (isBreakThrough) {
+          // 🌟 讀取扣殺者裝備特權：穿網阻尼衰減降低
+          const hitterPerks = (ball.lastHitter && ball.lastHitter.stats && ball.lastHitter.stats.perks) ? ball.lastHitter.stats.perks : {};
+          const dampBonus = hitterPerks.pierceDampBonus || 0;
+          const retainRatio = Math.min(0.98, 0.84 * (1.0 + dampBonus));
+
+          ball.vx *= retainRatio; ball.vy = Math.max(3.0, ball.vy * 0.75);
           ball.isSpiked = true; ball.isPerfectSpike = false; ball.isBrokenSpike = true;
           ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
           playSound('block_break'); triggerScreenShake(10, 10);
@@ -1660,10 +1668,16 @@ function handlePhysics() {
             addCoins(2, 'SPIKE THROUGH BLOCK', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
             pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'THROUGH BLOCK!!', '#facc15');
           }
-        } else if (isToolOut) {
-          ball.vx = (p.isLeft ? 1 : -1) * 21.0; ball.vy = -10.5;
+
+          } else if (isToolOut) {
+          const hitterPerks = (ball.lastHitter && ball.lastHitter.stats && ball.lastHitter.stats.perks) ? ball.lastHitter.stats.perks : {};
+          const toolAngleBonus = hitterPerks.toolOutAngleBonus || 0;
+          const outDir = p.isLeft ? 1 : -1;
+          ball.vx = outDir * (21.0 * (1.0 + toolAngleBonus));
+          ball.vy = -10.5;
           ball.isSpiked = false; ball.isPerfectSpike = false; ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
           playSound('bump'); pushCallout(p.x, p.y - p.radius * 2 - 15, 'TOOL OUT SUCCESS!!', '#10b981');
+        
         } else if (isFingertip) {
           if (ball.activeSkillTag === '幻影抹手' && ball.lastHitter) ball.lastHitter.refundEnergy(0.5);
           const retainRatio = Math.max(0.25, 0.65 - (p.stats.technique * 0.22) - (p.stats.defense * 0.005));

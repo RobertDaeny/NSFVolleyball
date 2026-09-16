@@ -1,7 +1,9 @@
 // ========================================================
-// UI 與動態彈窗系統：更衣室、試衣間、轉蛋大街、結算、連線大廳與準備室
+// UI 與動態彈窗系統：更衣室、裝備背包、轉蛋大街、試衣間、連線與結算
 // ========================================================
 let currentSlot = 'user', stagedCard = null;
+let currentReforgeInstId = null;
+let currentBreakthroughTargetId = null;
 
 function initStagedCard() {
   const origin = ACTIVE_ROSTER[currentSlot];
@@ -32,84 +34,422 @@ function renderLocker() {
   document.getElementById('card-exp').innerText = `EXP: ${origin.exp} / ${getRequiredExp(origin.level)}`;
   document.getElementById('free-pts-display').innerText = stagedCard.freePts;
 
+  // 技能選單
   const skillSel = document.getElementById('skill-select');
-  skillSel.innerHTML = '';
-  SKILL_POOL.forEach(sk => {
-    const isUnlocked = Array.isArray(UNLOCKED_SKILLS) ? UNLOCKED_SKILLS.includes(sk.id) : (sk.id === 'sk_breaker');
-    if (isUnlocked || origin.equippedSkill === sk.id) {
+  if (skillSel) {
+    skillSel.innerHTML = '';
+    SKILL_POOL.forEach(sk => {
+      const isUnlocked = Array.isArray(UNLOCKED_SKILLS) ? UNLOCKED_SKILLS.includes(sk.id) : (sk.id === 'sk_breaker');
+      if (isUnlocked || origin.equippedSkill === sk.id) {
+        const opt = document.createElement('option');
+        opt.value = sk.id; opt.innerText = `[${sk.type}] ${sk.name} (Cost: ${sk.cost})`;
+        if (origin.equippedSkill === sk.id) opt.selected = true;
+        skillSel.appendChild(opt);
+      }
+    });
+    const currentEquippedSkill = SKILL_POOL.find(s => s.id === origin.equippedSkill) || SKILL_POOL[0];
+    const skillDescEl = document.getElementById('skill-card-desc');
+    if (skillDescEl) skillDescEl.innerText = currentEquippedSkill.desc;
+  }
+
+  // 陣容替換選單
+  const assignedIds = Object.values(ACTIVE_ROSTER).map(c => c.id);
+  const sel = document.getElementById('bench-select');
+  if (sel) {
+    sel.innerHTML = '';
+    [...INVENTORY].sort((a, b) => b.level - a.level).forEach(item => {
+      const isEquippedElsewhere = assignedIds.includes(item.id) && item.id !== origin.id;
       const opt = document.createElement('option');
-      opt.value = sk.id; opt.innerText = `[${sk.type}] ${sk.name} (Cost: ${sk.cost})`;
-      if (origin.equippedSkill === sk.id) opt.selected = true;
-      skillSel.appendChild(opt);
+      opt.value = item.id; opt.disabled = isEquippedElsewhere;
+      opt.innerText = `[${item.tier}] ${item.name} (Lv.${item.level})${isEquippedElsewhere ? ' [已出場]' : ''}`;
+      if (item.id === origin.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  // 計算裝備累加至一級母體屬性數值
+  const equipBonusStats = { str: 0, agi: 0, jump: 0, dex: 0, int: 0 };
+  [origin.equipSlotA, origin.equipSlotB].forEach(instId => {
+    if (!instId) return;
+    const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e => e.instanceId === instId) : null;
+    if (!eq) return;
+    const dbItem = EQUIP_DB.find(e => e.id === eq.itemId);
+    const mainVal = eq.baseRoll + (eq.refineLevel * (dbItem ? dbItem.refineGain : 0.5));
+    if (equipBonusStats[eq.mainStatType] !== undefined) {
+      equipBonusStats[eq.mainStatType] += mainVal;
     }
   });
 
-  const currentEquippedSkill = SKILL_POOL.find(s => s.id === origin.equippedSkill) || SKILL_POOL[0];
-  document.getElementById('skill-card-desc').innerText = currentEquippedSkill.desc;
-
-  const tierWeight = { SSR: 4, SR: 3, R: 2, N: 1 };
-  const sortedInventory = [...INVENTORY].sort((a, b) => {
-    if (tierWeight[b.tier] !== tierWeight[a.tier]) return tierWeight[b.tier] - tierWeight[a.tier];
-    return b.level - a.level;
-  });
-
-  const assignedIds = Object.values(ACTIVE_ROSTER).map(c => c.id);
-  const sel = document.getElementById('bench-select');
-  sel.innerHTML = '';
-  sortedInventory.forEach(item => {
-    const isEquippedElsewhere = assignedIds.includes(item.id) && item.id !== origin.id;
-    const opt = document.createElement('option');
-    opt.value = item.id; opt.disabled = isEquippedElsewhere;
-    opt.innerText = `[${item.tier}] ${item.name} (Lv.${item.level})${isEquippedElsewhere ? ' [場上已出場]' : ''}`;
-    if (item.id === origin.id) opt.selected = true;
-    sel.appendChild(opt);
-  });
-
+  // 1. 渲染一級屬性 (格式: 力量: 24 (20 + 4))
   const mount = document.getElementById('stats-mount');
-  mount.innerHTML = '';
-  const statMeta = {
-    str: { label: '力量 (STR)', desc: '直接驅動扣球與跳發出膛初速、穿透攔網剛性。' },
-    agi: { label: '敏捷 (AGI)', desc: '直接驅動場上橫移奔跑速度、地面魚躍撲救距離與防守轉向反應！' },
-    jump: { label: '彈跳 (JUMP)', desc: '決定空中摸高打擊點、起跳滯空時間與前排封網天花板高度。' },
-dex: { label: '技巧 (DEX)', desc: '驅動扣殺下旋加速度與跳飄氣流晃動；每點提升 0.25px 實體接球判定範圍與完美吸震半徑。' },
-    int: { label: '球商 (INT)', desc: '決定進攻決策與出界放球判斷；每點提供 0.15px 接球預判卡位範圍，並降低心態受挫機率。' }
-  };
+  if (mount) {
+    mount.innerHTML = '';
+    const statMeta = {
+      str: { label: '力量 (STR)', desc: '驅動扣球與跳發初速、穿透攔網剛性。' },
+      agi: { label: '敏捷 (AGI)', desc: '驅動橫移奔跑速度、魚躍救球滑行距離。' },
+      jump: { label: '彈跳 (JUMP)', desc: '決定摸高打擊點、起跳滯空與前排攔網高度。' },
+      dex: { label: '技巧 (DEX)', desc: '驅動扣殺下旋加速度；每點提供 0.25px 接球半徑。' },
+      int: { label: '球商 (INT)', desc: '提供 0.15px 接球預判卡位範圍，降低沮喪機率。' }
+    };
 
-  for (let k in stagedCard.stats) {
-    const row = document.createElement('div');
-    row.className = 'stat-row';
-    const currentVal = stagedCard.stats[k], baseVal = origin.baseStats[k];
-    row.innerHTML = `
-      <span>${statMeta[k].label} <small style="color:#94a3b8;">(${baseVal})</small></span>
-      <div class="stat-tooltip">${statMeta[k].desc}</div>
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <button class="stat-btn" onclick="adjustStagedStat('${k}', -1)" ${currentVal <= baseVal ? 'disabled' : ''}>-</button>
-        <strong style="width: 24px; text-align: center; color: ${currentVal > baseVal ? '#facc15' : '#fff'};">${currentVal}</strong>
-        <button class="stat-btn" onclick="adjustStagedStat('${k}', 1)" ${stagedCard.freePts <= 0 || currentVal >= 60 ? 'disabled' : ''}>+</button>
-      </div>
-    `;
-    mount.appendChild(row);
+    for (let k in stagedCard.stats) {
+      const row = document.createElement('div');
+      row.className = 'stat-row';
+      const baseVal = origin.baseStats[k];
+      const allocatedVal = stagedCard.stats[k];
+      const eqBonus = equipBonusStats[k];
+      const totalVal = allocatedVal + eqBonus;
+
+      row.innerHTML = `
+        <div>
+          <span>${statMeta[k].label}</span>
+          <span style="font-size: 11px; color: ${eqBonus > 0 ? '#34d399' : '#94a3b8'}; margin-left: 4px;">
+            <strong>${totalVal.toFixed(1)}</strong> (${allocatedVal}${eqBonus > 0 ? ` + <span style="color:#34d399;">${eqBonus.toFixed(1)}</span>` : ''})
+          </span>
+        </div>
+        <div class="stat-tooltip">${statMeta[k].desc}</div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <button class="stat-btn" onclick="adjustStagedStat('${k}', -1)" ${allocatedVal <= baseVal ? 'disabled' : ''}>-</button>
+          <strong style="width: 24px; text-align: center; color: ${allocatedVal > baseVal ? '#facc15' : '#fff'};">${allocatedVal}</strong>
+          <button class="stat-btn" onclick="adjustStagedStat('${k}', 1)" ${stagedCard.freePts <= 0 || allocatedVal >= 60 ? 'disabled' : ''}>+</button>
+        </div>
+      `;
+      mount.appendChild(row);
+    }
   }
 
-  const tempCard = { stats: stagedCard.stats, equippedSkill: origin.equippedSkill };
-  const derived = deriveStats(tempCard);
+  // 2. 渲染二級實戰衍生數值 (帶加乘反饋)
+  const bareCard = { stats: stagedCard.stats, equippedSkill: origin.equippedSkill, equipSlotA: null, equipSlotB: null };
+  const fullCard = { stats: stagedCard.stats, equippedSkill: origin.equippedSkill, equipSlotA: origin.equipSlotA, equipSlotB: origin.equipSlotB };
+  const baseDerived = deriveStats(bareCard);
+  const fullDerived = deriveStats(fullCard);
+
+  const formatDerived = (fullVal, baseVal, unit) => {
+    const diff = fullVal - baseVal;
+    if (Math.abs(diff) > 0.05) {
+      return `${fullVal.toFixed(2)}${unit} <span style="font-size: 10px; color: #34d399;">(${baseVal.toFixed(2)} + ${diff.toFixed(2)})</span>`;
+    }
+    return `${fullVal.toFixed(2)}${unit}`;
+  };
+
   const derivedMount = document.getElementById('derived-mount');
-  derivedMount.innerHTML = `
-    <div class="stat-derived-row"><span>🏃 實時奔跑速度 (Run Speed)</span><strong style="color: #38bdf8;">${derived.speed.toFixed(2)} px/f</strong></div>
-    <div class="stat-derived-row"><span>💥 扣球攻擊力 (Spike Atk)</span><strong style="color: #ef4444;">${derived.power.toFixed(1)}</strong></div>
-    <div class="stat-derived-row"><span>🛡️ 防守卸力值 (Defense)</span><strong style="color: #10b981;">${derived.defense.toFixed(1)}</strong></div>
-    <div class="stat-derived-row"><span>🧱 攔網手型剛性 (Block Guard)</span><strong style="color: #facc15;">${derived.blockRigidity.toFixed(1)}</strong></div>
-<div class="stat-derived-row"><span>🎯 完美起球半徑 (Sweet Spot)</span><strong style="color: #a78bfa;">${derived.sweetWindow} px</strong></div>
-    <div class="stat-derived-row"><span>🛡️ 實體防守覆蓋半徑 (Reach)</span><strong style="color: #38bdf8;">${derived.reach.toFixed(1)} px</strong></div>
-    <div class="stat-derived-row"><span>⚡ 神經反應延遲 (Reaction)</span><strong style="color: #f472b6;">${derived.reactionDelay} 幀</strong></div>
-  `;
+  if (derivedMount) {
+    derivedMount.innerHTML = `
+      <div class="stat-derived-row"><span>🏃 實時奔跑速度 (Run Speed)</span><strong style="color: #38bdf8;">${formatDerived(fullDerived.speed, baseDerived.speed, ' px/f')}</strong></div>
+      <div class="stat-derived-row"><span>💥 扣球攻擊力 (Spike Atk)</span><strong style="color: #ef4444;">${formatDerived(fullDerived.power, baseDerived.power, '')}</strong></div>
+      <div class="stat-derived-row"><span>🛡️ 防守卸力值 (Defense)</span><strong style="color: #10b981;">${formatDerived(fullDerived.defense, baseDerived.defense, '')}</strong></div>
+      <div class="stat-derived-row"><span>🧱 攔網手型剛性 (Block Guard)</span><strong style="color: #facc15;">${formatDerived(fullDerived.blockRigidity, baseDerived.blockRigidity, '')}</strong></div>
+      <div class="stat-derived-row"><span>🎯 完美起球半徑 (Sweet Spot)</span><strong style="color: #a78bfa;">${fullDerived.sweetWindow} px</strong></div>
+      <div class="stat-derived-row"><span>🛡️ 實體防守覆蓋半徑 (Reach)</span><strong style="color: #38bdf8;">${formatDerived(fullDerived.reach, baseDerived.reach, ' px')}</strong></div>
+      <div class="stat-derived-row"><span>⚡ 神經反應延遲 (Reaction)</span><strong style="color: #f472b6;">${fullDerived.reactionDelay} 幀</strong></div>
+    `;
+  }
+
+  // 3. 渲染已穿戴裝備微縮資訊格
+  renderEquippedPreview(origin);
+
+  // 4. 渲染下方橫向裝備庫存背包
+  renderInventoryEquipsGrid(origin);
 }
+
+function renderEquippedPreview(origin) {
+  const mount = document.getElementById('equipped-preview-mount');
+  if (!mount) return;
+  mount.innerHTML = '';
+
+  ['A', 'B'].forEach(slotKey => {
+    const prop = `equipSlot${slotKey}`;
+    const instId = origin[prop];
+    const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e => e.instanceId === instId) : null;
+    const row = document.createElement('div');
+    row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; background: #18153d; border-radius: 6px; margin-bottom: 4px; font-size: 11px;';
+
+    if (eq) {
+      const tierColor = eq.tier === 'SSR' ? '#facc15' : (eq.tier === 'SR' ? '#c084fc' : '#38bdf8');
+      row.innerHTML = `
+        <span style="color: ${tierColor}; font-weight: bold;">[${slotKey}] ${eq.name} +${eq.refineLevel} (${eq.rank}階)</span>
+        <button class="btn-sound" style="padding: 2px 6px; font-size: 10px;" onclick="window.unequipSlot('${prop}')">卸下</button>
+      `;
+    } else {
+      row.innerHTML = `
+        <span style="color: #64748b;">[${slotKey}] (未穿戴裝備)</span>
+        <span style="font-size: 10px; color: #94a3b8;">從下方背包點選穿戴</span>
+      `;
+    }
+    mount.appendChild(row);
+  });
+}
+
+function renderInventoryEquipsGrid(currentCard) {
+  const grid = document.getElementById('inventory-equips-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const countEl = document.getElementById('equip-count-display');
+  const equipList = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS : [];
+  if (countEl) countEl.innerText = `持有裝備: ${equipList.length} 件`;
+
+  if (equipList.length === 0) {
+    grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #64748b; padding: 20px; font-size: 12px;">背包空空如也，請至轉蛋大街抽取裝備！</div>`;
+    return;
+  }
+
+  const findEquipOwner = (instId) => {
+    for (let c of INVENTORY) {
+      if (c.equipSlotA === instId) return `${c.name} [Slot A]`;
+      if (c.equipSlotB === instId) return `${c.name} [Slot B]`;
+    }
+    return null;
+  };
+
+  equipList.forEach(eq => {
+    const dbItem = EQUIP_DB.find(e => e.id === eq.itemId);
+    const tierColor = eq.tier === 'SSR' ? '#facc15' : (eq.tier === 'SR' ? '#c084fc' : '#38bdf8');
+    const ownerText = findEquipOwner(eq.instanceId);
+    const isEquippedByCurrent = (currentCard.equipSlotA === eq.instanceId || currentCard.equipSlotB === eq.instanceId);
+    const refineCost = getEquipRefineCost(eq.refineLevel);
+    const reforgeCost = getEquipReforgeCost(eq.reforgeCount);
+
+    const cardEl = document.createElement('div');
+    cardEl.style.cssText = `
+      position: relative; background: #110d24; border: 1.5px solid ${isEquippedByCurrent ? '#facc15' : '#4338ca'};
+      border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between;
+      cursor: pointer; box-shadow: ${isEquippedByCurrent ? '0 0 12px rgba(250,204,21,0.35)' : 'none'};
+    `;
+
+    let perkText = '無特權';
+    if (dbItem && dbItem.perks) {
+      if (eq.rank === 1) perkText = dbItem.perks.rank1 ? dbItem.perks.rank1.desc : '';
+      else if (eq.rank === 2) perkText = dbItem.perks.rank2 ? dbItem.perks.rank2.desc : '';
+      else if (eq.rank >= 3) perkText = dbItem.perks.rank3 ? dbItem.perks.rank3.desc : '';
+    }
+
+    cardEl.innerHTML = `
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <strong style="color: ${tierColor}; font-size: 12px;">[${eq.tier}] ${eq.name} +${eq.refineLevel}</strong>
+          <span style="font-size: 10px; font-weight: bold; color: #facc15;">${eq.rank} 階 ${eq.rank >= 3 ? '✨' : ''}</span>
+        </div>
+        <div style="font-size: 11px; color: #cbd5e1; margin-top: 3px;">
+          主屬: <strong style="color: #34d399;">${eq.mainStatType.toUpperCase()} +${(eq.baseRoll + eq.refineLevel * (dbItem ? dbItem.refineGain : 0.5)).toFixed(1)}</strong>
+        </div>
+        <div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">
+          副詞: ${eq.subStats.map(s => `${s.type}+${s.val}`).join(' | ')}
+        </div>
+        ${ownerText ? `<div style="font-size: 9px; color: #38bdf8; margin-top: 2px;">● 穿戴者: ${ownerText}</div>` : `<div style="font-size: 9px; color: #10b981; margin-top: 2px;">○ 空閒中 (可穿戴)</div>`}
+      </div>
+
+      <div style="display: flex; gap: 4px; margin-top: 8px;" onclick="event.stopPropagation();">
+        <button class="btn-action" style="flex: 1; padding: 2px 0; font-size: 9px;" ${refineCost === null || userCoins < refineCost ? 'disabled' : ''} onclick="window.refineEquip('${eq.instanceId}')">
+          ${refineCost !== null ? `+1(${refineCost}幣)` : '滿級'}
+        </button>
+        <button class="btn-action" style="flex: 1; padding: 2px 0; font-size: 9px; background: #9333ea;" onclick="window.openBreakthroughModal('${eq.instanceId}')">
+          突破
+        </button>
+        <button class="btn-sound" style="flex: 1; padding: 2px 0; font-size: 9px;" onclick="window.openReforgeModal('${eq.instanceId}')">
+          重鑄
+        </button>
+      </div>
+
+      <div class="stat-tooltip" style="width: 280px; font-size: 11px; line-height: 1.4;">
+        <div style="color: ${tierColor}; font-weight: bold; font-size: 12px; margin-bottom: 4px;">${eq.name} +${eq.refineLevel} (${eq.rank}階)</div>
+        <div style="color: #cbd5e1;">部位：${eq.slot.toUpperCase()} | 稀有度：${eq.tier}</div>
+        <hr style="border: 0.5px solid #334155; margin: 4px 0;">
+        <div style="color: #34d399;">★ 主屬性：${eq.mainStatType.toUpperCase()} +${(eq.baseRoll + eq.refineLevel * (dbItem ? dbItem.refineGain : 0.5)).toFixed(1)} (初始Roll: ${eq.baseRoll})</div>
+        <div style="color: #facc15; margin-top: 2px;">★ 突破特權 (${eq.rank}/3階)：${perkText}</div>
+        <div style="color: #38bdf8; margin-top: 2px;">★ 隨機副詞條：</div>
+        ${eq.subStats.map(s => `<div style="padding-left: 8px; color: #a5b4fc;">• ${s.type}: +${s.val} (區間 ${s.min} ~ ${s.max})</div>`).join('')}
+        <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">重鑄次數：${eq.reforgeCount} 次 (下次需 ${reforgeCost} 幣)</div>
+      </div>
+    `;
+
+    cardEl.onclick = () => {
+      window.promptEquipToCurrentPlayer(eq.instanceId);
+    };
+
+    grid.appendChild(cardEl);
+  });
+}
+
+// ========================================================
+// 🌟 全域操作函式 (掛載於 window，徹底杜絕 ReferenceError)
+// ========================================================
+window.promptEquipToCurrentPlayer = function(instId) {
+  const currentCard = ACTIVE_ROSTER[currentSlot];
+  if (currentCard.equipSlotA === instId) {
+    if (confirm('是否將此裝備從 [Slot A] 卸下？')) {
+      currentCard.equipSlotA = null;
+      saveGameData(); renderLocker();
+    }
+    return;
+  }
+  if (currentCard.equipSlotB === instId) {
+    if (confirm('是否將此裝備從 [Slot B] 卸下？')) {
+      currentCard.equipSlotB = null;
+      saveGameData(); renderLocker();
+    }
+    return;
+  }
+
+  let targetSlot = 'equipSlotA';
+  if (!currentCard.equipSlotA) targetSlot = 'equipSlotA';
+  else if (!currentCard.equipSlotB) targetSlot = 'equipSlotB';
+  else {
+    const choice = prompt('請選擇要替換的槽位 (輸入 A 或 B)：', 'A');
+    if (choice && choice.toUpperCase() === 'B') targetSlot = 'equipSlotB';
+  }
+
+  currentCard[targetSlot] = instId;
+  playSound('set');
+  saveGameData();
+  renderLocker();
+};
+
+window.unequipSlot = function(propName) {
+  ACTIVE_ROSTER[currentSlot][propName] = null;
+  saveGameData();
+  renderLocker();
+};
+
+window.refineEquip = function(instId) {
+  const eq = INVENTORY_EQUIPS.find(e => e.instanceId === instId);
+  if (!eq || eq.refineLevel >= 10) return;
+  const cost = getEquipRefineCost(eq.refineLevel);
+  if (userCoins < cost) { alert(`金幣不足！需要 ${cost} 幣。`); return; }
+  userCoins -= cost;
+  eq.refineLevel++;
+  playSound('coin');
+  saveGameData();
+  renderLocker();
+};
+
+window.openBreakthroughModal = function(instId) {
+  const target = INVENTORY_EQUIPS.find(e => e.instanceId === instId);
+  if (!target) return;
+  if (target.rank >= 3) { alert('該裝備已達滿階 3 階！'); return; }
+
+  currentBreakthroughTargetId = instId;
+  const dbItem = EQUIP_DB.find(e => e.id === target.itemId);
+  const modal = document.getElementById('breakthrough-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  document.getElementById('breakthrough-target-info').innerHTML = `
+    <div style="font-weight: bold; color: #facc15;">突破目標：${target.name} +${target.refineLevel} (${target.rank} 階 ➔ ${target.rank + 1} 階)</div>
+    <div style="color: #cbd5e1; font-size: 11px;">解鎖特權：${dbItem && dbItem.perks ? dbItem.perks[`rank${target.rank+1}`].desc : '專屬特權'}</div>
+  `;
+
+  const mount = document.getElementById('breakthrough-materials-list');
+  mount.innerHTML = '';
+  const materials = INVENTORY_EQUIPS.filter(e => e.itemId === target.itemId && e.instanceId !== instId);
+
+  if (materials.length === 0) {
+    mount.innerHTML = `<div style="color: #ef4444; font-size: 12px; padding: 10px;">背包中無多餘的同名【${target.name}】可作為材料！請至轉蛋機抽取。</div>`;
+    return;
+  }
+
+  materials.forEach(mat => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 8px 12px; border-radius: 8px; border: 1px solid #334155;';
+    row.innerHTML = `
+      <div style="text-align: left;">
+        <span style="color: #fff; font-weight: bold;">${mat.name} +${mat.refineLevel} (${mat.rank}階)</span>
+        <div style="font-size: 10px; color: #94a3b8;">主屬 Roll: +${mat.baseRoll} | 副詞: ${mat.subStats.map(s => s.type).join(',')}</div>
+      </div>
+      <button class="btn-action" style="background: #ef4444; font-size: 10px; padding: 4px 10px;" onclick="window.confirmBreakthrough('${mat.instanceId}')">
+        吃掉此裝備
+      </button>
+    `;
+    mount.appendChild(row);
+  });
+};
+
+window.closeBreakthroughModal = function() {
+  const modal = document.getElementById('breakthrough-modal');
+  if (modal) modal.style.display = 'none';
+  currentBreakthroughTargetId = null;
+};
+
+window.confirmBreakthrough = function(materialInstId) {
+  const target = INVENTORY_EQUIPS.find(e => e.instanceId === currentBreakthroughTargetId);
+  const matIdx = INVENTORY_EQUIPS.findIndex(e => e.instanceId === materialInstId);
+  if (!target || matIdx === -1) return;
+
+  if (confirm(`確定要將這件材料裝備吃掉嗎？此操作無法還原！`)) {
+    INVENTORY.forEach(c => {
+      if (c.equipSlotA === materialInstId) c.equipSlotA = null;
+      if (c.equipSlotB === materialInstId) c.equipSlotB = null;
+    });
+
+    INVENTORY_EQUIPS.splice(matIdx, 1);
+    target.rank++;
+    playSound('perfect_spike');
+    if (target.rank === 3) {
+      alert(`✨ 恭喜突破至滿階 3 階！已解鎖專屬【腳底階級光暈】！`);
+    }
+    window.closeBreakthroughModal();
+    saveGameData();
+    renderLocker();
+  }
+};
+
+window.openReforgeModal = function(instId) {
+  const eq = INVENTORY_EQUIPS.find(e => e.instanceId === instId);
+  if (!eq) return;
+  currentReforgeInstId = instId;
+  const cost = getEquipReforgeCost(eq.reforgeCount);
+  const modal = document.getElementById('reforge-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  document.getElementById('reforge-item-info').innerHTML = `
+    <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">${eq.name} +${eq.refineLevel}</div>
+    <div style="color: #cbd5e1; margin-bottom: 4px;">當前副詞條數值：</div>
+    ${eq.subStats.map(s => `<div style="padding-left: 10px; color: #a5b4fc;">• ${s.type}: <strong style="color:#facc15;">+${s.val}</strong> (區間 ${s.min} ~ ${s.max})</div>`).join('')}
+    <div style="color: #facc15; font-weight: bold; margin-top: 8px;">本次重鑄消耗：${cost} 幣 (已累計洗練 ${eq.reforgeCount} 次)</div>
+  `;
+
+  const btn = document.getElementById('btn-do-reforge');
+  if (btn) {
+    btn.innerText = `花費 ${cost} 幣重鑄`;
+    btn.disabled = userCoins < cost;
+  }
+};
+
+window.closeReforgeModal = function() {
+  const modal = document.getElementById('reforge-modal');
+  if (modal) modal.style.display = 'none';
+  currentReforgeInstId = null;
+};
+
+window.executeReforgeAction = function() {
+  const eq = INVENTORY_EQUIPS.find(e => e.instanceId === currentReforgeInstId);
+  if (!eq) return;
+  const cost = getEquipReforgeCost(eq.reforgeCount);
+  if (userCoins < cost) { alert('金幣不足！'); return; }
+
+  userCoins -= cost;
+  eq.reforgeCount++;
+
+  const dbItem = EQUIP_DB.find(e => e.id === eq.itemId);
+  eq.subStats.forEach(sub => {
+    const range = SUBSTAT_RANGES[sub.type][dbItem.tier];
+    sub.val = parseFloat((range[0] + Math.random() * (range[1] - range[0])).toFixed(1));
+  });
+
+  playSound('pia');
+  saveGameData();
+  window.openReforgeModal(eq.instanceId);
+  renderLocker();
+};
 
 function equipSkillToActivePlayer(skillId) {
   const origin = ACTIVE_ROSTER[currentSlot];
   origin.equippedSkill = skillId;
   const sk = SKILL_POOL.find(s => s.id === skillId);
-  if (sk) document.getElementById('skill-card-desc').innerText = sk.desc;
+  if (sk) {
+    const descEl = document.getElementById('skill-card-desc');
+    if (descEl) descEl.innerText = sk.desc;
+  }
   if (typeof allPlayers !== 'undefined') allPlayers.forEach(p => p.rebind(true));
   saveGameData();
 }
@@ -275,7 +615,7 @@ function startPracticeMode() {
 }
 
 // ========================================================
-// ⏳ 連線賽前戰術配置室 (30 秒倒數 + 雙方 Ready 縮為 5 秒)
+// ⏳ 連線賽前戰術配置室
 // ========================================================
 let netPrepTimer = null, netPrepSeconds = 30;
 let isMyReady = false, isMateReady = false;
@@ -324,7 +664,7 @@ function startNetPreparation() {
     mySkillSel.innerHTML += `<option value="${sk.id}">[${sk.type}] ${sk.name}</option>`;
   });
 
-const myCloudId = (typeof currentCloudUser !== 'undefined' && currentCloudUser) ? currentCloudUser : '我方主控';
+  const myCloudId = (typeof currentCloudUser !== 'undefined' && currentCloudUser) ? currentCloudUser : '我方主控';
   const myTitleEl = document.querySelector('#panel-my-prep h3');
   if (myTitleEl) myTitleEl.innerText = `👤 [${myCloudId}] 的出戰配置`;
 
@@ -338,7 +678,8 @@ const myCloudId = (typeof currentCloudUser !== 'undefined' && currentCloudUser) 
     const diffNames = { 1: '入門新手', 2: '泥濘沼澤', 3: '常盤鋼鐵', 4: '疾風怒濤', 5: '神域全明星' };
     diffHint.innerText = `👾 挑戰難度：【${diffNames[NET.pveDifficulty] || '隨機難度'}】(電腦將於開賽時登場)`;
   } else {
-    mateTitle.innerText = '🤖 我的電腦隊友 (AI 搭檔)';    mateCharSel.disabled = false;
+    mateTitle.innerText = '🤖 我的電腦隊友 (AI 搭檔)';
+    mateCharSel.disabled = false;
     mateSkillSel.disabled = false;
     mateCharSel.innerHTML = '';
     INVENTORY.forEach((c, idx) => {
@@ -422,7 +763,6 @@ function confirmNetPrepReady() {
     NET.conn.send(payload);
   }
 
-  // 套用本機選手配置到對應 Slot
   if (NET.isHost) {
     ACTIVE_ROSTER.user = { ...myCharObj, equippedSkill: mySkillId };
     if (NET.mode === 'PVP') {
@@ -536,7 +876,6 @@ function startHosting() {
     const diffVal = parseInt(document.getElementById('pve-diff-select').value) || 5;
     NET.pveDifficulty = diffVal;
     
-    // 預先產生 PVE 雙電腦對手配置
     const stage = CAREER_STAGES.find(s => s.id === diffVal) || CAREER_STAGES[4];
     ACTIVE_ROSTER.enemyFront = {
       id: `ai_f_${Date.now()}`, name: stage.front.name, tier: stage.front.tier,
@@ -631,7 +970,7 @@ function setupDataConnection() {
       applyWorldSync(data);
     } else if (data.type === 'CALLOUT_SYNC') {
       calloutPopups.push({ x: data.x, y: data.y - 28, text: data.text, color: data.color, timer: 45, maxTimer: 45 });
-} else if (data.type === 'MANGA_SHOUT_SYNC') {
+    } else if (data.type === 'MANGA_SHOUT_SYNC') {
       if (typeof triggerMangaShout === 'function') {
         triggerMangaShout(data.speaker, data.text, data.sub, data.color);
       }
@@ -663,7 +1002,7 @@ function setupDataConnection() {
 }
 
 // ========================================================
-// 🪞 試衣化妝間 (支援全背包角色換裝)
+// 🪞 試衣化妝間
 // ========================================================
 let wbSelectedCharId = 'c1', wbCategory = 'hats', wbPage = 0;
 
@@ -794,51 +1133,63 @@ function runWardrobePreviewLoop() {
 // ========================================================
 // 🎰 轉蛋專區 (GACHA ARCADE) & 防手殘確認邏輯
 // ========================================================
-let pendingGachaAction = null;
+window.pendingGachaAction = null;
 
-function openGachaArcade() {
+window.openGachaArcade = function() {
   document.getElementById('start-menu-modal').style.display = 'none';
   document.getElementById('gacha-arcade-modal').style.display = 'flex';
   const cd = document.getElementById('arcade-coin-display');
   if (cd) cd.innerText = userCoins;
-}
+};
 
-function closeGachaArcade() {
+window.closeGachaArcade = function() {
   document.getElementById('gacha-arcade-modal').style.display = 'none';
   document.getElementById('start-menu-modal').style.display = 'flex';
   saveGameData();
-}
+};
 
-function openGachaArcadeFromWardrobe() {
+window.openGachaArcadeFromWardrobe = function() {
   document.getElementById('wardrobe-modal').style.display = 'none';
-  openGachaArcade();
-}
+  window.openGachaArcade();
+};
 
-function promptConfirmGacha(type, isTen, cost) {
+window.promptConfirmGacha = function(type, isTen, cost) {
   if (userCoins < cost) {
     alert(`排球金幣不足！本次抽取需要 ${cost} 幣，目前持有 ${userCoins} 幣。`);
     return;
   }
-  const typeLabels = { cosmetic: '時尚轉蛋', player: '角色轉蛋', skill: '技能轉蛋' };
-  pendingGachaAction = { type, isTen, cost };
-  document.getElementById('confirm-gacha-text').innerText = `確定要花費 ${cost} 排球金幣，進行【${typeLabels[type]}】${isTen ? '十抽' : '單抽'} 嗎？`;
-  document.getElementById('confirm-gacha-modal').style.display = 'flex';
-}
+  const typeLabels = { cosmetic: '時尚轉蛋', player: '角色轉蛋', skill: '技能轉蛋', equip: '裝備轉蛋' };
+  window.pendingGachaAction = { type, isTen, cost };
+  
+  const textEl = document.getElementById('confirm-gacha-text');
+  if (textEl) {
+    textEl.innerText = `確定要花費 ${cost} 排球金幣，進行【${typeLabels[type] || '轉蛋'}】${isTen ? '十抽' : '單抽'} 嗎？`;
+  }
+  const modal = document.getElementById('confirm-gacha-modal');
+  if (modal) modal.style.display = 'flex';
+};
 
-function closeConfirmGacha() {
-  document.getElementById('confirm-gacha-modal').style.display = 'none';
-  pendingGachaAction = null;
-}
+window.closeConfirmGacha = function() {
+  const modal = document.getElementById('confirm-gacha-modal');
+  if (modal) modal.style.display = 'none';
+  window.pendingGachaAction = null;
+};
 
-function executeConfirmedGacha() {
-  if (!pendingGachaAction) return;
-  const { type, isTen } = pendingGachaAction;
-  closeConfirmGacha();
+window.executeConfirmedGacha = function() {
+  if (!window.pendingGachaAction) return;
+  const { type, isTen } = window.pendingGachaAction;
+  window.closeConfirmGacha();
 
-  if (type === 'cosmetic') triggerCosmeticGacha(isTen);
-  else if (type === 'player') triggerGacha(isTen);
-  else if (type === 'skill') triggerSkillGacha(isTen);
-}
+  if (type === 'equip') {
+    triggerEquipGacha(isTen);
+  } else if (type === 'player') {
+    triggerGacha(isTen);
+  } else if (type === 'cosmetic') {
+    triggerCosmeticGacha(isTen);
+  } else if (type === 'skill') {
+    triggerSkillGacha(isTen);
+  }
+};
 
 function rollSingleCard() {
   const rand = Math.random();
@@ -872,7 +1223,8 @@ function rollSingleCard() {
       id: 'c_' + Date.now() + '_' + Math.floor(Math.random()*1000),
       name: template.name, tier: template.tier, color: template.color, level: 1, exp: 0,
       freePts: 5 + template.bonusPts, baseStats: { ...template.base }, stats: { ...template.base },
-      equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' }
+      equippedSkill: 'sk_breaker', cosmetics: { hat: 'hat_none', face: 'face_none', effect: 'fx_none' },
+      equipSlotA: null, equipSlotB: null
     };
     INVENTORY.push(newCard); resultMsg = '🎉 新球員加入！';
   }
@@ -924,15 +1276,13 @@ function triggerGacha(isTen = false) {
       const nameEl = document.getElementById('gacha-name');
       if (nameEl) nameEl.innerText = result.template.name;
 
-// 🌟 動態掛載對應階級發光 class (n, r, sr, ssr)
-    const stageEl = document.getElementById('gacha-card-stage');
-    if (stageEl) {
-      stageEl.className = result.template.tier.toLowerCase();
-      // 重新觸發彈出動畫
-      stageEl.style.animation = 'none';
-      stageEl.offsetHeight; // 強制重繪
-      stageEl.style.animation = '';
-    }
+      const stageEl = document.getElementById('gacha-card-stage');
+      if (stageEl) {
+        stageEl.className = result.template.tier.toLowerCase();
+        stageEl.style.animation = 'none';
+        stageEl.offsetHeight;
+        stageEl.style.animation = '';
+      }
 
       const featEl = document.getElementById('gacha-feature');
       if (featEl) featEl.innerText = result.template.desc;
@@ -945,7 +1295,7 @@ function triggerGacha(isTen = false) {
       for (let i = 0; i < 10; i++) results.push(rollSingleCard());
       saveGameData();
 
-const grid = document.getElementById('ten-gacha-grid');
+      const grid = document.getElementById('ten-gacha-grid');
       if (grid) {
         grid.innerHTML = '';
         grid.style.display = 'grid';
@@ -957,7 +1307,6 @@ const grid = document.getElementById('ten-gacha-grid');
           const tier = res.template.tier;
           const tierLower = tier.toLowerCase();
           const item = document.createElement('div');
-          // 🌟 使用獨立的卡牌插槽 class
           item.className = `ten-card-slot ${tierLower}`;
           
           let tierColor = '#94a3b8';
@@ -979,6 +1328,42 @@ const grid = document.getElementById('ten-gacha-grid');
       else alert('🎉 十連抽完成！新角色與突破 EXP 已全數存入更衣室名冊。');
     }
   }, 400);
+}
+
+// 裝備轉蛋核心
+function rollSingleEquipment() {
+  const rand = Math.random();
+  let targetTier = 'R';
+  if (rand < 0.05) targetTier = 'SSR';
+  else if (rand < 0.30) targetTier = 'SR';
+
+  const pool = EQUIP_DB.filter(e => e.tier === targetTier);
+  const pickedTemplate = pool[Math.floor(Math.random() * pool.length)];
+  const newInst = generateEquipmentInstance(pickedTemplate.id);
+  INVENTORY_EQUIPS.push(newInst);
+  return newInst;
+}
+
+function triggerEquipGacha(isTen = false) {
+  const cost = isTen ? 1350 : 150;
+  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
+  userCoins -= cost;
+  updateCoinHUD();
+
+  playSound('coin');
+  const results = [];
+  const count = isTen ? 10 : 1;
+  for (let i = 0; i < count; i++) {
+    results.push(rollSingleEquipment());
+  }
+  saveGameData();
+
+  let msg = isTen ? '🎉 十連抽取完成！\n' : '🎉 恭喜抽得裝備！\n';
+  results.forEach(r => {
+    msg += `• [${r.tier}] ${r.name} (主屬性 +${r.baseRoll})\n`;
+  });
+  alert(msg);
+  renderLocker();
 }
 
 function updateCoinHUD() {
@@ -1190,7 +1575,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   let heroIdx = 0;
   const heroPool = GACHA_POOL.slice(0, 5);
-setInterval(() => {
+  setInterval(() => {
     if (typeof isGameStarted !== 'undefined' && isGameStarted) return;
     heroIdx = (heroIdx + 1) % heroPool.length;
     const h = heroPool[heroIdx];
@@ -1208,7 +1593,8 @@ setInterval(() => {
     if (name) name.innerText = h.name;
     if (desc) desc.innerText = h.desc;
     if (sil) sil.style.backgroundColor = h.color;
-  }, 6000);});
+  }, 6000);
+});
 
 window.addEventListener('DOMContentLoaded', () => {
   const audioFileInput = document.getElementById('audio-file');
