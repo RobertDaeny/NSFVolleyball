@@ -6,40 +6,42 @@ function drawPlayerEntity(player, targetCtx) {
   const effectObj = (typeof COSMETICS_DB !== 'undefined') ? COSMETICS_DB.effects.find(e => e.id === cosmetics.effect) : null;
   const glowColor = effectObj ? effectObj.glow : null;
 
-  // 🌟 核心：三階滿階裝備腳底光暈 (N 白光 / R 紅光 / SSR 黃金光芒)
-  let highestRank3Tier = null;
-  if (player.card) {
+// 🌟 核心：三階滿階裝備腳底光暈 (R 白光 / SR 紅光 / SSR 黃金光芒)
+let highestRank3Tier = null;
+if (player.card) {
     const slots = [player.card.equipSlotA, player.card.equipSlotB];
     slots.forEach(instId => {
-      if (!instId) return;
-      const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e => e.instanceId === instId) : null;
-      if (eq && eq.rank >= 3) {
-        if (eq.tier === 'SSR') highestRank3Tier = 'SSR';
-        else if (eq.tier === 'R' && highestRank3Tier !== 'SSR') highestRank3Tier = 'R';
-        else if (eq.tier === 'N' && !highestRank3Tier) highestRank3Tier = 'N';
-      }
+        if (!instId) return;
+        // 確保這裡的全域變數名稱跟你們原本專案的一致（不要有空格）
+        const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e => e.instanceId === instId) : null;
+        
+        if (eq && eq.rank >= 3) {
+            if (eq.tier === 'SSR') {
+                highestRank3Tier = 'SSR';
+            } else if (eq.tier === 'SR' && highestRank3Tier !== 'SSR') {
+                highestRank3Tier = 'SR';
+            } else if (eq.tier === 'R' && highestRank3Tier !== 'SSR' && highestRank3Tier !== 'SR') {
+                highestRank3Tier = 'R';
+            }
+        }
     });
-  }
+}
 
-  // 繪製腳底地面光環與向上微升粒子
+// 🌟 1. 地面光環：畫在角色本體最底層（角色穩穩踩在光環上方）
   if (highestRank3Tier) {
     targetCtx.save();
     targetCtx.translate(player.x, WORLD.FLOOR_Y);
 
     let haloColor = 'rgba(255, 255, 255, 0.45)';
     let haloGlow = '#ffffff';
-    let pCount = 1;
-
-    if (highestRank3Tier === 'R') {
+    if (highestRank3Tier === 'SR') {
       haloColor = 'rgba(239, 68, 68, 0.55)';
       haloGlow = '#ef4444';
     } else if (highestRank3Tier === 'SSR') {
       haloColor = 'rgba(250, 204, 21, 0.65)';
       haloGlow = '#facc15';
-      pCount = 2;
     }
 
-    // 1. 地面扁平光環
     targetCtx.beginPath();
     targetCtx.ellipse(0, 0, player.radius * 1.5, player.radius * 0.45, 0, 0, Math.PI * 2);
     targetCtx.fillStyle = haloColor;
@@ -50,23 +52,6 @@ function drawPlayerEntity(player, targetCtx) {
     targetCtx.strokeStyle = haloGlow;
     targetCtx.stroke();
     targetCtx.restore();
-
-    // 2. 生成自腳底向上漂浮放射的光塵微粒
-    if (typeof gameFrame !== 'undefined' && gameFrame % 4 === 0 && typeof visualEffects !== 'undefined') {
-      for (let k = 0; k < pCount; k++) {
-        visualEffects.push({
-          type: 'skin_mote',
-          color: haloGlow,
-          x: player.x + (Math.random() - 0.5) * (player.radius * 2),
-          y: WORLD.FLOOR_Y - Math.random() * 6,
-          vx: (Math.random() - 0.5) * 0.4,
-          vy: -Math.random() * 1.2 - 0.6, // 向上冉冉升騰
-          size: 2.2,
-          life: 24,
-          maxLife: 24
-        });
-      }
-    }
   }
 
   // 1. 拖曳微粒殘影 (維持原有)
@@ -341,6 +326,37 @@ function drawPlayerEntity(player, targetCtx) {
       targetCtx.fillStyle = '#dc2626'; targetCtx.fillRect(-10, -player.radius * 1.75, 20, 3);
     }
   }
+
+// 🌟 2. 向上微升粒子生成判定
+  if (highestRank3Tier) {
+    let haloGlow = '#ffffff';
+    let pCount = 1;
+    if (highestRank3Tier === 'SR') {
+      haloGlow = '#ef4444';
+      pCount = 3;
+    } else if (highestRank3Tier === 'SSR') {
+      haloGlow = '#facc15';
+      pCount = 4;
+    }
+
+    if (typeof gameFrame !== 'undefined' && gameFrame % 4 === 0 && typeof visualEffects !== 'undefined') {
+      for (let k = 0; k < pCount; k++) {
+        visualEffects.push({
+          type: 'skin_mote',
+          color: haloGlow,
+          x: player.x + (Math.random() - 0.5) * (player.radius * 2),
+          y: WORLD.FLOOR_Y - Math.random() * 6,
+          vx: (Math.random() - 0.5) * 0.4,
+          vy: -Math.random() * 1.2 - 0.6,
+          size: 2.2,
+          life: 24,
+          maxLife: 24
+        });
+      }
+    }
+  }
+
+  // 🌟 主控箭頭指標：嚴格只繪製在「本機操控的球員（NET.mySlot）」頭頂！
 
   // 🌟 主控箭頭指標：嚴格只繪製在「本機操控的球員（NET.mySlot）」頭頂！
   const isMyLocalHero = (typeof NET !== 'undefined' && typeof NET.mySlot !== 'undefined')
@@ -677,27 +693,6 @@ function render() {
     if (h.alpha <= 0) haloEffects.splice(i, 1);
   }
 
-  visualEffects.forEach(fx => {
-    ctx.save();
-    if (fx.type === 'shockwave') {
-      ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.radius, 0, Math.PI * 2);
-      ctx.strokeStyle = fx.color; ctx.globalAlpha = Math.max(0, fx.alpha); ctx.lineWidth = 4; ctx.stroke();
-    } else if (fx.type === 'spark') {
-      ctx.beginPath(); ctx.arc(fx.x, fx.y, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = fx.color; ctx.globalAlpha = fx.life / fx.maxLife; ctx.fill();
-    } else if (fx.type === 'mud_drop') {
-      ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.size * (fx.life / fx.maxLife), 0, Math.PI * 2);
-      ctx.fillStyle = fx.color; ctx.globalAlpha = Math.min(1.0, fx.life / 10); ctx.fill();
-    } else if (fx.type === 'skin_mote') {
-      ctx.beginPath();
-      ctx.arc(fx.x, fx.y, fx.size * (fx.life / fx.maxLife), 0, Math.PI * 2);
-      ctx.fillStyle = fx.color;
-      ctx.globalAlpha = Math.min(0.8, fx.life / fx.maxLife);
-      ctx.fill();
-    }
-    ctx.restore();
-  });
-
   allPlayers.forEach(p => p.draw(ctx));
 
   // 發球蓄力條：動態對齊當前發球員
@@ -722,6 +717,29 @@ function render() {
     ctx.fillStyle = '#facc15'; ctx.beginPath(); ctx.arc(0, 0, ball.radius, 1.8, 3.0); ctx.lineTo(0, 0); ctx.fill();
     ctx.restore();
   }
+
+
+  visualEffects.forEach(fx => {
+    ctx.save();
+    if (fx.type === 'shockwave') {
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.radius, 0, Math.PI * 2);
+      ctx.strokeStyle = fx.color; ctx.globalAlpha = Math.max(0, fx.alpha); ctx.lineWidth = 4; ctx.stroke();
+    } else if (fx.type === 'spark') {
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = fx.color; ctx.globalAlpha = fx.life / fx.maxLife; ctx.fill();
+    } else if (fx.type === 'mud_drop') {
+      ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.size * (fx.life / fx.maxLife), 0, Math.PI * 2);
+      ctx.fillStyle = fx.color; ctx.globalAlpha = Math.min(1.0, fx.life / 10); ctx.fill();
+    } else if (fx.type === 'skin_mote') {
+      ctx.beginPath();
+      ctx.arc(fx.x, fx.y, fx.size * (fx.life / fx.maxLife), 0, Math.PI * 2);
+      ctx.fillStyle = fx.color;
+      ctx.globalAlpha = Math.min(0.8, fx.life / fx.maxLife);
+      ctx.fill();
+    }
+    ctx.restore();
+  });
+
 
   // 🌟 文字呼喊與金幣浮空：鏡像模式下二次翻轉，防止鏡像反字！
   for (let i = calloutPopups.length - 1; i >= 0; i--) {
