@@ -704,11 +704,85 @@ function handleFirebaseAuth(username, password) {
   });
 }
 
-// 畫面載入時更新登入狀態按鈕文字
+// ========================================================
+// ☁️ 雲端帳號管理：自動定時備份、自動開機同步、手動同步與登出
+// ========================================================
+
+// 🌟 1. 自動定時上傳：每 60 秒背景靜默同步一次 Firebase
+setInterval(() => {
+  if (currentCloudUser && typeof saveGameData === 'function') {
+    saveGameData();
+    console.log(`[Cloud Sync] ☁️ 已自動定時備份至雲端 (${new Date().toLocaleTimeString()})`);
+  }
+}, 60000);
+
+// 🌟 2. 點擊「已登入按鈕」時彈出操作選單（手動同步 / 登出）
+function handleCloudAccountMenu() {
+  const choice = prompt(
+    `👤 當前登入球團：[${currentCloudUser}]\n\n` +
+    `請輸入選項指令：\n` +
+    `1 ➔ 立即強制上傳存檔至雲端\n` +
+    `2 ➔ 立即從雲端拉取最新存檔覆蓋本機\n` +
+    `3 ➔ 登出當前帳號\n` +
+    `按「取消」關閉此選單`,
+    "1"
+  );
+
+  if (choice === "1") {
+    // 強制上傳
+    saveGameData();
+    alert("✅ 最新進度已成功強制上傳至 Firebase 雲端！");
+  } else if (choice === "2") {
+    // 強制拉取
+    if (db && currentCloudUser) {
+      db.collection('players').doc(currentCloudUser).get().then((doc) => {
+        if (doc.exists && doc.data().gameData) {
+          localStorage.setItem(STORAGE_KEY, doc.data().gameData);
+          alert("✅ 已成功從雲端同步最新進度！即將刷新畫面...");
+          location.reload();
+        } else {
+          alert("⚠️ 雲端尚無存檔記錄！");
+        }
+      }).catch(err => alert("同步失敗: " + err.message));
+    }
+  } else if (choice === "3") {
+    // 登出
+    if (confirm(`確定要登出球團 [${currentCloudUser}] 嗎？`)) {
+      localStorage.removeItem('VOLLEY_CLOUD_USER');
+      alert("已安全登出！即將重新載入...");
+      location.reload();
+    }
+  }
+}
+
+// 🌟 3. 畫面載入時：綁定按鈕與開機自動向雲端拉取最新進度
 window.addEventListener('DOMContentLoaded', () => {
   const btnAuth = document.getElementById('btn-cloud-auth');
-  if (btnAuth && currentCloudUser) {
-    btnAuth.innerText = `👤 雲端球團: ${currentCloudUser}`;
-    btnAuth.style.background = '#047857';
+  if (btnAuth) {
+    if (currentCloudUser) {
+      btnAuth.innerText = `👤 雲端球團: ${currentCloudUser} (點擊管理)`;
+      btnAuth.style.background = '#047857';
+      btnAuth.onclick = handleCloudAccountMenu; // 點擊可手動同步或登出
+
+      // 開網頁自動向雲端檢查並載入最新檔（解決換電腦變預設狀態）
+      if (db) {
+        db.collection('players').doc(currentCloudUser).get().then((doc) => {
+          if (doc.exists && doc.data().gameData) {
+            const cloudDataStr = doc.data().gameData;
+            const localDataStr = localStorage.getItem(STORAGE_KEY);
+            if (cloudDataStr !== localDataStr) {
+              localStorage.setItem(STORAGE_KEY, cloudDataStr);
+              loadGameData();
+              if (typeof allPlayers !== 'undefined') allPlayers.forEach(p => p.rebind(true));
+              if (typeof updateSideUltHUD === 'function') updateSideUltHUD();
+            }
+          }
+        }).catch(err => console.error("自動載入雲端失敗:", err));
+      }
+    } else {
+      btnAuth.innerText = `👤 雲端帳號登入 (未登入)`;
+      btnAuth.style.background = '#065f46';
+      btnAuth.onclick = openCloudAuthModal;
+    }
   }
 });
