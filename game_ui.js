@@ -52,12 +52,20 @@ function renderLocker() {
     if (skillDescEl) skillDescEl.innerText = currentEquippedSkill.desc;
   }
 
-  // 陣容替換選單
+// 陣容替換選單（稀有度優先，再來排列等級降冪）
   const assignedIds = Object.values(ACTIVE_ROSTER).map(c => c.id);
   const sel = document.getElementById('bench-select');
   if (sel) {
     sel.innerHTML = '';
-    [...INVENTORY].sort((a, b) => b.level - a.level).forEach(item => {
+    const tierWeight = { SSR: 4, SR: 3, R: 2, N: 1 };
+    const sortedInventory = [...INVENTORY].sort((a, b) => {
+      const weightA = tierWeight[a.tier] || 0;
+      const weightB = tierWeight[b.tier] || 0;
+      if (weightB !== weightA) return weightB - weightA; // 稀有度高者在前
+      return (b.level || 1) - (a.level || 1);            // 同稀有度等級高者在前
+    });
+
+    sortedInventory.forEach(item => {
       const isEquippedElsewhere = assignedIds.includes(item.id) && item.id !== origin.id;
       const opt = document.createElement('option');
       opt.value = item.id; opt.disabled = isEquippedElsewhere;
@@ -184,7 +192,7 @@ function renderInventoryEquipsGrid(currentCard) {
   const grid = document.getElementById('inventory-equips-grid');
   if (!grid) return;
   grid.innerHTML = '';
-  const countEl = document.getElementById('equip-count-display');
+const countEl = document.getElementById('equip-count-display');
   const equipList = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS : [];
   if (countEl) countEl.innerText = `持有裝備: ${equipList.length} 件`;
 
@@ -192,6 +200,15 @@ function renderInventoryEquipsGrid(currentCard) {
     grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #64748b; padding: 20px; font-size: 12px;">背包空空如也，請至轉蛋大街抽取裝備！</div>`;
     return;
   }
+
+  // 🌟 裝備排序：稀有度優先 (SSR > SR > R) ➔ 強化等級降冪 (+10 > +0) ➔ 突破階級 (3階 > 0階)
+  const eqTierWeight = { SSR: 3, SR: 2, R: 1 };
+  const sortedEquips = [...equipList].sort((a, b) => {
+    const twA = eqTierWeight[a.tier] || 0, twB = eqTierWeight[b.tier] || 0;
+    if (twB !== twA) return twB - twA;
+    if ((b.refineLevel || 0) !== (a.refineLevel || 0)) return (b.refineLevel || 0) - (a.refineLevel || 0);
+    return (b.rank || 0) - (a.rank || 0);
+  });
 
   const findEquipOwner = (instId) => {
     for (let c of INVENTORY) {
@@ -201,7 +218,8 @@ function renderInventoryEquipsGrid(currentCard) {
     return null;
   };
 
-  equipList.forEach(eq => {
+  sortedEquips.forEach(eq => {
+
     const dbItem = EQUIP_DB.find(e => e.id === eq.itemId);
     const tierColor = eq.tier === 'SSR' ? '#facc15' : (eq.tier === 'SR' ? '#c084fc' : '#38bdf8');
     const ownerText = findEquipOwner(eq.instanceId);
@@ -654,8 +672,15 @@ function startNetPreparation() {
 
   myCharSel.disabled = false;
   mySkillSel.disabled = false;
-  myCharSel.innerHTML = '';
-  INVENTORY.forEach((c, idx) => {
+myCharSel.innerHTML = '';
+  const prepTierWeight = { SSR: 4, SR: 3, R: 2, N: 1 };
+  const sortedPrepChars = [...INVENTORY].sort((a, b) => {
+    const wA = prepTierWeight[a.tier] || 0, wB = prepTierWeight[b.tier] || 0;
+    if (wB !== wA) return wB - wA;
+    return (b.level || 1) - (a.level || 1);
+  });
+
+  sortedPrepChars.forEach((c, idx) => {
     myCharSel.innerHTML += `<option value="${c.id}" ${idx === 0 ? 'selected' : ''}>[${c.tier}] ${c.name} (Lv.${c.level})</option>`;
   });
 
@@ -681,8 +706,8 @@ function startNetPreparation() {
     mateTitle.innerText = '🤖 我的電腦隊友 (AI 搭檔)';
     mateCharSel.disabled = false;
     mateSkillSel.disabled = false;
-    mateCharSel.innerHTML = '';
-    INVENTORY.forEach((c, idx) => {
+mateCharSel.innerHTML = '';
+    sortedPrepChars.forEach((c, idx) => {
       mateCharSel.innerHTML += `<option value="${c.id}" ${idx === 1 ? 'selected' : ''}>[${c.tier}] ${c.name} (Lv.${c.level})</option>`;
     });
     mateSkillSel.innerHTML = '';
@@ -752,11 +777,17 @@ function confirmNetPrepReady() {
   const myCharObj = INVENTORY.find(c => c.id === myCharId) || INVENTORY[0];
   const mateCharObj = INVENTORY.find(c => c.id === mateCharId) || INVENTORY[1];
 
-  const payload = {
+const payload = {
     type: 'READY_CHECK',
     ready: true,
-    p1: { name: myCharObj.name, color: myCharObj.color, stats: myCharObj.stats, skillId: mySkillId, cosmetics: myCharObj.cosmetics },
-    p2: (NET.mode === 'PVP') ? { name: mateCharObj.name, color: mateCharObj.color, stats: mateCharObj.stats, skillId: mateSkillId, cosmetics: mateCharObj.cosmetics } : null
+    p1: { 
+      name: myCharObj.name, color: myCharObj.color, stats: myCharObj.stats, skillId: mySkillId, 
+      cosmetics: myCharObj.cosmetics, equipSlotA: myCharObj.equipSlotA, equipSlotB: myCharObj.equipSlotB 
+    },
+    p2: (NET.mode === 'PVP') ? { 
+      name: mateCharObj.name, color: mateCharObj.color, stats: mateCharObj.stats, skillId: mateSkillId, 
+      cosmetics: mateCharObj.cosmetics, equipSlotA: mateCharObj.equipSlotA, equipSlotB: mateCharObj.equipSlotB 
+    } : null
   };
 
   if (NET.conn && NET.conn.open) {
@@ -783,22 +814,22 @@ function confirmNetPrepReady() {
 function handleRemoteReady(data) {
   isMateReady = true;
 
-  if (NET.isHost) {
+if (NET.isHost) {
     if (NET.mode === 'COOP') {
-      ACTIVE_ROSTER.mate = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics };
+      ACTIVE_ROSTER.mate = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, equipSlotA: data.p1.equipSlotA, equipSlotB: data.p1.equipSlotB };
     } else {
-      ACTIVE_ROSTER.enemyFront = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics };
+      ACTIVE_ROSTER.enemyFront = { id: 'remote_guest', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, equipSlotA: data.p1.equipSlotA, equipSlotB: data.p1.equipSlotB };
       if (data.p2) {
-        ACTIVE_ROSTER.enemyBack = { id: 'remote_guest_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics };
+        ACTIVE_ROSTER.enemyBack = { id: 'remote_guest_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics, equipSlotA: data.p2.equipSlotA, equipSlotB: data.p2.equipSlotB };
       }
     }
   } else {
     if (NET.mode === 'COOP') {
-      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics };
+      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, equipSlotA: data.p1.equipSlotA, equipSlotB: data.p1.equipSlotB };
     } else {
-      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics };
+      ACTIVE_ROSTER.user = { id: 'remote_host', name: data.p1.name, color: data.p1.color, stats: data.p1.stats, equippedSkill: data.p1.skillId, cosmetics: data.p1.cosmetics, equipSlotA: data.p1.equipSlotA, equipSlotB: data.p1.equipSlotB };
       if (data.p2) {
-        ACTIVE_ROSTER.mate = { id: 'remote_host_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics };
+        ACTIVE_ROSTER.mate = { id: 'remote_host_mate', name: data.p2.name, color: data.p2.color, stats: data.p2.stats, equippedSkill: data.p2.skillId, cosmetics: data.p2.cosmetics, equipSlotA: data.p2.equipSlotA, equipSlotB: data.p2.equipSlotB };
       }
     }
   }
@@ -973,6 +1004,16 @@ function setupDataConnection() {
     } else if (data.type === 'MANGA_SHOUT_SYNC') {
       if (typeof triggerMangaShout === 'function') {
         triggerMangaShout(data.speaker, data.text, data.sub, data.color);
+      }
+} else if (data.type === 'VFX_SYNC') {
+      // 🌟 讓訪客同步生成火花、震波與粒子
+      if (typeof visualEffects !== 'undefined') {
+        visualEffects.push(data.effect);
+      }
+    } else if (data.type === 'COIN_REWARD_SYNC') {
+      // 🌟 房主發送獎勵給訪客
+      if (data.targetSlot === NET.mySlot && typeof addCoins === 'function') {
+        addCoins(data.amount, data.desc, data.x, data.y);
       }
     } else if (data.type === 'LOBBY_SELECT_UPDATE') {
       handleRemoteLobbyUpdate(data);

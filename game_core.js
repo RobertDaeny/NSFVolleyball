@@ -548,8 +548,8 @@ let baseDef = player.stats.defense;
 
   if (dist < player.stats.sweetWindow && extraDefPenalty < 15.0) {
     playSound('pia'); triggerHalo(player, '#10b981', true);
-    createImpactSparks(ball.x, ball.y, 16, '#10b981');
-    if (player.isLocallyControlled) addCoins(1, 'PERFECT ABSORB', player.x, player.y - player.radius * 2);
+createImpactSparks(ball.x, ball.y, 16, '#10b981');
+    distributeCoins(player, 1, 'PERFECT ABSORB', player.x, player.y - player.radius * 2);
     pushCallout(player.x, player.y - player.radius * 2 - 15, 'PERFECT ABSORB!!', '#10b981');
 
 if (!player.isDiving && isOpponentBall) {
@@ -668,6 +668,32 @@ function executeSetterPass(setter) {
   ball.opacity = 1.0; ball.glowColor = null;
   playSound('set');
   if (setter === mateAI) pushCallout(ball.x, ball.y - 15, 'CHANCE!', '#facc15');
+}
+
+// 🌟 依照觸發者身分，精確給予本機或通知遠端訪客領錢
+function distributeCoins(actor, amount, desc, x, y) {
+  if (!actor) return;
+  const targetSlot = (typeof actor === 'number') ? actor : (actor.slotIndex !== undefined ? actor.slotIndex : NET.mySlot);
+
+  if (typeof NET === 'undefined' || !NET.isMultiplayer) {
+    addCoins(amount, desc, x, y);
+    return;
+  }
+
+  // 若觸發者是本機玩家，直接本地加錢
+  if (targetSlot === NET.mySlot) {
+    addCoins(amount, desc, x, y);
+  } else if (NET.isHost && NET.conn && NET.conn.open) {
+    // 若房主判定這是訪客的得分，透過網路發送封包請訪客端領錢
+    NET.conn.send({
+      type: 'COIN_REWARD_SYNC',
+      targetSlot: targetSlot,
+      amount: amount,
+      desc: desc,
+      x: x,
+      y: y
+    });
+  }
 }
 
 function addCoins(amount, desc = '', spawnX = null, spawnY = null) {
@@ -809,17 +835,19 @@ function triggerFault(winnerTeam, title, desc) {
     }
   });
 
-  const isTouchOut = desc.includes('TOUCH OUT'), isAce = title.includes('ACE');
+const isTouchOut = desc.includes('TOUCH OUT'), isAce = title.includes('ACE');
+  const scoringPlayer = ball.lastHitter || (winnerTeam === 'LEFT' ? userPlayer : enemyA);
 
   if (winnerTeam === 'LEFT') { 
     score.player++; 
     userPlayer.addEnergy(20);
     if (pendingCoinReward > 0) {
-      if (isTouchOut) addCoins(pendingCoinReward + 2, 'TOUCH OUT 打手出界加權', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
-      else addCoins(pendingCoinReward, pendingCoinReason, userPlayer.x, userPlayer.y - userPlayer.radius * 2);
-    } else if (ball.lastHitter && ball.lastHitter.isLocallyControlled) {
-      if (isAce) addCoins(3, 'SERVICE ACE!! 發球得分', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
-      else addCoins(1, '進攻得分', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
+      const rewardActor = ball.lastHitter || userPlayer;
+      if (isTouchOut) distributeCoins(rewardActor, pendingCoinReward + 2, 'TOUCH OUT 打手出界加權', rewardActor.x, rewardActor.y - rewardActor.radius * 2);
+      else distributeCoins(rewardActor, pendingCoinReward, pendingCoinReason, rewardActor.x, rewardActor.y - rewardActor.radius * 2);
+    } else if (scoringPlayer && scoringPlayer.isLeft) {
+      if (isAce) distributeCoins(scoringPlayer, 3, 'SERVICE ACE!! 發球得分', scoringPlayer.x, scoringPlayer.y - scoringPlayer.radius * 2);
+      else distributeCoins(scoringPlayer, 1, '進攻得分', scoringPlayer.x, scoringPlayer.y - scoringPlayer.radius * 2);
     }
 
     if (ball.lastHitter && ball.lastHitter.isLeft) {
@@ -829,6 +857,11 @@ function triggerFault(winnerTeam, title, desc) {
     }
   } else { 
     score.enemy++;
+    // 右隊得分時也為右隊攻手（例如訪客在 PVP 時）結算金幣
+    if (scoringPlayer && !scoringPlayer.isLeft) {
+      if (isAce) distributeCoins(scoringPlayer, 3, 'SERVICE ACE!! 發球得分', scoringPlayer.x, scoringPlayer.y - scoringPlayer.radius * 2);
+      else distributeCoins(scoringPlayer, 1, '進攻得分', scoringPlayer.x, scoringPlayer.y - scoringPlayer.radius * 2);
+    }
     pendingCoinReward = 0; pendingCoinReason = '';
     if (ball.lastHitter && !ball.lastHitter.isLeft) {
       if (isAce) proMatchStats[ball.lastHitter.slotKey].serviceAces++;
@@ -838,7 +871,7 @@ function triggerFault(winnerTeam, title, desc) {
   }
 
   scoreDisplay.innerText = `${score.player} : ${score.enemy}`;
-  banner.active = true; banner.timer = 85; banner.mainText = title; banner.subText = desc;
+banner.active = true; banner.timer = 85; banner.mainText = title; banner.subText = desc;
 
   // 🌟 自主色彩判定：依本機陣營判斷藍字/紅字
   const myIsLeft = (typeof NET !== 'undefined') ? (NET.mySlot === 0 || NET.mySlot === 1) : true;
@@ -1066,14 +1099,35 @@ window.addEventListener('keydown', (e) => {
   }
   
 if (e.key === 'Escape') {
+    // 1. 遊戲設置選單
     if (typeof isSettingsOpen !== 'undefined' && isSettingsOpen) {
       closeSettingsModal();
       return;
     }
+    // 2. 按鍵自定義彈窗
     if (typeof isKeybindModalOpen !== 'undefined' && isKeybindModalOpen) {
       closeKeybindModal();
       return;
     }
+    // 🌟 3. 試衣化妝間 (Wardrobe Modal)
+    const wardrobeModal = document.getElementById('wardrobe-modal');
+    if (wardrobeModal && wardrobeModal.style.display === 'flex') {
+      closeWardrobeModal();
+      return;
+    }
+    // 🌟 4. 轉蛋專區 (Gacha Arcade Modal)
+    const gachaArcadeModal = document.getElementById('gacha-arcade-modal');
+    if (gachaArcadeModal && gachaArcadeModal.style.display === 'flex') {
+      closeGachaArcade();
+      return;
+    }
+    // 🌟 5. 聯賽關卡選擇面板 (Career Modal)
+    const careerModal = document.getElementById('career-modal');
+    if (careerModal && careerModal.style.display === 'flex') {
+      closeCareerMenu();
+      return;
+    }
+    // 6. 球員更衣室 / 戰術配置室
     if (isLockerOpen) {
       if (!isGameStarted) closeLockerToMenu();
       else toggleLocker();
@@ -1663,12 +1717,11 @@ if (isBreakThrough) {
           ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
           playSound('block_break'); triggerScreenShake(10, 10);
           createImpactSparks(ball.x, ball.y, 18, '#ef4444');
-          pushCallout(p.x, p.y - p.radius * 2, 'BROKEN!!', '#ef4444');
-          if (ball.lastHitter && ball.lastHitter.isLocallyControlled) {
-            addCoins(2, 'SPIKE THROUGH BLOCK', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
-            pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'THROUGH BLOCK!!', '#facc15');
+pushCallout(p.x, p.y - p.radius * 2, 'BROKEN!!', '#ef4444');
+          if (ball.lastHitter) {
+            distributeCoins(ball.lastHitter, 2, 'SPIKE THROUGH BLOCK', ball.lastHitter.x, ball.lastHitter.y - ball.lastHitter.radius * 2);
+            pushCallout(ball.lastHitter.x, ball.lastHitter.y - ball.lastHitter.radius * 2 - 15, 'THROUGH BLOCK!!', '#facc15');
           }
-
           } else if (isToolOut) {
           const hitterPerks = (ball.lastHitter && ball.lastHitter.stats && ball.lastHitter.stats.perks) ? ball.lastHitter.stats.perks : {};
           const toolAngleBonus = hitterPerks.toolOutAngleBonus || 0;
@@ -1700,10 +1753,8 @@ if (isBreakThrough) {
           ball.isSpiked = true; ball.isPerfectSpike = (incomingSpeed > 20); ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
           playSound('block_roof'); triggerScreenShake(9, 10);
           createImpactSparks(ball.x, ball.y, 16, '#facc15');
-          if (p.isLocallyControlled) {
-            addCoins(3, 'MONSTER BLOCK', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
-            pushCallout(userPlayer.x, userPlayer.y - userPlayer.radius * 2 - 15, 'ROOF BLOCK!!', '#facc15');
-          }
+distributeCoins(p, 3, 'MONSTER BLOCK', p.x, p.y - p.radius * 2);
+          pushCallout(p.x, p.y - p.radius * 2 - 15, 'ROOF BLOCK!!', '#facc15');
         }
       }
     });
@@ -1712,19 +1763,27 @@ if (isBreakThrough) {
   allPlayers.forEach(p => {
     if (p.isDiving && !p.diveTouched && getDist(p) < 85) {
       if (recordTouch(p)) {
-        p.diveTouched = true; p.addEnergy(25);
+p.diveTouched = true; p.addEnergy(25);
         executePlayerTimingReceive(p, match.isBlockedBack); playSound('dive');
-        if (p.isLocallyControlled) { 
-          addCoins(2, 'DIVE SAVE', userPlayer.x, userPlayer.y - userPlayer.radius * 2);
-          pushCallout(p.x, p.y - p.radius * 2 - 15, 'SUPER DIVE SAVE!!', '#38bdf8');
+        distributeCoins(p, 2, 'DIVE SAVE', p.x, p.y - p.radius * 2);
+        pushCallout(p.x, p.y - p.radius * 2 - 15, 'SUPER DIVE SAVE!!', '#38bdf8');
 // 🌟 魚躍高潮閾值：地板救球永遠值得大叫！
         if (typeof triggerMangaShout === 'function') {
           triggerMangaShout(p.playerName, `${p.playerName} 魚躍極限起球！！`, '不可思議的地面撲救！球還活著！', '#38bdf8');
         }
         }
       }
-    }
+    
   });
+// 🌟 修復發球掛網落地二次觸發暴扣：若裁判已吹哨亮起 Banner，地面不再重判定！
+  if (banner.active) {
+    if (ball.y + ball.radius >= WORLD.FLOOR_Y) {
+      ball.y = WORLD.FLOOR_Y - ball.radius;
+      ball.vy = -Math.abs(ball.vy) * 0.45;
+      ball.vx *= 0.85;
+    }
+    return;
+  }
 
   if (ball.y + ball.radius >= WORLD.FLOOR_Y) {
     if (ball.isPerfectSpike || ball.isSkyComet) { 
@@ -1768,11 +1827,23 @@ if (isBreakThrough) {
 }
 
 function triggerScreenShake(intensity, frames) { screenShakeIntensity = intensity; screenShakeTimer = frames; }
-function createShockwave(x, y, color = '#ef4444') { visualEffects.push({ type: 'shockwave', x, y, radius: 10, alpha: 1.0, color }); }
+function createShockwave(x, y, color = '#ef4444') { 
+  const fx = { type: 'shockwave', x, y, radius: 10, alpha: 1.0, color };
+  visualEffects.push(fx); 
+  if (typeof NET !== 'undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
+    NET.conn.send({ type: 'VFX_SYNC', effect: fx });
+  }
+}
+
 function createImpactSparks(x, y, count = 8, color = '#facc15') {
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2, speed = Math.random() * 8 + 3;
-    visualEffects.push({ type: 'spark', x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 20, maxLife: 20, color });
+    const fx = { type: 'spark', x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 20, maxLife: 20, color };
+    visualEffects.push(fx);
+    if (typeof NET !== 'undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open && i === 0) {
+      // 網路端傳輸時壓縮封包，只傳一組通知遠端本機生成
+      NET.conn.send({ type: 'VFX_SYNC', effect: fx });
+    }
   }
 }
 function createMudSplash(x, y, count = 10) {
@@ -1827,7 +1898,7 @@ data.players.forEach((pData, idx) => {
         allPlayers[idx].playerName = pData.playerName;
       }
 
-      if (idx === NET.mySlot) {
+if (idx === NET.mySlot) {
         allPlayers[idx].energy = pData.energy;
         allPlayers[idx].jumpExhaustion = pData.jumpExhaustion;
         allPlayers[idx].isBlocking = pData.isBlocking;
@@ -1837,7 +1908,14 @@ data.players.forEach((pData, idx) => {
         allPlayers[idx].softWallRallies = pData.softWallRallies;
         allPlayers[idx].godspeedCharges = pData.godspeedCharges;
         allPlayers[idx].greaseDebuffRallies = pData.greaseDebuffRallies;
-        if (Math.hypot(allPlayers[idx].x - pData.x, allPlayers[idx].y - pData.y) > 40) {
+
+        // 🌟 修復核心：若處於發球狀態，禁止本地預測拉扯，強制鎖定房主端座標！
+        if (typeof serveState !== 'undefined' && serveState.active) {
+          allPlayers[idx].x = pData.x;
+          allPlayers[idx].y = pData.y;
+          allPlayers[idx].vx = 0;
+          allPlayers[idx].vy = 0;
+        } else if (Math.hypot(allPlayers[idx].x - pData.x, allPlayers[idx].y - pData.y) > 40) {
           allPlayers[idx].x += (pData.x - allPlayers[idx].x) * 0.3;
           allPlayers[idx].y += (pData.y - allPlayers[idx].y) * 0.3;
         }
@@ -2069,6 +2147,7 @@ loadGameData();
 allPlayers.forEach(p => p.rebind(true));
 updateSideUltHUD();
 requestAnimationFrame(mainLoop);
+
 // 🌟 解決切視窗/分頁時間凍結：使用不受背景降頻限制的 Web Worker 維持 60FPS 連線心跳
 const bgHeartbeatBlob = new Blob([`
   let bgTimer = null;
@@ -2095,7 +2174,7 @@ document.addEventListener('visibilitychange', () => {
 bgHeartbeat.onmessage = function(e) {
   if (e.data === 'tick' && document.hidden) {
     if (!isPaused && !isSettlementOpen && isGameStarted) {
-      fixedUpdate(); // 房主切去其他分頁，遊戲物理與廣播依然正常跑！
+      fixedUpdate();
     }
   }
 };

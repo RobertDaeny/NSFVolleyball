@@ -6,23 +6,17 @@ function drawPlayerEntity(player, targetCtx) {
   const effectObj = (typeof COSMETICS_DB !== 'undefined') ? COSMETICS_DB.effects.find(e => e.id === cosmetics.effect) : null;
   const glowColor = effectObj ? effectObj.glow : null;
 
-// 🌟 核心：三階滿階裝備腳底光暈 (R 白光 / SR 紅光 / SSR 黃金光芒)
-let highestRank3Tier = null;
-if (player.card) {
+// 🌟 核心：三階滿階裝備腳底光暈 (支援本機與遠端同步)
+let highestRank3Tier = player.highestRank3Tier || null;
+if (!highestRank3Tier && player.card) {
     const slots = [player.card.equipSlotA, player.card.equipSlotB];
     slots.forEach(instId => {
         if (!instId) return;
-        // 確保這裡的全域變數名稱跟你們原本專案的一致（不要有空格）
-        const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e => e.instanceId === instId) : null;
-        
+const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e => e.instanceId === instId) : null;
         if (eq && eq.rank >= 3) {
-            if (eq.tier === 'SSR') {
-                highestRank3Tier = 'SSR';
-            } else if (eq.tier === 'SR' && highestRank3Tier !== 'SSR') {
-                highestRank3Tier = 'SR';
-            } else if (eq.tier === 'R' && highestRank3Tier !== 'SSR' && highestRank3Tier !== 'SR') {
-                highestRank3Tier = 'R';
-            }
+            if (eq.tier === 'SSR') highestRank3Tier = 'SSR';
+            else if (eq.tier === 'SR' && highestRank3Tier !== 'SSR') highestRank3Tier = 'SR';
+            else if (eq.tier === 'R' && highestRank3Tier !== 'SSR' && highestRank3Tier !== 'SR') highestRank3Tier = 'R';
         }
     });
 }
