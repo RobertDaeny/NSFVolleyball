@@ -569,6 +569,13 @@ function saveGameData() {
     rosterIds: { user: ACTIVE_ROSTER.user.id, mate: ACTIVE_ROSTER.mate.id, enemyFront: ACTIVE_ROSTER.enemyFront.id, enemyBack: ACTIVE_ROSTER.enemyBack.id }
   };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
+// 🌟 雲端同步保存
+if (currentCloudUser && db) {
+  db.collection('players').doc(currentCloudUser).set({
+    gameData: JSON.stringify(data),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }, { merge: true }).catch(err => console.error("雲端存檔失敗:", err));
+}
 }
 
 function loadGameData() {
@@ -637,3 +644,71 @@ const NET = {
   remoteKeys: { a: false, d: false, w: false, j: false, k: false, l: false, o: false, space: false },
   lastPing: 0
 };
+// ========================================================
+// ☁️ Firebase 雲端資料庫初始化 (專案: nsfwvolley-b5ee1)
+// ========================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyCsPtYyZbhFpWjI1SYcfrJVxkc1U8T8HkQ",
+  authDomain: "nsfwvolley-b5ee1.firebaseapp.com",
+  projectId: "nsfwvolley-b5ee1",
+  storageBucket: "nsfwvolley-b5ee1.firebasestorage.app",
+  messagingSenderId: "486325994967",
+  appId: "1:486325994967:web:3c385f9b3db94a1bbe7792",
+  measurementId: "G-K6XRBRG29K"
+};
+
+if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+const db = (typeof firebase !== 'undefined') ? firebase.firestore() : null;
+
+let currentCloudUser = localStorage.getItem('VOLLEY_CLOUD_USER') || null;
+
+// 🌟 補回遺失的 Firebase 認證函式，杜絕 ReferenceError
+function handleFirebaseAuth(username, password) {
+  if (!db) {
+    alert('Firebase 未正確載入，請檢查網路連線！');
+    return;
+  }
+  const userRef = db.collection('players').doc(username);
+  
+  userRef.get().then((doc) => {
+    if (doc.exists) {
+      const userData = doc.data();
+      if (userData.password !== password) {
+        alert('❌ 密碼錯誤！請重新輸入。');
+        return;
+      }
+      currentCloudUser = username;
+      localStorage.setItem('VOLLEY_CLOUD_USER', username);
+      if (userData.gameData) {
+        localStorage.setItem(STORAGE_KEY, userData.gameData);
+      }
+      alert(`✅ 歡迎回來，[${username}]！已載入雲端進度。`);
+      location.reload();
+    } else {
+      userRef.set({
+        username: username,
+        password: password,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(() => {
+        currentCloudUser = username;
+        localStorage.setItem('VOLLEY_CLOUD_USER', username);
+        saveGameData();
+        alert(`🎉 帳號 [${username}] 註冊成功！雲端存檔已建立。`);
+        location.reload();
+      });
+    }
+  }).catch((err) => {
+    alert('雲端連線失敗: ' + err.message);
+  });
+}
+
+// 畫面載入時更新登入狀態按鈕文字
+window.addEventListener('DOMContentLoaded', () => {
+  const btnAuth = document.getElementById('btn-cloud-auth');
+  if (btnAuth && currentCloudUser) {
+    btnAuth.innerText = `👤 雲端球團: ${currentCloudUser}`;
+    btnAuth.style.background = '#047857';
+  }
+});
