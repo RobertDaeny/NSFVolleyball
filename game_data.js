@@ -204,66 +204,69 @@ function playSound(type) {
   const now = audioCtx.currentTime;
   try {
     const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    // 🌟 這裡只宣告一次全域音量乘數！
+    const sfxVol = (typeof globalSfxVolume !== 'undefined') ? globalSfxVolume : 0.85;
     osc.connect(gain); gain.connect(audioCtx.destination);
+
     if (type === 'pia') { 
       osc.type = 'triangle'; osc.frequency.setValueAtTime(680, now); osc.frequency.exponentialRampToValueAtTime(130, now + 0.08);
-      gain.gain.setValueAtTime(0.75, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      gain.gain.setValueAtTime(0.75 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
       osc.start(now); osc.stop(now + 0.08);
     } else if (type === 'bump') { 
       osc.type = 'sine'; osc.frequency.setValueAtTime(160, now); osc.frequency.exponentialRampToValueAtTime(50, now + 0.12);
-      gain.gain.setValueAtTime(0.5, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      gain.gain.setValueAtTime(0.5 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
       osc.start(now); osc.stop(now + 0.12);
     } else if (type === 'dong') { 
       osc.type = 'sine'; osc.frequency.setValueAtTime(95, now); osc.frequency.exponentialRampToValueAtTime(32, now + 0.22);
-      gain.gain.setValueAtTime(0.85, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+      gain.gain.setValueAtTime(0.85 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
       osc.start(now); osc.stop(now + 0.22);
     } else if (type === 'set') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(320, now); osc.frequency.exponentialRampToValueAtTime(180, now + 0.08);
-      gain.gain.setValueAtTime(0.25, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      gain.gain.setValueAtTime(0.25 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
       osc.start(now); osc.stop(now + 0.08);
     } else if (type === 'spike') {
       osc.type = 'sawtooth'; osc.frequency.setValueAtTime(280, now); osc.frequency.exponentialRampToValueAtTime(30, now + 0.18);
-      gain.gain.setValueAtTime(0.65, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+      gain.gain.setValueAtTime(0.65 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
       osc.start(now); osc.stop(now + 0.18);
     } else if (type === 'perfect_spike') {
       osc.type = 'square'; osc.frequency.setValueAtTime(420, now); osc.frequency.exponentialRampToValueAtTime(20, now + 0.3);
-      gain.gain.setValueAtTime(0.85, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      gain.gain.setValueAtTime(0.85 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
       osc.start(now); osc.stop(now + 0.3);
     } else if (type === 'block_break') {
       osc.type = 'sawtooth'; osc.frequency.setValueAtTime(440, now); osc.frequency.exponentialRampToValueAtTime(50, now + 0.28);
-      gain.gain.setValueAtTime(0.8, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      gain.gain.setValueAtTime(0.8 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
       osc.start(now); osc.stop(now + 0.28);
     } else if (type === 'block_roof') {
       osc.type = 'square'; osc.frequency.setValueAtTime(110, now); osc.frequency.exponentialRampToValueAtTime(40, now + 0.22);
-      gain.gain.setValueAtTime(0.65, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+      gain.gain.setValueAtTime(0.65 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
       osc.start(now); osc.stop(now + 0.22);
     } else if (type === 'dive') {
       osc.type = 'triangle'; osc.frequency.setValueAtTime(210, now); osc.frequency.exponentialRampToValueAtTime(70, now + 0.16);
-      gain.gain.setValueAtTime(0.4, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+      gain.gain.setValueAtTime(0.4 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
       osc.start(now); osc.stop(now + 0.16);
     } else if (type === 'coin') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(987.77, now); osc.frequency.setValueAtTime(1318.51, now + 0.08);
-      gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      gain.gain.setValueAtTime(0.3 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
       osc.start(now); osc.stop(now + 0.35);
     } else if (type === 'teleport') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(200, now); osc.frequency.exponentialRampToValueAtTime(900, now + 0.14);
-      gain.gain.setValueAtTime(0.6, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      gain.gain.setValueAtTime(0.6 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
       osc.start(now); osc.stop(now + 0.14);
     } else if (type === 'clock_tick') {
       osc.type = 'triangle'; osc.frequency.setValueAtTime(1200, now); osc.frequency.exponentialRampToValueAtTime(220, now + 0.04);
-      gain.gain.setValueAtTime(0.4, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+      gain.gain.setValueAtTime(0.4 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
       osc.start(now); osc.stop(now + 0.04);
     } else if (type === 'time_freeze') {
       osc.type = 'sawtooth'; osc.frequency.setValueAtTime(440, now); osc.frequency.exponentialRampToValueAtTime(40, now + 0.4);
-      gain.gain.setValueAtTime(0.8, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      gain.gain.setValueAtTime(0.8 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
       osc.start(now); osc.stop(now + 0.4);
     } else if (type === 'p1_full') {
       osc.type = 'triangle'; osc.frequency.setValueAtTime(1200, now); osc.frequency.exponentialRampToValueAtTime(3200, now + 0.12);
-      gain.gain.setValueAtTime(0.75, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+      gain.gain.setValueAtTime(0.75 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
       osc.start(now); osc.stop(now + 0.45);
     } else if (type === 'p2_full') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(950, now); osc.frequency.exponentialRampToValueAtTime(1750, now + 0.15);
-      gain.gain.setValueAtTime(0.55, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      gain.gain.setValueAtTime(0.55 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
       osc.start(now); osc.stop(now + 0.4);
     }
   } catch(e) {}
@@ -274,8 +277,9 @@ function playWhistle(isScore = false) {
   if (audioCtx.state === 'suspended') audioCtx.resume();
   try {
     const now = audioCtx.currentTime, osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    const sfxVol = (typeof globalSfxVolume !== 'undefined') ? globalSfxVolume : 0.85; // 🌟 補回這行宣告！
     osc.type = 'sine'; osc.frequency.setValueAtTime(isScore ? 2600 : 2400, now);
-    gain.gain.setValueAtTime(0.18, now); gain.gain.exponentialRampToValueAtTime(0.001, now + (isScore ? 0.15 : 0.4));
+    gain.gain.setValueAtTime(0.18 * sfxVol, now); gain.gain.exponentialRampToValueAtTime(0.001, now + (isScore ? 0.15 : 0.4));
     osc.connect(gain); gain.connect(audioCtx.destination);
     osc.start(now); osc.stop(now + (isScore ? 0.15 : 0.4));
   } catch(e) {}
@@ -350,19 +354,21 @@ function resetLocalStorageData() {
 
 function deriveStats(card) {
   const s = card.stats;
+const baseSpeed = 5.2 + (s.agi * 0.12); // 🌟 補回這行計算！
   const power = 18.5 + (s.str * 0.25);
   const defense = 10.0 + (s.dex * 0.25) + (s.agi * 0.15);
   const blockRigidity = (defense * 1.05) + (s.str * 0.12) + (s.jump * 0.15);
   const oneTouchAbsorb = Math.min(75, Math.floor(35 + (s.dex * 0.8)));
-  const sweetWindow = Math.floor(34 + (s.dex * 0.4));
+const sweetWindow = Math.floor(34 + (s.dex * 0.4));
+  // 🌟 DEX 與 INT 共同提供接球覆蓋面：新手 64px 起跳，滿等 60 可達 80px
+  const reach = Math.max(70, 56 + (s.dex * 0.25) + (s.int * 0.15));
   const reactionDelay = Math.max(3, Math.round(16 - (s.int * 0.25) - (s.agi * 0.15)));
-  const baseSpeed = 5.2 + (s.agi * 0.12);
   const skillObj = SKILL_POOL.find(sk => sk.id === card.equippedSkill) || SKILL_POOL[0];
 
   return {
     speed: baseSpeed, jump: -9.8 - (s.jump * 0.10), diveSpeed: baseSpeed * 1.25,
-    power: power, defense: defense, blockRigidity: blockRigidity,
-    oneTouchAbsorb: oneTouchAbsorb, sweetWindow: sweetWindow, reactionDelay: reactionDelay,
+power: power, defense: defense, blockRigidity: blockRigidity,
+    oneTouchAbsorb: oneTouchAbsorb, sweetWindow: sweetWindow, reach: reach, reactionDelay: reactionDelay,
     technique: 0.45 + (s.dex * 0.02), intellect: s.int,
     outballThreshold: Math.max(8, 60 - s.int * 1.5), skill: skillObj
   };

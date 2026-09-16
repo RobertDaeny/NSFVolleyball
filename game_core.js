@@ -173,10 +173,12 @@ rebind(triggerHUD = true) {
     }
   }
 
-  dive() {
+dive() {
     if (this.isGrounded && !this.isDiving) {
-      this.isDiving = true; this.diveTimer = 24; this.diveTouched = false;
-      this.vx = this.facing * (this.effectiveSpeed * 1.20); this.vy = -2.2;
+      this.isDiving = true; this.diveTimer = 35 ; this.diveTouched = false;
+      // 🌟 強化撲跳感：蹬地大幅向前噴射，垂直拋起離地
+      this.vx = this.facing * (this.effectiveSpeed * 2);
+      this.vy = -3.8;
       this.isGrounded = false; this.runMomentum = 0; playSound('dive');
     }
   }
@@ -427,6 +429,15 @@ function pushCallout(x, y, text, color = '#facc15') {
     NET.conn.send({ type: 'CALLOUT_SYNC', x, y, text, color });
   }
 }
+// 🌟 漫畫播報同步廣播給訪客
+function broadcastMangaShout(speaker, text, sub = '', color = '#facc15') {
+  if (typeof triggerMangaShout === 'function') {
+    triggerMangaShout(speaker, text, sub, color);
+  }
+  if (typeof NET !== 'undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
+    NET.conn.send({ type: 'MANGA_SHOUT_SYNC', speaker, text, sub, color });
+  }
+}
 
 function triggerCoinPopup(x, y, amount) { playSound('coin'); coinPopups.push({ x, y: y - 35, amount, timer: 50, maxTimer: 50 }); }
 function triggerHalo(player, color, isTimingThreeState = false) {
@@ -465,7 +476,11 @@ function executePlayerTimingReceive(player, isCover = false) {
     pushCallout(player.x, player.y - player.radius * 2, 'MUD TRAPPED!!', '#78350f');
   }
 
-  const effectiveDef = Math.max(0, player.stats.defense - extraDefPenalty);
+let baseDef = player.stats.defense;
+  // 🌟 L 鍵魚躍削弱：極限救險時手型不穩，防守卸力值打 7 折，不再享受滿額獎勵
+  if (player.isDiving) baseDef *= 0.70;
+
+  const effectiveDef = Math.max(0, baseDef - extraDefPenalty);
   proMatchStats[player.slotKey].totalReceives++;
 
   if (isCover) {
@@ -968,12 +983,49 @@ function startGameFromMenu() {
   ball.resetForServe('LEFT');
 }
 
-// 🌟 全鍵盤 ESC 智能監聽
+// 🌟 全域鍵位配置（支援自定義，預設兼顧習慣）
+let KEY_BINDS = {
+  left: 'a',
+  right: 'd',
+  jump: 'w',
+  jumpAlt: ' ', // 支援空白鍵跳躍
+  spike: 'j',
+  receive: 'k',
+  thrust: 'l',
+  set: 'o',
+  block: ' '
+};
+
+function loadCustomKeybinds() {
+  try {
+    const saved = localStorage.getItem('VOLLEY_CUSTOM_KEYS');
+    if (saved) KEY_BINDS = Object.assign(KEY_BINDS, JSON.parse(saved));
+  } catch(e) {}
+}
+loadCustomKeybinds();
+
 const keys = {};
+let receiveInputBuffer = 0; // 🌟 3 幀輸入緩衝，防止連打時剛好在抬起幀漏球
+
 window.addEventListener('keydown', (e) => {
-  const k = e.key.toLowerCase(); keys[k] = true;
+  const k = e.key.toLowerCase();
+  const code = e.code;
+  keys[k] = true;
+  if (code === 'Space') keys['space'] = true;
+
+  if (['Space', 'ArrowUp', 'ArrowDown'].includes(code)) {
+    e.preventDefault(); // 阻止網頁捲動
+  }
   
-  if (e.key === 'Escape') {
+if (e.key === 'Escape') {
+    if (typeof isSettingsOpen !== 'undefined' && isSettingsOpen) {
+      closeSettingsModal();
+      return;
+    }
+    if (typeof isKeybindModalOpen !== 'undefined' && isKeybindModalOpen) {
+      closeKeybindModal();
+      return;
+    }
     if (isLockerOpen) {
       if (!isGameStarted) closeLockerToMenu();
       else toggleLocker();
@@ -984,39 +1036,49 @@ window.addEventListener('keydown', (e) => {
     }
   }
 
-  if (e.key === 'Enter') {
-    if (isSettlementOpen) handleSettlementRematch();
-  }
+  if (e.key === 'Enter' && isSettlementOpen) handleSettlementRematch();
   if (k === 'b') debugHitbox = !debugHitbox;
 
-  // 🌟 本機玩家實體按鍵分流
   const myActor = allPlayers[NET.mySlot] || userPlayer;
 
   if (!isPaused && !isLockerOpen && !banner.active && !isSettlementOpen && isGameStarted && !isPauseMenuOpen) {
+    const isReceiveKey = (k === KEY_BINDS.receive);
+    const isSpikeKey = (k === KEY_BINDS.spike);
+    const isThrustKey = (k === KEY_BINDS.thrust);
+    const isSetKey = (k === KEY_BINDS.set);
+    const isBlockKey = (code === 'Space' || k === KEY_BINDS.block);
+
     if (serveState.active && serveState.currentServer === myActor) {
-      if (k === 'k' && !serveState.tossed) serveState.charging = true;
-      if (k === 'j' && serveState.tossed) handleServeSpike(myActor);
-      if (k === 'l' && serveState.tossed) handleServeFloat(myActor);
+      if (isReceiveKey && !serveState.tossed) serveState.charging = true;
+      if (isSpikeKey && serveState.tossed) handleServeSpike(myActor);
+      if (isThrustKey && serveState.tossed) handleServeFloat(myActor);
     } else if (!serveState.active) {
-      if (e.code === 'Space') myActor.triggerBlock();
-      if (k === 'j') handleUserAttack(myActor);
-      if (k === 'l') { if (!myActor.isGrounded) handleUserThrust(myActor); else myActor.dive(); }
-      if (k === 'k') handleUserBump(myActor);
-      if (k === 'o') handleUserSet(myActor);
+      if (isBlockKey && Math.abs(myActor.x - WORLD.NET_X) < 110) myActor.triggerBlock();
+      if (isSpikeKey) handleUserAttack(myActor);
+      if (isThrustKey) { if (!myActor.isGrounded) handleUserThrust(myActor); else myActor.dive(); }
+      if (isReceiveKey) {
+        receiveInputBuffer = 3; // 啟動緩衝
+        handleUserBump(myActor);
+      }
+      if (isSetKey) handleUserSet(myActor);
     }
   }
 });
 
 window.addEventListener('keyup', (e) => {
-  const k = e.key.toLowerCase(); keys[k] = false;
+  const k = e.key.toLowerCase();
+  keys[k] = false;
+  if (e.code === 'Space') keys['space'] = false;
+
   const myActor = allPlayers[NET.mySlot] || userPlayer;
-  if (serveState.active && serveState.currentServer === myActor && k === 'k' && serveState.charging && !serveState.tossed) {
+  const isReceiveKey = (k === KEY_BINDS.receive);
+  if (serveState.active && serveState.currentServer === myActor && isReceiveKey && serveState.charging && !serveState.tossed) {
     serveState.charging = false; serveState.tossed = true;
     const pRatio = Math.max(0.35, serveState.chargePower / 100);
     ball.vx = myActor.isLeft ? 1.0 : -1.0;
     ball.vy = myActor.stats.jump * (0.80 + pRatio * 0.65);
     playSound('set');
-    statusSubtext.innerText = '高拋完成！助跑 ➔ [W+J] 跳發暴扣 或 [W+L] 跳飄！';
+    statusSubtext.innerText = '高拋完成！助跑 ➔ 跳發暴扣 或 跳飄！';
   }
 });
 
@@ -1295,6 +1357,9 @@ function handleUserThrust(actor) {
 }
 
 function handleUserBump(actor) {
+  // 🌟 核心防二觸：每次觸球後 18 幀內（約 0.3 秒）硬性冷卻，拒絕同一人連續連刷
+  if (gameFrame - match.lastTouchFrame < 18) return;
+
   const sk = actor.stats.skill;
   if (sk.id === 'sk_savage_roar' && actor.energy >= sk.cost) {
     actor.consumeSkill('DEF_SAVE');
@@ -1329,10 +1394,11 @@ function handleUserBump(actor) {
   }
 
   const d = getDist(actor);
-  const reach = 56 + (actor.stats.technique * 8.0);
+  const reach = Math.max(70, (actor.stats.reach || 70));
   if (d > reach) return;
   const wasBlocked = match.isBlockedBack;
   if (!recordTouch(actor)) return;
+  
   executePlayerTimingReceive(actor, wasBlocked);
 }
 
@@ -1609,7 +1675,8 @@ function handlePhysics() {
     const serverSide = serveState.currentServer ? (serveState.currentServer.isLeft ? 'LEFT' : 'RIGHT') : 'LEFT';
     const receiverSide = (serverSide === 'LEFT') ? 'RIGHT' : 'LEFT';
     const receiverTouches = (serverSide === 'LEFT') ? match.rightHits : match.leftHits;
-    const isAceRally = match.inServeRally && (receiverTouches <= 1);
+// 🌟 新 Ace 規則：發球過網後，敵方觸球不超過 2 次（最多碰 2 下，未碰第 3 下即死球）均判定為 Service ACE！
+    const isAceRally = match.inServeRally && (receiverTouches <= 2);
 
     if (isOut) {
       if (ball.lastHitter) {
@@ -1694,11 +1761,14 @@ function applyWorldSync(data) {
     banner.color = amIWinner ? '#38bdf8' : '#f43f5e';
   }
 
-  data.players.forEach((pData, idx) => {
+data.players.forEach((pData, idx) => {
     if (allPlayers[idx]) {
-      // 🌟 本地操控的英雄 (NET.mySlot) 依靠預測運行，不被網路座標生硬覆蓋
+      // 🌟 同步 ID 姓名：非本機控制的角色，採用遠端傳來的名字
+      if (idx !== NET.mySlot && pData.playerName) {
+        allPlayers[idx].playerName = pData.playerName;
+      }
+
       if (idx === NET.mySlot) {
-        // 只同步房主算出的狀態/體力/能量，座標微幅修正
         allPlayers[idx].energy = pData.energy;
         allPlayers[idx].jumpExhaustion = pData.jumpExhaustion;
         allPlayers[idx].isBlocking = pData.isBlocking;
@@ -1708,7 +1778,6 @@ function applyWorldSync(data) {
         allPlayers[idx].softWallRallies = pData.softWallRallies;
         allPlayers[idx].godspeedCharges = pData.godspeedCharges;
         allPlayers[idx].greaseDebuffRallies = pData.greaseDebuffRallies;
-        // 誤差過大才校準拉回
         if (Math.hypot(allPlayers[idx].x - pData.x, allPlayers[idx].y - pData.y) > 40) {
           allPlayers[idx].x += (pData.x - allPlayers[idx].x) * 0.3;
           allPlayers[idx].y += (pData.y - allPlayers[idx].y) * 0.3;
@@ -1736,8 +1805,9 @@ function fixedUpdate() {
           },
           score: score,
           banner: { active: banner.active, timer: banner.timer, mainText: banner.mainText, subText: banner.subText, color: banner.color, winnerTeam: banner.winnerTeam },
-          players: allPlayers.map(p => ({
+players: allPlayers.map(p => ({
             x: p.x, y: p.y, vx: p.vx, vy: p.vy, facing: p.facing,
+            playerName: p.playerName || p.name,
             squashX: p.squashX, squashY: p.squashY, isDiving: p.isDiving,
             isBlocking: p.isBlocking, energy: p.energy, jumpExhaustion: p.jumpExhaustion,
             depressedRallies: p.depressedRallies, excitedRallies: p.excitedRallies,
@@ -1780,12 +1850,25 @@ if (NET.conn && NET.conn.open) {
       return;    }
   }
 
-  // 🌟 本機玩家 (Slot 0) 移動
+// 🌟 本機玩家移動（支援自定義鍵與 Space/W 雙跳躍）
   const myPlayer = allPlayers[NET.mySlot] || userPlayer;
   myPlayer.vx = 0;
-  if (keys['a']) { myPlayer.vx = -myPlayer.effectiveSpeed; myPlayer.facing = -1; }
-  if (keys['d']) { myPlayer.vx = myPlayer.effectiveSpeed; myPlayer.facing = 1; }
-  if (keys['w']) myPlayer.jump();
+  const isLeftPress = keys[KEY_BINDS.left];
+  const isRightPress = keys[KEY_BINDS.right];
+  const isJumpPress = keys[KEY_BINDS.jump] || (KEY_BINDS.jumpAlt && keys[KEY_BINDS.jumpAlt]) || keys['w'];
+
+  if (isLeftPress) { myPlayer.vx = -myPlayer.effectiveSpeed; myPlayer.facing = -1; }
+  if (isRightPress) { myPlayer.vx = myPlayer.effectiveSpeed; myPlayer.facing = 1; }
+  if (isJumpPress) myPlayer.jump();
+
+  // 處理 K 鍵緩衝檢定
+  if (receiveInputBuffer > 0) {
+    receiveInputBuffer--;
+    if (getDist(myPlayer) <= Math.max(70, (myPlayer.stats.reach || 70))) {
+      handleUserBump(myPlayer);
+      receiveInputBuffer = 0;
+    }
+  }
 
   allPlayers.forEach(p => {
     p.update();

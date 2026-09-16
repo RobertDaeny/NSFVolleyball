@@ -105,7 +105,8 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
         const canTouch = (!isCooldown || match.isBlockedBack) && (ball.lastHitter !== actor || actor.hasBlockSelfHitPrivilege);
         const isBlockerInAir = !actor.isGrounded && Math.abs(actor.jumpStartX - WORLD.NET_X) < 95;
 
-        if (!actor.isDiving && !isBlockerInAir && !actor.isBlocking && actor.isGrounded && d < 64 && canTouch) {
+const aiReach = actor.stats.reach || 64;
+        if (!actor.isDiving && !isBlockerInAir && !actor.isBlocking && actor.isGrounded && d < aiReach && canTouch) {
           const wasBlocked = match.isBlockedBack;
           if (recordTouch(actor)) executePlayerTimingReceive(actor, wasBlocked);
         } else if (d > 165 && ball.y > WORLD.FLOOR_Y - 50 && actor.despairTimer <= 0) {

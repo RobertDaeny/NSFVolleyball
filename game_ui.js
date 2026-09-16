@@ -71,8 +71,8 @@ function renderLocker() {
     str: { label: '力量 (STR)', desc: '直接驅動扣球與跳發出膛初速、穿透攔網剛性。' },
     agi: { label: '敏捷 (AGI)', desc: '直接驅動場上橫移奔跑速度、地面魚躍撲救距離與防守轉向反應！' },
     jump: { label: '彈跳 (JUMP)', desc: '決定空中摸高打擊點、起跳滯空時間與前排封網天花板高度。' },
-    dex: { label: '技巧 (DEX)', desc: '驅動扣殺與跳發的馬格努斯下旋加速度、跳飄氣流晃動與完美接球半徑。' },
-    int: { label: '球商 (INT)', desc: '決定 AI 進攻意圖抉擇、出界放球反悔延遲與心態 Debuff 抵抗力。' }
+dex: { label: '技巧 (DEX)', desc: '驅動扣殺下旋加速度與跳飄氣流晃動；每點提升 0.25px 實體接球判定範圍與完美吸震半徑。' },
+    int: { label: '球商 (INT)', desc: '決定進攻決策與出界放球判斷；每點提供 0.15px 接球預判卡位範圍，並降低心態受挫機率。' }
   };
 
   for (let k in stagedCard.stats) {
@@ -99,7 +99,8 @@ function renderLocker() {
     <div class="stat-derived-row"><span>💥 扣球攻擊力 (Spike Atk)</span><strong style="color: #ef4444;">${derived.power.toFixed(1)}</strong></div>
     <div class="stat-derived-row"><span>🛡️ 防守卸力值 (Defense)</span><strong style="color: #10b981;">${derived.defense.toFixed(1)}</strong></div>
     <div class="stat-derived-row"><span>🧱 攔網手型剛性 (Block Guard)</span><strong style="color: #facc15;">${derived.blockRigidity.toFixed(1)}</strong></div>
-    <div class="stat-derived-row"><span>🎯 完美起球半徑 (Sweet Spot)</span><strong style="color: #a78bfa;">${derived.sweetWindow} px</strong></div>
+<div class="stat-derived-row"><span>🎯 完美起球半徑 (Sweet Spot)</span><strong style="color: #a78bfa;">${derived.sweetWindow} px</strong></div>
+    <div class="stat-derived-row"><span>🛡️ 實體防守覆蓋半徑 (Reach)</span><strong style="color: #38bdf8;">${derived.reach.toFixed(1)} px</strong></div>
     <div class="stat-derived-row"><span>⚡ 神經反應延遲 (Reaction)</span><strong style="color: #f472b6;">${derived.reactionDelay} 幀</strong></div>
   `;
 }
@@ -630,6 +631,10 @@ function setupDataConnection() {
       applyWorldSync(data);
     } else if (data.type === 'CALLOUT_SYNC') {
       calloutPopups.push({ x: data.x, y: data.y - 28, text: data.text, color: data.color, timer: 45, maxTimer: 45 });
+} else if (data.type === 'MANGA_SHOUT_SYNC') {
+      if (typeof triggerMangaShout === 'function') {
+        triggerMangaShout(data.speaker, data.text, data.sub, data.color);
+      }
     } else if (data.type === 'LOBBY_SELECT_UPDATE') {
       handleRemoteLobbyUpdate(data);
     } else if (data.type === 'READY_CHECK') {
@@ -881,45 +886,99 @@ function triggerGacha(isTen = false) {
   updateCoinHUD();
 
   const spinner = document.getElementById('gacha-spinner-modal');
-  document.getElementById('spinner-msg').innerText = isTen ? '🎰 十連球探招募中...' : '🎰 球探招募中...';
-  spinner.style.display = 'flex'; playSound('coin');
+  const spinnerMsg = document.getElementById('spinner-msg');
+  if (spinner) {
+    if (spinnerMsg) spinnerMsg.innerText = isTen ? '🎰 十連球探招募中...' : '🎰 球探招募中...';
+    spinner.style.display = 'flex';
+  }
+  playSound('coin');
 
   setTimeout(() => {
-    spinner.style.display = 'none';
+    if (spinner) spinner.style.display = 'none';
     if (!isTen) {
-      const result = rollSingleCard(); saveGameData();
+      const result = rollSingleCard();
+      saveGameData();
+
       const dupBadge = document.getElementById('gacha-dup-badge');
       const rewardMsg = document.getElementById('gacha-reward-msg');
-      if (result.isDup) {
-        dupBadge.style.display = 'block'; dupBadge.innerText = '重複突破'; rewardMsg.innerText = `🔄 ${result.resultMsg}`;
-      } else {
-        dupBadge.style.display = 'none'; rewardMsg.innerText = result.resultMsg;
+      if (dupBadge) {
+        if (result.isDup) {
+          dupBadge.style.display = 'block';
+          dupBadge.innerText = '重複突破';
+          if (rewardMsg) rewardMsg.innerText = `🔄 ${result.resultMsg}`;
+        } else {
+          dupBadge.style.display = 'none';
+          if (rewardMsg) rewardMsg.innerText = result.resultMsg;
+        }
       }
-      document.getElementById('gacha-avatar').style.backgroundColor = result.template.color;
-      document.getElementById('gacha-tier').innerText = result.template.tier;
-      document.getElementById('gacha-tier').style.color = result.template.tier === 'SSR' ? '#facc15' : (result.template.tier === 'SR' ? '#c084fc' : (result.template.tier === 'R' ? '#f97316' : '#94a3b8'));
-      document.getElementById('gacha-name').innerText = result.template.name;
-      document.getElementById('gacha-feature').innerText = result.template.desc;
-      document.getElementById('gacha-anim-modal').style.display = 'flex';
+
+      const ava = document.getElementById('gacha-avatar');
+      if (ava) ava.style.backgroundColor = result.template.color;
+
+      const tierEl = document.getElementById('gacha-tier');
+      if (tierEl) {
+        tierEl.innerText = result.template.tier;
+        tierEl.style.color = result.template.tier === 'SSR' ? '#facc15' : (result.template.tier === 'SR' ? '#c084fc' : (result.template.tier === 'R' ? '#f97316' : '#94a3b8'));
+      }
+
+      const nameEl = document.getElementById('gacha-name');
+      if (nameEl) nameEl.innerText = result.template.name;
+
+// 🌟 動態掛載對應階級發光 class (n, r, sr, ssr)
+    const stageEl = document.getElementById('gacha-card-stage');
+    if (stageEl) {
+      stageEl.className = result.template.tier.toLowerCase();
+      // 重新觸發彈出動畫
+      stageEl.style.animation = 'none';
+      stageEl.offsetHeight; // 強制重繪
+      stageEl.style.animation = '';
+    }
+
+      const featEl = document.getElementById('gacha-feature');
+      if (featEl) featEl.innerText = result.template.desc;
+
+      const animModal = document.getElementById('gacha-anim-modal');
+      if (animModal) animModal.style.display = 'flex';
+      else alert(`🎉 成功抽得：[${result.template.tier}] ${result.template.name}！已收入名冊更衣室。`);
     } else {
       const results = [];
       for (let i = 0; i < 10; i++) results.push(rollSingleCard());
       saveGameData();
-      const grid = document.getElementById('ten-gacha-grid');
-      grid.innerHTML = '';
-      results.forEach(res => {
-        const item = document.createElement('div');
-        item.className = `ten-gacha-item ${res.template.tier.toLowerCase()}`;
-        item.innerHTML = `
-          <div style="width: 46px; height: 46px; border-radius: 50%; background: ${res.template.color}; border: 2px solid #fff; margin-bottom: 6px;"></div>
-          <strong style="font-size: 13px; color: ${res.template.tier === 'SSR' ? '#facc15' : (res.template.tier === 'SR' ? '#c084fc' : '#fff')};">[${res.template.tier}] ${res.template.name}</strong>
-          <span style="font-size: 10px; color: ${res.isDup ? '#f97316' : '#10b981'}; margin-top: 4px;">${res.resultMsg}</span>
-        `;
-        grid.appendChild(item);
-      });
-      document.getElementById('gacha-ten-modal').style.display = 'flex';
+
+const grid = document.getElementById('ten-gacha-grid');
+      if (grid) {
+        grid.innerHTML = '';
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = 'repeat(5, 1fr)';
+        grid.style.gap = '14px';
+        grid.style.margin = '18px 0';
+
+        results.forEach(res => {
+          const tier = res.template.tier;
+          const tierLower = tier.toLowerCase();
+          const item = document.createElement('div');
+          // 🌟 使用獨立的卡牌插槽 class
+          item.className = `ten-card-slot ${tierLower}`;
+          
+          let tierColor = '#94a3b8';
+          if (tier === 'SSR') tierColor = '#facc15';
+          else if (tier === 'SR') tierColor = '#c084fc';
+          else if (tier === 'R') tierColor = '#38bdf8';
+
+          item.innerHTML = `
+            <div style="width: 52px; height: 52px; border-radius: 50%; background: ${res.template.color}; border: 2.5px solid #fff; margin-bottom: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.5);"></div>
+            <strong style="font-size: 13px; font-weight: 900; color: ${tierColor}; letter-spacing: 0.5px;">[${tier}] ${res.template.name}</strong>
+            <span style="font-size: 10px; color: ${res.isDup ? '#f97316' : '#10b981'}; margin-top: 4px; font-weight: bold;">${res.resultMsg}</span>
+          `;
+          grid.appendChild(item);
+        });
+      }
+
+      const tenModal = document.getElementById('gacha-ten-modal');
+      if (tenModal) tenModal.style.display = 'flex';
+      else alert('🎉 十連抽完成！新角色與突破 EXP 已全數存入更衣室名冊。');
     }
-  }, 950);
+  }, 400);
 }
 
 function updateCoinHUD() {
@@ -1131,18 +1190,25 @@ window.addEventListener('DOMContentLoaded', () => {
 
   let heroIdx = 0;
   const heroPool = GACHA_POOL.slice(0, 5);
-  setInterval(() => {
+setInterval(() => {
     if (typeof isGameStarted !== 'undefined' && isGameStarted) return;
     heroIdx = (heroIdx + 1) % heroPool.length;
     const h = heroPool[heroIdx];
-    document.getElementById('menu-card-avatar').style.backgroundColor = h.color;
-    document.getElementById('menu-card-tier').innerText = h.tier;
-    document.getElementById('menu-card-tier').style.color = h.tier === 'SSR' ? '#facc15' : '#c084fc';
-    document.getElementById('menu-card-name').innerText = h.name;
-    document.getElementById('menu-card-desc').innerText = h.desc;
-    document.getElementById('hero-sil-1').style.backgroundColor = h.color;
-  }, 6000);
-});
+    const ava = document.getElementById('menu-card-avatar');
+    const tier = document.getElementById('menu-card-tier');
+    const name = document.getElementById('menu-card-name');
+    const desc = document.getElementById('menu-card-desc');
+    const sil = document.getElementById('hero-sil-1');
+
+    if (ava) ava.style.backgroundColor = h.color;
+    if (tier) {
+      tier.innerText = h.tier;
+      tier.style.color = h.tier === 'SSR' ? '#facc15' : '#c084fc';
+    }
+    if (name) name.innerText = h.name;
+    if (desc) desc.innerText = h.desc;
+    if (sil) sil.style.backgroundColor = h.color;
+  }, 6000);});
 
 window.addEventListener('DOMContentLoaded', () => {
   const audioFileInput = document.getElementById('audio-file');

@@ -113,6 +113,125 @@
     cursor: not-allowed !important; transform: none !important; opacity: 0.6;
   }
 
+/* 🌟 單抽卡牌揭曉：動態彈射破屏動畫 (Pop-in) */
+  @keyframes singleCardPopIn {
+    0% {
+      transform: scale(0.35) translateY(40px) rotate(-4deg);
+      opacity: 0;
+    }
+    60% {
+      transform: scale(1.08) translateY(-8px) rotate(1deg);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1.0) translateY(0) rotate(0deg);
+      opacity: 1;
+    }
+  }
+
+  /* 🌟 單抽卡片本體樣式：柔和深藍漸層 + 飽滿圓角 */
+  #gacha-card-stage {
+    width: 330px;
+    min-height: 480px;
+    background: linear-gradient(180deg, #2b2568 0%, #17133d 100%);
+    border: 3px solid #64748b;
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 24px 20px;
+    box-sizing: border-box;
+    animation: singleCardPopIn 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+
+  /* ⚪ [N 級單抽光暈] */
+  #gacha-card-stage.n {
+    border-color: #64748b;
+    box-shadow: 0 0 25px rgba(100, 116, 139, 0.45);
+  }
+
+  /* 🔵 [R 級單抽光暈] 飽滿亮藍漫射 */
+  #gacha-card-stage.r {
+    border-color: #38bdf8;
+    box-shadow: 0 0 35px rgba(56, 189, 248, 0.75), inset 0 0 16px rgba(56, 189, 248, 0.25);
+  }
+
+  /* 🟣 [SR 級單抽光暈] 魅惑紫晶強光 */
+  #gacha-card-stage.sr {
+    border-color: #c084fc;
+    box-shadow: 0 0 42px rgba(192, 132, 252, 0.85), inset 0 0 20px rgba(192, 132, 252, 0.3);
+  }
+
+  /* 🟡 [SSR 級單抽光暈] 金色霓虹呼吸大光環 */
+  #gacha-card-stage.ssr {
+    border-color: #facc15;
+    background: linear-gradient(180deg, #382e78 0%, #1a1542 100%);
+    box-shadow: 0 0 50px rgba(250, 204, 21, 0.95), inset 0 0 25px rgba(250, 204, 21, 0.35);
+    animation: singleCardPopIn 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, singleSsrBreath 2.2s infinite alternate ease-in-out;
+  }
+
+  @keyframes singleSsrBreath {
+    0% { box-shadow: 0 0 35px rgba(250, 204, 21, 0.75), inset 0 0 15px rgba(250, 204, 21, 0.2); }
+    100% { box-shadow: 0 0 65px rgba(250, 204, 21, 1.0), inset 0 0 30px rgba(250, 204, 21, 0.45); }
+  }
+
+/* 🌟 十連抽大彈窗外框金色霓虹光暈 (還原舊版漫射感) */
+  #gacha-ten-modal > div {
+    background: #151236 !important;
+    border: 3px solid #facc15 !important;
+    border-radius: 24px !important;
+    padding: 28px 24px !important;
+    box-shadow: 0 0 50px rgba(250, 204, 21, 0.45), inset 0 0 20px rgba(250, 204, 21, 0.15) !important;
+  }
+
+  /* 🌟 卡牌插槽本體：立體深色底面板 + 柔和圓角 */
+  .ten-card-slot {
+    background: linear-gradient(180deg, rgba(30, 27, 75, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
+    border: 2px solid #3b3678;
+    border-radius: 16px;
+    padding: 16px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  /* ⚪ [N 級] 低調微灰邊框 */
+  .ten-card-slot.n {
+    border-color: #64748b;
+    box-shadow: 0 0 12px rgba(100, 116, 139, 0.35);
+  }
+
+  /* 🔵 [R 級] 酷炫天藍霓虹光暈 (徹底找回舊版亮藍發光) */
+  .ten-card-slot.r {
+    border-color: #38bdf8;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.55), inset 0 0 10px rgba(56, 189, 248, 0.15);
+  }
+
+  /* 🟣 [SR 級] 魅惑紫晶強烈光暈 */
+  .ten-card-slot.sr {
+    border-color: #c084fc;
+    box-shadow: 0 0 26px rgba(192, 132, 252, 0.75), inset 0 0 12px rgba(192, 132, 252, 0.2);
+  }
+
+  /* 🟡 [SSR 級] 尊爵金色強光爆發 + 尊榮高亮底色 */
+  .ten-card-slot.ssr {
+    border-color: #facc15;
+    background: linear-gradient(180deg, #2b235e 0%, #151233 100%);
+    box-shadow: 0 0 35px rgba(250, 204, 21, 0.95), inset 0 0 16px rgba(250, 204, 21, 0.35);
+    animation: ssrPulse 2.4s infinite alternate ease-in-out;
+  }
+
+  @keyframes ssrPulse {
+    0% { box-shadow: 0 0 25px rgba(250, 204, 21, 0.7), inset 0 0 10px rgba(250, 204, 21, 0.2); }
+    100% { box-shadow: 0 0 42px rgba(250, 204, 21, 1.0), inset 0 0 20px rgba(250, 204, 21, 0.45); }
+  }
+
+
   /* 結算表格：標準細格線排版 */
   #settle-table-main {
     width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 12px;
@@ -371,6 +490,7 @@
     <button class="menu-btn" style="background: linear-gradient(135deg, #ec4899, #8b5cf6); border-color: #f472b6;" onclick="openWardrobeModal()">🪞 試衣化妝間 (Wardrobe)</button>
     <button class="menu-btn" style="background: linear-gradient(135deg, #ef4444, #b91c1c); border-color: #facc15; box-shadow: 0 0 20px rgba(239,68,68,0.5);" onclick="openGachaArcade()">🎰 轉蛋專區 (Gacha Arcade)</button>
     <button class="menu-btn" style="background: #312e81;" onclick="openLockerFromMenu()">📋 球隊戰術配置 (Tactics)</button>
+<button class="menu-btn" style="background: #1e1b4b; border-color: #6366f1;" onclick="openSettingsModal()">⚙️ 遊戲設置 (Settings)</button>
 <button class="menu-btn" id="btn-cloud-auth" style="background: #065f46; border-color: #34d399; font-size: 13px;" onclick="openCloudAuthModal()">👤 雲端帳號登入 (未登入)</button>    
 <button class="menu-btn" style="background: #18153d; border-color: #4338ca; font-size: 12px;" onclick="resetLocalStorageData()">⚠️ 重置所有本機存檔</button>
   </div>
@@ -625,14 +745,15 @@
   <div style="margin-top: 25px; font-size: 20px; font-weight: 900; color: #facc15; letter-spacing: 2px;">🎰 球探招募中...</div>
 </div>
 <div id="gacha-anim-modal" onclick="closeGachaAnim()">
-  <div style="width: 320px; height: 460px; background: #312e81; border: 4px solid #facc15; border-radius: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
-    <div id="gacha-dup-badge" style="display: none; position: absolute; top: 16px; right: 16px; background: #ef4444; color: #fff; font-size: 11px; padding: 4px 8px; border-radius: 6px;">重複突破!</div>
-    <div id="gacha-avatar" style="width: 80px; height: 80px; border-radius: 50%; margin-bottom: 15px; border: 3px solid #fff;"></div>
-    <div id="gacha-tier" style="font-size: 26px; font-weight: 900; color: #facc15; margin-bottom: 4px;">SSR</div>
-    <div id="gacha-name" style="font-size: 18px; font-weight: bold; color: #fff; margin-bottom: 10px;">黑岩霸生</div>
-    <p style="font-size: 12px; color: #a5b4fc; text-align: center; padding: 0 15px;" id="gacha-feature"></p>
+  <!-- 🌟 加上 id="gacha-card-stage" 以套用階級發光與彈出關鍵影格 -->
+  <div id="gacha-card-stage">
+    <div id="gacha-dup-badge" style="display: none; position: absolute; top: 16px; right: 16px; background: #ef4444; color: #fff; font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: bold;">重複突破</div>
+    <div id="gacha-avatar" style="width: 86px; height: 86px; border-radius: 50%; margin-bottom: 15px; border: 3px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.5);"></div>
+    <div id="gacha-tier" style="font-size: 28px; font-weight: 900; color: #facc15; margin-bottom: 4px; letter-spacing: 1px;">SSR</div>
+    <div id="gacha-name" style="font-size: 20px; font-weight: bold; color: #fff; margin-bottom: 10px;">黑岩霸生</div>
+    <p style="font-size: 12px; color: #a5b4fc; text-align: center; padding: 0 15px; line-height: 1.4;" id="gacha-feature"></p>
     <div id="gacha-reward-msg" style="margin-top: 14px; font-size: 13px; font-weight: bold; color: #38bdf8;"></div>
-    <span style="font-size: 11px; color: #94a3b8; margin-top: 20px;">點擊任意處收入名冊</span>
+    <span style="font-size: 11px; color: #94a3b8; margin-top: 24px;">點擊任意處收入名冊</span>
   </div>
 </div>
 <div id="gacha-ten-modal">
@@ -678,6 +799,261 @@ function submitCloudAuth() {
   const p = document.getElementById('cloud-pass').value.trim();
   if (!u || !p) { alert('請填寫帳號與密碼！'); return; }
   handleFirebaseAuth(u, p);
+}
+</script>
+<!-- ⚙️ 遊戲設置面板 (與主選單同風格，含 ESC 返回、雙音量滑桿、自定義按鍵、MP3) -->
+<div id="settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(8px); z-index: 25000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="position: relative; width: 520px; background: rgba(30, 27, 75, 0.95); border: 2.5px solid #6366f1; border-radius: 24px; padding: 36px 32px; box-shadow: 0 0 80px rgba(99, 102, 241, 0.4); text-align: center;">
+    
+    <!-- 邊側小按鈕：返回 [ESC] -->
+    <button onclick="closeSettingsModal()" style="position: absolute; top: 18px; right: 20px; background: #0f172a; color: #38bdf8; border: 1.5px solid #6366f1; border-radius: 8px; padding: 4px 12px; font-size: 11px; font-weight: 800; cursor: pointer;">返回 [ESC]</button>
+    
+    <h2 style="font-size: 24px; font-weight: 900; color: #facc15; letter-spacing: 2px; margin-bottom: 22px;">⚙️ 遊戲設置 (SETTINGS)</h2>
+
+    <!-- 功能 1：按鍵自定義 -->
+    <div style="background: #18153d; border: 1.5px solid #4338ca; border-radius: 14px; padding: 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="text-align: left;">
+        <div style="font-size: 13px; font-weight: bold; color: #fff;">⌨️ 鍵盤操作自定義</div>
+        <div style="font-size: 11px; color: #94a3b8;">自由映射移動、跳躍、扣殺與接球鍵位</div>
+      </div>
+      <button class="btn-action" style="padding: 6px 16px;" onclick="openKeybindModal()">前往設置</button>
+    </div>
+
+    <!-- 功能 2：雙音量滑桿 -->
+    <div style="background: #18153d; border: 1.5px solid #4338ca; border-radius: 14px; padding: 16px; margin-bottom: 14px;">
+      <!-- BGM 滑桿 -->
+      <div style="margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+          <span style="color: #cbd5e1;">🎵 背景音樂音量 (BGM)</span>
+          <span id="bgm-vol-text" style="color: #38bdf8; font-weight: bold;">70%</span>
+        </div>
+        <input type="range" id="bgm-slider" min="0" max="100" value="70" style="width: 100%; accent-color: #38bdf8; cursor: pointer;" oninput="updateBgmVolume(this.value)">
+      </div>
+
+      <!-- SFX 滑桿 -->
+      <div>
+        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+          <span style="color: #cbd5e1;">💥 比賽音效音量 (SFX)</span>
+          <span id="sfx-vol-text" style="color: #facc15; font-weight: bold;">85%</span>
+        </div>
+        <input type="range" id="sfx-slider" min="0" max="100" value="85" style="width: 100%; accent-color: #facc15; cursor: pointer;" oninput="updateSfxVolume(this.value)">
+      </div>
+    </div>
+
+    <!-- 功能 3：自選 MP3 -->
+    <div style="background: #18153d; border: 1.5px solid #4338ca; border-radius: 14px; padding: 14px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="text-align: left;">
+        <div style="font-size: 13px; font-weight: bold; color: #fff;">🎶 自選本機音樂</div>
+        <div id="settings-bgm-status" style="font-size: 11px; color: #94a3b8;">未載入檔案</div>
+      </div>
+      <label class="btn-action" style="background: #2563eb; border-color: #38bdf8; padding: 6px 14px; cursor: pointer;">
+        選擇 MP3
+        <input type="file" id="settings-audio-file" accept="audio/*" style="display: none;" onchange="handleSettingsAudio(this)">
+      </label>
+    </div>
+
+  </div>
+</div>
+
+<script>
+let isSettingsOpen = false;
+let globalSfxVolume = 0.85;
+
+function openSettingsModal() {
+  isSettingsOpen = true;
+  document.getElementById('settings-modal').style.display = 'flex';
+}
+
+function closeSettingsModal() {
+  isSettingsOpen = false;
+  document.getElementById('settings-modal').style.display = 'none';
+  saveAudioSettings();
+}
+
+function updateBgmVolume(val) {
+  document.getElementById('bgm-vol-text').innerText = `${val}%`;
+  if (typeof customAudio !== 'undefined') {
+    customAudio.volume = val / 100;
+  }
+}
+
+function updateSfxVolume(val) {
+  globalSfxVolume = val / 100;
+  document.getElementById('sfx-vol-text').innerText = `${val}%`;
+}
+
+function handleSettingsAudio(input) {
+  const f = input.files[0];
+  if (f) {
+    customAudio.src = URL.createObjectURL(f);
+    customAudio.volume = parseInt(document.getElementById('bgm-slider').value) / 100;
+    customAudio.play().then(() => {
+      isAudioLoaded = true;
+      document.getElementById('settings-bgm-status').innerText = `已播放: ${f.name.slice(0, 16)}...`;
+      document.getElementById('settings-bgm-status').style.color = '#10b981';
+      const btn = document.getElementById('btn-bgm');
+      if (btn) { btn.innerText = 'BGM: 播放中'; btn.style.background = '#10b981'; }
+    });
+  }
+}
+
+function saveAudioSettings() {
+  try {
+    const conf = {
+      bgm: document.getElementById('bgm-slider').value,
+      sfx: Math.round(globalSfxVolume * 100)
+    };
+    localStorage.setItem('VOLLEY_AUDIO_SETTINGS', JSON.stringify(conf));
+  } catch(e) {}
+}
+
+function loadAudioSettings() {
+  try {
+    const saved = localStorage.getItem('VOLLEY_AUDIO_SETTINGS');
+    if (saved) {
+      const conf = JSON.parse(saved);
+      document.getElementById('bgm-slider').value = conf.bgm;
+      document.getElementById('sfx-slider').value = conf.sfx;
+      updateBgmVolume(conf.bgm);
+      updateSfxVolume(conf.sfx);
+    }
+  } catch(e) {}
+}
+
+window.addEventListener('DOMContentLoaded', loadAudioSettings);
+</script>
+<!-- ⌨️ 操作按鍵自定義彈窗 (含黑名單過濾與衝突檢查) -->
+<div id="keybind-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(8px); z-index: 35000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="width: 500px; background: #1e1b4b; border: 2.5px solid #6366f1; border-radius: 20px; padding: 26px; box-shadow: 0 0 50px rgba(99, 102, 241, 0.4);">
+    <h3 style="color: #facc15; font-size: 20px; font-weight: 900; text-align: center; margin-bottom: 6px;">⌨️ 操作按鍵自定義</h3>
+    <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-bottom: 16px;">點擊按鈕後，按下鍵盤任意鍵即可重新綁定</p>
+    
+    <div id="keybind-warning" style="display: none; color: #ef4444; font-size: 11px; text-align: center; margin-bottom: 10px; font-weight: bold;"></div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;" id="keybind-list-mount">
+      <!-- 8 個設置鍵按鈕由 JS 動態生成 -->
+    </div>
+
+    <div style="display: flex; gap: 10px;">
+      <button class="btn-sound" style="flex: 1;" onclick="resetDefaultKeybinds()">↺ 恢復預設</button>
+      <button class="btn-action" style="flex: 1;" onclick="closeKeybindModal()">💾 保存設定 [ESC]</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let isKeybindModalOpen = false;
+let listeningAction = null;
+
+// 🌟 8 大動作設定項目
+const ACTION_DEFS = [
+  { id: 'left', label: '向左移動', default: 'a' },
+  { id: 'right', label: '向右移動', default: 'd' },
+  { id: 'jump', label: '跳躍起跳', default: 'w' },
+  { id: 'spike', label: '攻擊鍵', default: 'j' },
+  { id: 'receive', label: '接球/拋球', default: 'k' },
+  { id: 'thrust', label: '魚躍/吊球/飄球', default: 'l' },
+  { id: 'set', label: '舉球托球', default: 'o' },
+  { id: 'block', label: '攔網起跳', default: ' ' }
+];
+
+// 🚫 不可設置的按鍵黑名單
+const FORBIDDEN_KEYS = [
+  'escape', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12',
+  'tab', 'capslock', 'meta', 'contextmenu', 'alt'
+];
+
+function openKeybindModal() {
+  isKeybindModalOpen = true;
+  listeningAction = null;
+  document.getElementById('keybind-warning').style.display = 'none';
+  document.getElementById('keybind-modal').style.display = 'flex';
+  renderKeybindList();
+}
+
+function closeKeybindModal() {
+  isKeybindModalOpen = false;
+  listeningAction = null;
+  document.getElementById('keybind-modal').style.display = 'none';
+  try {
+    localStorage.setItem('VOLLEY_CUSTOM_KEYS', JSON.stringify(KEY_BINDS));
+  } catch(e) {}
+}
+
+function renderKeybindList() {
+  const mount = document.getElementById('keybind-list-mount');
+  if (!mount) return;
+  mount.innerHTML = '';
+
+  ACTION_DEFS.forEach(act => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 8px 12px; border-radius: 8px; border: 1px solid #334155;';
+    
+    const isListening = (listeningAction === act.id);
+    const rawVal = KEY_BINDS[act.id] || act.default;
+    const keyDisplay = rawVal === ' ' ? 'Space' : rawVal.toUpperCase();
+
+    row.innerHTML = `
+      <span style="font-size: 12px; color: #cbd5e1;">${act.label}</span>
+      <button onclick="startListeningKey('${act.id}')" style="min-width: 68px; padding: 5px 10px; background: ${isListening ? '#f59e0b' : '#312e81'}; border: 1.5px solid ${isListening ? '#facc15' : '#6366f1'}; color: #fff; border-radius: 6px; font-weight: bold; cursor: pointer;">
+        ${isListening ? '請按鍵...' : keyDisplay}
+      </button>
+    `;
+    mount.appendChild(row);
+  });
+}
+
+function startListeningKey(actionId) {
+  listeningAction = actionId;
+  const warnEl = document.getElementById('keybind-warning');
+  warnEl.style.display = 'none';
+  renderKeybindList();
+}
+
+// 監聽改鍵按鍵並實施黑名單過濾
+window.addEventListener('keydown', (e) => {
+  if (!isKeybindModalOpen || !listeningAction) return;
+
+  e.preventDefault();
+  const k = e.key.toLowerCase();
+  const warnEl = document.getElementById('keybind-warning');
+
+  // 1. 黑名單檢查 (ESC, F1~F12 等)
+  if (FORBIDDEN_KEYS.includes(k) || e.key === 'Escape') {
+    warnEl.innerText = `⚠️ 按鍵 [${e.key}] 受到系統保留限制，無法設置！`;
+    warnEl.style.display = 'block';
+    return;
+  }
+
+  // 2. 轉換按鍵名稱（空白鍵特化處理）
+  const targetKey = (e.code === 'Space' || k === ' ') ? ' ' : k;
+
+  // 3. 重複鍵位檢查
+  for (let act of ACTION_DEFS) {
+    if (act.id !== listeningAction && KEY_BINDS[act.id] === targetKey) {
+      warnEl.innerText = `⚠️ 該鍵位已被【${act.label}】占用，請選擇其他按鍵！`;
+      warnEl.style.display = 'block';
+      return;
+    }
+  }
+
+  // 4. 設定成功並更新
+  KEY_BINDS[listeningAction] = targetKey;
+  listeningAction = null;
+  warnEl.style.display = 'none';
+  renderKeybindList();
+});
+
+function resetDefaultKeybinds() {
+  ACTION_DEFS.forEach(act => {
+    KEY_BINDS[act.id] = act.default;
+  });
+  KEY_BINDS.jumpAlt = ' ';
+  try {
+    localStorage.removeItem('VOLLEY_CUSTOM_KEYS');
+  } catch(e) {}
+  document.getElementById('keybind-warning').style.display = 'none';
+  renderKeybindList();
 }
 </script>
 </body>
