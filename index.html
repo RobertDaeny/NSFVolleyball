@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<meta charset="UTF-8">
+<title>Volleyball 2v2 Arena [2026_FullParity]</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background-color: #09090b; color: #f8fafc;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; overflow: hidden; user-select: none;
+  }
+  .hud-panel {
+    display: flex; justify-content: space-between; align-items: center;
+    width: 1600px; padding: 10px 24px; background: #1e1b4b;
+    border-radius: 16px 16px 0 0; border: 2px solid #4338ca; border-bottom: none; font-size: 13px;
+  }
+  .side-ult-container {
+    position: absolute; left: 22px; bottom: 18px; top: auto; z-index: 1000;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,0.8));
+  }
+  .bar-pillar-wrap { display: flex; flex-direction: row; align-items: center; gap: 7px; }
+  .bar-pillar {
+    position: relative; height: 14px; background: #110d14; border: 2px solid #8e9aaf;
+    box-shadow: inset 0 0 4px #000, 0 0 4px rgba(0,0,0,0.6);
+    overflow: hidden; border-radius: 999px;
+  }
+  .bar-pillar.main { width: 185px; border-color: #cbd5e1; }
+  .bar-pillar.sub { width: 130px; height: 11px; border-color: #94a3b8; }
+  .pillar-fill { height: 100% !important; width: 0%; transition: width 0.12s ease-out, background 0.25s; }
+  .pillar-fill.main-fill { 
+    background: linear-gradient(90deg, #4c0519 0%, #b91c1c 65%, #ef4444 100%); 
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+  }
+  .pillar-fill.sub-fill { 
+    background: linear-gradient(90deg, #0f172a 0%, #1d4ed8 70%, #38bdf8 100%); 
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+  }
+  .sub-pillar-rail { display:none; }
+  .pillar-label {
+    min-width: 48px; margin-top: 0; font-size: 10px; font-weight: 900; letter-spacing: 0.5px;
+    font-family: monospace; text-shadow: 0 2px 4px #000;
+  }
+
+  .stamina-hud { display: flex; flex-direction: column; align-items: flex-start; }
+  .stamina-bar-bg {
+    width: 140px; height: 10px; background: #0f172a; border-radius: 5px;
+    overflow: hidden; margin-top: 4px; border: 1px solid #4338ca;
+  }
+  #stamina-fill { width: 100%; height: 100%; background: #10b981; transition: width 0.15s, background-color 0.2s; }
+
+  .coin-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b;
+    padding: 3px 10px; border-radius: 999px; color: #facc15; font-weight: 800; font-size: 13px;
+  }
+  canvas {
+    background: #09090b; border: 2px solid #4338ca; border-radius: 0 0 16px 16px;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);
+  }
+  /* V20: B Debug is an out-of-flow dev instrument physically docked to the court's right edge.
+     It MUST NOT contribute width/height to normal game layout or resize the court. */
+  .game-debug-row { position:relative; width:1600px; height:500px; margin:0 auto; overflow:visible; }
+  .game-viewport-wrap { width:1600px; height:500px; }
+  .game-viewport-wrap canvas { width:1600px; height:500px; }
+  #debug-side-panel { display:none; position:absolute; left:calc(100% - 2px); top:0; z-index:40; width:330px; height:500px; box-sizing:border-box; overflow:auto; background:#0f172a; border:2px solid #22c55e; border-radius:0 12px 12px 0; padding:12px; color:#86efac; font:700 11px/1.42 "Courier New", monospace; white-space:pre-wrap; text-align:left; }
+  #debug-side-panel.on { display:block; }
+  body:has(#debug-side-panel.on) { overflow-x:auto; }
+  .instructions { margin-top: 10px; font-size: 12px; color: #a5b4fc; text-align: center; }
+
+  #start-menu-modal, #pause-menu-modal, #multiplayer-modal, #net-prep-modal, #locker-modal, #settlement-modal, #gacha-anim-modal, #gacha-ten-modal, #career-modal, #wardrobe-modal, #gacha-arcade-modal, #confirm-gacha-modal, #gacha-spinner-modal {
+    display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(8px);
+    z-index: 10000; flex-direction: column; align-items: center; justify-content: center;
+  }
+  #start-menu-modal { z-index: 20000; background: radial-gradient(circle at center, #1e1b4b 0%, #09090b 100%); overflow: hidden; }
+
+  #menu-bg-canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 20001; pointer-events: none; }
+  .cover-version-label {
+    position: absolute; right: 18px; bottom: 14px; z-index: 20010;
+    color: rgba(199, 210, 254, 0.72); font-size: 12px; font-weight: 800;
+    letter-spacing: 1.2px; pointer-events: none; user-select: none;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.75);
+  }
+  .hero-highlight-layer {
+    position: absolute; width: 100%; height: 100%; top: 0; left: 0; z-index: 20002;
+    pointer-events: none; display: flex; align-items: center; justify-content: space-around;
+  }
+  .hero-silhouette {
+    width: 380px; height: 380px; border-radius: 50%; filter: blur(40px);
+    opacity: 0.22; animation: silhouettePulse 8s infinite alternate ease-in-out;
+  }
+  @keyframes silhouettePulse {
+    0% { transform: scale(0.8) translateY(20px); opacity: 0.15; }
+    100% { transform: scale(1.15) translateY(-20px); opacity: 0.35; }
+  }
+  .hero-character-card {
+    position: absolute; right: 12%; bottom: 8%; width: 340px; height: 460px;
+    background: linear-gradient(180deg, rgba(49,46,129,0.3) 0%, rgba(15,23,42,0.8) 100%);
+    border: 1.5px solid rgba(99,102,241,0.35); border-radius: 24px; padding: 24px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    backdrop-filter: blur(12px);
+  }
+  .menu-box {
+    position: relative; z-index: 20005; text-align: center;
+    background: rgba(30, 27, 75, 0.88); border: 2.5px solid #6366f1;
+    padding: 40px 60px; border-radius: 24px; box-shadow: 0 0 80px rgba(99, 102, 241, 0.4);
+    backdrop-filter: blur(16px);
+  }
+  .menu-btn, .pause-btn {
+    display: block; width: 280px; padding: 11px 0; margin: 9px auto;
+    background: #4338ca; color: #fff; border: 1.5px solid #38bdf8; border-radius: 12px;
+    font-size: 14px; font-weight: 800; cursor: pointer; transition: all 0.2s; text-align: center;
+  }
+  .menu-btn:hover, .pause-btn:hover { background: #38bdf8; color: #09090b; transform: translateY(-2px); }
+  .pause-btn:disabled {
+    background: #1e1b4b !important; color: #64748b !important; border-color: #334155 !important;
+    cursor: not-allowed !important; transform: none !important; opacity: 0.6;
+  }
+
+/* 🌟 單抽卡牌揭曉：動態彈射破屏動畫 (Pop-in) */
+  @keyframes singleCardPopIn {
+    0% {
+      transform: scale(0.35) translateY(40px) rotate(-4deg);
+      opacity: 0;
+    }
+    60% {
+      transform: scale(1.08) translateY(-8px) rotate(1deg);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1.0) translateY(0) rotate(0deg);
+      opacity: 1;
+    }
+  }
+
+  /* 🌟 單抽卡片本體樣式：柔和深藍漸層 + 飽滿圓角 */
+  #gacha-card-stage {
+    width: 330px;
+    min-height: 480px;
+    background: linear-gradient(180deg, #2b2568 0%, #17133d 100%);
+    border: 3px solid #64748b;
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 24px 20px;
+    box-sizing: border-box;
+    animation: singleCardPopIn 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+
+  /* ⚪ [N 級單抽光暈] */
+  #gacha-card-stage.n {
+    border-color: #64748b;
+    box-shadow: 0 0 25px rgba(100, 116, 139, 0.45);
+  }
+
+  /* 🔵 [R 級單抽光暈] 飽滿亮藍漫射 */
+  #gacha-card-stage.r {
+    border-color: #38bdf8;
+    box-shadow: 0 0 35px rgba(56, 189, 248, 0.75), inset 0 0 16px rgba(56, 189, 248, 0.25);
+  }
+
+  /* 🟣 [SR 級單抽光暈] 魅惑紫晶強光 */
+  #gacha-card-stage.sr {
+    border-color: #c084fc;
+    box-shadow: 0 0 42px rgba(192, 132, 252, 0.85), inset 0 0 20px rgba(192, 132, 252, 0.3);
+  }
+
+  /* 🟡 [SSR 級單抽光暈] 金色霓虹呼吸大光環 */
+  #gacha-card-stage.ssr {
+    border-color: #facc15;
+    background: linear-gradient(180deg, #382e78 0%, #1a1542 100%);
+    box-shadow: 0 0 50px rgba(250, 204, 21, 0.95), inset 0 0 25px rgba(250, 204, 21, 0.35);
+    animation: singleCardPopIn 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, singleSsrBreath 2.2s infinite alternate ease-in-out;
+  }
+
+  @keyframes singleSsrBreath {
+    0% { box-shadow: 0 0 35px rgba(250, 204, 21, 0.75), inset 0 0 15px rgba(250, 204, 21, 0.2); }
+    100% { box-shadow: 0 0 65px rgba(250, 204, 21, 1.0), inset 0 0 30px rgba(250, 204, 21, 0.45); }
+  }
+
+/* 🌟 十連抽大彈窗外框金色霓虹光暈 (還原舊版漫射感) */
+  #gacha-ten-modal > div {
+    background: #151236 !important;
+    border: 3px solid #facc15 !important;
+    border-radius: 24px !important;
+    padding: 28px 24px !important;
+    box-shadow: 0 0 50px rgba(250, 204, 21, 0.45), inset 0 0 20px rgba(250, 204, 21, 0.15) !important;
+  }
+
+  /* 🌟 卡牌插槽本體：立體深色底面板 + 柔和圓角 */
+  .ten-card-slot {
+    background: linear-gradient(180deg, rgba(30, 27, 75, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
+    border: 2px solid #3b3678;
+    border-radius: 16px;
+    padding: 16px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  /* ⚪ [N 級] 低調微灰邊框 */
+  .ten-card-slot.n {
+    border-color: #64748b;
+    box-shadow: 0 0 12px rgba(100, 116, 139, 0.35);
+  }
+
+  /* 🔵 [R 級] 酷炫天藍霓虹光暈 (徹底找回舊版亮藍發光) */
+  .ten-card-slot.r {
+    border-color: #38bdf8;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.55), inset 0 0 10px rgba(56, 189, 248, 0.15);
+  }
+
+  /* 🟣 [SR 級] 魅惑紫晶強烈光暈 */
+  .ten-card-slot.sr {
+    border-color: #c084fc;
+    box-shadow: 0 0 26px rgba(192, 132, 252, 0.75), inset 0 0 12px rgba(192, 132, 252, 0.2);
+  }
+
+  /* 🟡 [SSR 級] 尊爵金色強光爆發 + 尊榮高亮底色 */
+  .ten-card-slot.ssr {
+    border-color: #facc15;
+    background: linear-gradient(180deg, #2b235e 0%, #151233 100%);
+    box-shadow: 0 0 35px rgba(250, 204, 21, 0.95), inset 0 0 16px rgba(250, 204, 21, 0.35);
+    animation: ssrPulse 2.4s infinite alternate ease-in-out;
+  }
+
+  @keyframes ssrPulse {
+    0% { box-shadow: 0 0 25px rgba(250, 204, 21, 0.7), inset 0 0 10px rgba(250, 204, 21, 0.2); }
+    100% { box-shadow: 0 0 42px rgba(250, 204, 21, 1.0), inset 0 0 20px rgba(250, 204, 21, 0.45); }
+  }
+
+
+  /* 結算表格：標準細格線排版 */
+  #settle-table-main {
+    width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 12px;
+    border: 1.5px solid #3b3678;
+  }
+  #settle-table-main th, #settle-table-main td {
+    border: 1px solid #2b2762;
+    padding: 8px 6px;
+    text-align: center;
+  }
+  #settle-table-main th {
+    background: #25215c;
+    color: #facc15;
+    font-weight: 800;
+  }
+  #settle-table-main tbody tr:nth-child(even) {
+    background: rgba(24, 21, 61, 0.6);
+  }
+  #settle-table-main tbody tr:hover {
+    background: rgba(67, 56, 202, 0.25);
+  }
+
+  .stat-row {
+    position: relative; display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 10px; background: #312e81; border-radius: 8px; margin-bottom: 7px; font-size: 13px; cursor: help;
+  }
+  .stat-tooltip {
+    visibility: hidden; opacity: 0; width: 260px; background-color: #0f172a; color: #e2e8f0;
+    text-align: left; border-radius: 8px; padding: 8px 12px; position: absolute; z-index: 10005;
+    bottom: 125%; left: 50%; transform: translateX(-50%); border: 1px solid #38bdf8;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.8); font-size: 11px; line-height: 1.4; transition: opacity 0.2s; pointer-events: none;
+  }
+  .stat-tooltip::after {
+    content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px;
+    border-width: 5px; border-style: solid; border-color: #38bdf8 transparent transparent transparent;
+  }
+  .stat-row:hover .stat-tooltip { visibility: visible; opacity: 1; }
+
+  .locker-box {
+    width: 1060px; background: #1e1b4b; border: 2.5px solid #6366f1; border-radius: 16px;
+    padding: 24px; box-shadow: 0 25px 50px rgba(0,0,0,0.9);
+  }
+  .locker-grid-ms { display: grid; grid-template-columns: 260px 340px 1fr; gap: 16px; }
+  .card-summary {
+    background: #18153d; border: 1.5px solid #4338ca; border-radius: 12px;
+    padding: 16px; display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  }
+  .panel-column { background: #18153d; border: 1.5px solid #4338ca; border-radius: 12px; padding: 14px; }
+  .stat-derived-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px; background: rgba(49, 46, 129, 0.6); border-radius: 6px; margin-bottom: 6px; font-size: 12px;
+    border-left: 3px solid #38bdf8;
+  }
+  .stat-btn {
+    width: 24px; height: 24px; background: #1e1b4b; border: 1px solid #6366f1;
+    color: #f8fafc; border-radius: 4px; font-weight: bold; cursor: pointer;
+  }
+  .stat-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .btn-action {
+    background: #0284c7; color: #fff; border: 1px solid #38bdf8; border-radius: 6px;
+    padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .btn-action:hover { background: #0369a1; }
+  .btn-sound, .btn-home {
+    background: #0f172a; color: #38bdf8; border: 1.5px solid #6366f1;
+    border-radius: 8px; padding: 6px 14px; font-size: 12px; cursor: pointer;
+  }
+  .btn-sound:hover, .btn-home:hover { background: #312e81; }
+
+  .prep-card-panel {
+    background: #18153d; border: 2px solid #4338ca; border-radius: 16px;
+    padding: 16px; width: 440px; display: flex; flex-direction: column; gap: 12px;
+  }
+
+  .roster-tab {
+    flex: 1; padding: 10px; background: #312e81; border: 1.5px solid #4338ca;
+    border-radius: 8px; cursor: pointer; text-align: center; font-size: 13px; font-weight: 700; color: #fff;
+  }
+  .roster-tab.active { background: #4338ca; border-color: #38bdf8; color: #facc15; }
+
+  .arcade-frame {
+    width: 1500px; height: 500px; background: #110d24; border: 3.5px solid #facc15;
+    border-radius: 20px; box-shadow: 0 0 70px rgba(250, 204, 21, 0.45);
+    display: flex; flex-direction: column; padding: 18px 30px; position: relative;
+  }
+  .arcade-header {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 2px solid #4338ca; padding-bottom: 10px; margin-bottom: 12px;
+  }
+  .gacha-machines-row {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px;
+    flex: 1; align-items: center; padding: 0 30px;
+  }
+  .machine-card {
+    background: radial-gradient(circle at center, #231f4e 0%, #13102c 100%);
+    border: 2.5px solid #ef4444; border-radius: 24px; padding: 14px 18px;
+    display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+    height: 380px; box-shadow: 0 10px 30px rgba(0,0,0,0.6), inset 0 0 15px rgba(239, 68, 68, 0.25);
+  }
+  .machine-title {
+    font-size: 24px; font-weight: 900; letter-spacing: 2px;
+    text-shadow: 0 0 12px rgba(255,255,255,0.6);
+  }
+  .globe-dome {
+    width: 150px; height: 130px; border-radius: 50% 50% 45% 45%;
+    border: 4px solid #ef4444; background: rgba(255, 255, 255, 0.08);
+    display: flex; align-items: center; justify-content: center; position: relative;
+    box-shadow: inset 0 10px 20px rgba(255,255,255,0.25);
+  }
+  .turn-knob-slot {
+    width: 44px; height: 16px; background: #0f172a; border: 2px solid #ef4444;
+    border-radius: 8px; margin: 4px 0; display: flex; align-items: center; justify-content: center;
+  }
+  .turn-knob { width: 28px; height: 8px; background: #facc15; border-radius: 4px; transform: rotate(25deg); }
+  .gacha-btn-group { display: flex; flex-direction: column; gap: 8px; width: 180px; }
+
+  @keyframes floatUpDown {
+    0% { transform: translateY(6px) scale(0.98); }
+    50% { transform: translateY(-8px) scale(1.02); }
+    100% { transform: translateY(6px) scale(0.98); }
+  }
+  .floating-capsule {
+    animation: floatUpDown 3.2s infinite ease-in-out;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .capsule-box {
+    width: 140px; height: 140px; border-radius: 50%; border: 8px solid #facc15; border-top-color: #ef4444;
+    animation: spinCapsule 0.9s infinite cubic-bezier(0.68, -0.55, 0.27, 1.55); box-shadow: 0 0 50px rgba(250,204,21,0.8);
+  }
+  @keyframes spinCapsule {
+    0% { transform: rotate(0deg) scale(0.9); }
+    50% { transform: rotate(180deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(0.9); }
+  }
+</style>
+</head>
+<body>
+
+<div class="hud-panel">
+  <div class="stamina-hud">
+    <strong style="color: #a5b4fc; font-size: 11px;">🦵 大腿起跳負荷 (主控)</strong>
+    <div class="stamina-bar-bg"><div id="stamina-fill"></div></div>
+  </div>
+
+  <div style="text-align: center;">
+    <span style="font-size: 28px; font-weight: 900; letter-spacing: 4px; color: #facc15;" id="score-display">0 : 0</span>
+    <div id="status-subtext" style="font-size: 12px; color: #a5b4fc; min-height: 16px;"></div>
+  </div>
+
+  <div style="display: flex; gap: 14px; align-items: center;">
+    <div class="coin-badge">🪙 <span id="coin-display">99999</span> 幣</div>
+    <span style="font-size: 12px; color: #94a3b8; border: 1px solid #4338ca; padding: 4px 10px; border-radius: 6px;">[ESC] 選單</span>
+  </div>
+</div>
+
+<div class="game-debug-row">
+<div class="game-viewport-wrap" style="position: relative; width: 1600px; height: 500px;">
+  <div class="side-ult-container">
+    <div class="bar-pillar-wrap">
+      <div class="bar-pillar main" id="main-pillar-frame"><div class="pillar-fill main-fill" id="user-ult-fill"></div></div>
+      <span class="pillar-label" id="user-ult-text" style="color: #f87171;">P1 0%</span>
+    </div>
+    <div class="bar-pillar-wrap">
+      <div class="bar-pillar sub" id="sub-pillar-frame"><div class="pillar-fill sub-fill" id="mate-ult-fill"></div></div>
+      <span class="pillar-label" id="mate-ult-text" style="color: #60a5fa;">P2 0%</span>
+    </div>
+    <div class="sub-pillar-rail"></div>
+  </div>
+  <canvas id="canvas" width="1600" height="500"></canvas>
+</div>
+<aside id="debug-side-panel" aria-live="polite"></aside>
+</div>
+<div class="instructions">
+  [發球] 長按K高拋 ➔ 助跑跳發(W+J) / 跳飄(W+L) | [進攻] 扇面J扣殺 / 站立J長推緩球 / 空中L抹球 | [二傳] O鍵托球 | [防守] K墊球 / 網前[Space]攔網 / 地面L魚躍 | [ESC] 比賽選單
+</div>
+
+<!-- 🎮 比賽中 ESC 暫停選單 -->
+<div id="pause-menu-modal">
+  <div style="width: 440px; background: #1e1b4b; border: 3px solid #38bdf8; border-radius: 24px; padding: 32px 24px; box-shadow: 0 0 60px rgba(56, 189, 248, 0.5); text-align: center;">
+    <h2 style="color: #facc15; font-size: 26px; font-weight: 900; letter-spacing: 2px; margin-bottom: 6px;">⏸️ 比賽暫停選單</h2>
+    <p id="pause-mode-status" style="font-size: 12px; color: #a5b4fc; margin-bottom: 22px;">單人模式 · 時間已凍結</p>
+
+    <button class="pause-btn" style="background: #0284c7;" onclick="resumeGame()">▶ 繼續比賽 [ESC]</button>
+    <button class="pause-btn" id="pause-btn-locker" onclick="openLockerFromPause()">👕 角色戰術更衣室</button>
+    
+    <button class="pause-btn" style="background: #4338ca;" onclick="openSettingsFromPause()">⚙️ 遊戲設定</button>
+    <button class="pause-btn" style="background: #b91c1c; border-color: #ef4444;" onclick="returnToStartMenuFromPause()">🏠 放棄比賽返回大廳</button>
+  </div>
+</div>
+
+<!-- ⏳ 連線賽前戰術配置室 (30 秒倒數 + 雙方 Ready 縮為 5 秒) -->
+<div id="net-prep-modal">
+  <div style="width: 1060px; background: #1e1b4b; border: 3px solid #facc15; border-radius: 24px; padding: 28px; box-shadow: 0 0 70px rgba(250, 204, 21, 0.45); display: flex; flex-direction: column; align-items: center;">
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; border-bottom: 2px solid #4338ca; padding-bottom: 12px; margin-bottom: 18px;">
+      <h2 style="color: #facc15; font-size: 24px; font-weight: 900;">⚔️ 連線賽前戰術配置室</h2>
+      <div style="font-size: 20px; font-weight: 900; color: #ef4444;" id="net-prep-timer">⏳ 倒數: 30s</div>
+    </div>
+
+    <div style="display: flex; gap: 30px; margin-bottom: 16px;">
+      <div class="prep-card-panel" id="panel-my-prep">
+        <h3 style="color: #38bdf8; font-size: 16px; border-bottom: 1px solid #4338ca; padding-bottom: 6px;">👤 我主控的角色 (Player 1)</h3>
+        <div>
+          <label style="font-size: 11px; color: #94a3b8;">出戰球員選擇：</label>
+          <select id="net-prep-my-char" style="width: 100%; padding: 6px; background: #0f172a; color: #facc15; border: 1px solid #38bdf8; border-radius: 6px;" onchange="onNetPrepChange()"></select>
+        </div>
+        <div>
+          <label style="font-size: 11px; color: #94a3b8;">裝備大招技能：</label>
+          <select id="net-prep-my-skill" style="width: 100%; padding: 6px; background: #0f172a; color: #38bdf8; border: 1px solid #6366f1; border-radius: 6px;" onchange="onNetPrepChange()"></select>
+        </div>
+      </div>
+
+      <div class="prep-card-panel" id="panel-mate-prep">
+        <h3 style="color: #34d399; font-size: 16px; border-bottom: 1px solid #4338ca; padding-bottom: 6px;" id="mate-prep-title">🤝 隊友配置 (即時同步)</h3>
+        <div>
+          <label style="font-size: 11px; color: #94a3b8;">隊友出戰球員：</label>
+          <select id="net-prep-mate-char" style="width: 100%; padding: 6px; background: #0f172a; color: #34d399; border: 1px solid #10b981; border-radius: 6px;" onchange="onNetPrepChange()"></select>
+        </div>
+        <div>
+          <label style="font-size: 11px; color: #94a3b8;">隊友大招技能：</label>
+          <select id="net-prep-mate-skill" style="width: 100%; padding: 6px; background: #0f172a; color: #38bdf8; border: 1px solid #6366f1; border-radius: 6px;" onchange="onNetPrepChange()"></select>
+        </div>
+      </div>
+    </div>
+
+    <div id="net-prep-difficulty-hint" style="font-size: 12px; color: #facc15; margin-bottom: 16px;"></div>
+
+    <div style="display: flex; gap: 20px; align-items: center;">
+      <button id="btn-net-prep-ready" class="btn-action" style="padding: 10px 45px; font-size: 16px; background: #10b981; border-color: #34d399;" onclick="confirmNetPrepReady()">⚔️ 準備完成 (READY)</button>
+      <span id="net-prep-ready-status" style="font-size: 13px; color: #cbd5e1;">等待雙方確認...</span>
+    </div>
+  </div>
+</div>
+
+<!-- 封面選單 -->
+<div id="start-menu-modal" style="display: flex;">
+  <canvas id="menu-bg-canvas"></canvas>
+  <div class="cover-version-label">V74-18 · CHRONO FIRST-PASS RELEASE / 20F FADE</div>
+  <div class="hero-highlight-layer">
+    <div class="hero-silhouette" id="hero-sil-1" style="background: #38bdf8;"></div>
+    <div class="hero-silhouette" id="hero-sil-2" style="background: #ef4444;"></div>
+  </div>
+  <div class="hero-character-card" id="menu-hero-card">
+    <div id="menu-card-avatar" style="width: 100px; height: 100px; border-radius: 50%; margin-bottom: 16px; border: 4px solid #facc15; box-shadow: 0 0 30px rgba(250,204,21,0.5);"></div>
+    <div id="menu-card-tier" style="font-size: 24px; font-weight: 900; color: #facc15; margin-bottom: 4px;">SSR</div>
+    <div id="menu-card-name" style="font-size: 20px; font-weight: bold; color: #fff; margin-bottom: 8px;">黑岩霸生</div>
+    <p id="menu-card-desc" style="font-size: 12px; color: #cbd5e1; text-align: center; line-height: 1.4;">極限物理輸出·直線下釘重砲手！</p>
+  </div>
+
+  <div class="menu-box">
+    <h1 style="font-size: 40px; font-weight: 900; color: #facc15; margin-bottom: 6px; letter-spacing: 4px; text-shadow: 0 0 25px rgba(250,204,21,0.6);">🏐 VOLLEY ARENA 2v2</h1>
+    <p style="font-size: 13px; color: #a5b4fc; margin-bottom: 25px;">2D 物理極限沙灘排球 · 雙人聯防競技場</p>
+    <button class="menu-btn" style="background: linear-gradient(135deg, #0ea5e9, #2563eb); border-color: #38bdf8;" onclick="openMultiplayerModal()">🌐 多人連線對戰 (PVP/CO-OP)</button>
+    <button class="menu-btn" onclick="openPracticeVenueModal()">🏐 無盡練習 (Endless Practice)</button>
+    <button class="menu-btn" style="background: linear-gradient(135deg, #f59e0b, #b45309); border-color: #facc15;" onclick="openCareerMenu()">🏆 聯賽挑戰 (Career Mode)</button>
+    <!-- 🌟 新增：天梯五連戰按鈕 -->
+    <button class="menu-btn" style="background: linear-gradient(135deg, #6366f1, #4338ca); border-color: #818cf8; box-shadow: 0 0 20px rgba(99,102,241,0.5);" onclick="openLadderPrepModal()">🪜 天梯競技賽(Ranked Ladder)</button>
+    <button class="menu-btn" style="background: linear-gradient(135deg, #ec4899, #8b5cf6); border-color: #f472b6;" onclick="openWardrobeModal()">🪞 試衣化妝間 (Wardrobe)</button>
+    <button class="menu-btn" style="background: linear-gradient(135deg, #ef4444, #b91c1c); border-color: #facc15; box-shadow: 0 0 20px rgba(239,68,68,0.5);" onclick="openGachaArcade()">🎰 轉蛋專區 (Gacha Arcade)</button>
+    <button class="menu-btn" style="background: #312e81;" onclick="openLockerFromMenu()">📋 球隊戰術配置 (Tactics)</button>
+<button class="menu-btn" style="background: #1e1b4b; border-color: #6366f1;" onclick="openSettingsModal()">⚙️ 遊戲設置 (Settings)</button>
+<button class="menu-btn" id="btn-cloud-auth" style="background: #065f46; border-color: #34d399; font-size: 13px;" onclick="openCloudAuthModal()">👤 雲端帳號登入 (未登入)</button>    
+<button class="menu-btn" style="background: #18153d; border-color: #4338ca; font-size: 12px;" onclick="resetLocalStorageData()">⚠️ 重置所有本機存檔</button>
+  </div>
+</div>
+
+
+<div id="practice-venue-modal" style="display:none;position:fixed;inset:0;z-index:9500;background:rgba(2,6,23,.90);align-items:center;justify-content:center;">
+  <div style="width:520px;background:#1e1b4b;border:3px solid #38bdf8;border-radius:20px;padding:24px;text-align:center;box-shadow:0 0 45px rgba(56,189,248,.25)">
+    <div style="font-size:13px;color:#94a3b8;letter-spacing:5px;font-weight:900">ENDLESS VENUE</div>
+    <h2 style="color:#facc15;margin:8px 0 18px">無盡模式場地</h2>
+    <div style="display:flex;align-items:center;justify-content:center;gap:14px">
+      <button onclick="cyclePracticeVenue(-1)" style="font-size:24px">◀</button>
+      <div style="width:310px;height:145px;border:2px solid #38bdf8;border-radius:14px;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div id="practice-venue-icon" style="font-size:42px">🏟️</div><div id="practice-venue-name" style="font-size:20px;font-weight:900;color:#facc15">標準體育館</div><div id="practice-venue-desc" style="font-size:11px;color:#94a3b8;margin:8px 18px"></div>
+      </div>
+      <button onclick="cyclePracticeVenue(1)" style="font-size:24px">▶</button>
+    </div>
+    <button id="practice-events-toggle" onclick="togglePracticeEvents()" style="margin:16px auto 4px;width:260px;padding:10px;border:2px solid #22c55e;border-radius:10px;background:#0f172a;color:#bbf7d0;font-weight:900;cursor:pointer">特殊事件：ON</button>
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:8px">OFF 只關閉中途 Incident；冰面、低重力、甲板搖擺等場地固有效果仍保留。</div>
+    <button class="menu-btn" style="margin:8px auto 0;width:260px" onclick="confirmPracticeVenue()">開始練習</button>
+    <button style="margin-top:8px;background:none;border:0;color:#94a3b8;cursor:pointer" onclick="closePracticeVenueModal()">取消</button>
+  </div>
+</div>
+
+<!-- 🌐 多人連線大廳視窗 -->
+<div id="multiplayer-modal">
+  <div style="width: 580px; background: #1e1b4b; border: 3px solid #38bdf8; border-radius: 20px; padding: 28px; box-shadow: 0 0 50px rgba(56, 189, 248, 0.4); text-align: center;">
+    <h2 style="color: #38bdf8; font-size: 24px; font-weight: 900; margin-bottom: 6px;">🌐 WebRTC P2P 連線大廳</h2>
+    <p style="font-size: 12px; color: #a5b4fc; margin-bottom: 20px;">點對點直接打通 · 雙向獨立主控視角</p>
+
+    <div style="background: #18153d; border: 1.5px solid #4338ca; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+      <h3 style="color: #facc15; font-size: 15px; margin-bottom: 8px;">👑 方案 A：我是房主 (Host)</h3>
+      <div style="display: flex; justify-content: center; gap: 15px; margin-bottom: 12px;">
+        <label style="font-size: 12px; color: #cbd5e1;"><input type="radio" name="netMode" value="PVP" checked onchange="toggleDifficultySelect(false)"> 1P+AI vs 2P+AI (隔網對抗)</label>
+        <label style="font-size: 12px; color: #cbd5e1;"><input type="radio" name="netMode" value="COOP" onchange="toggleDifficultySelect(true)"> 1P+2P vs 雙AI (雙人合作)</label>
+      </div>
+
+      <div id="pve-difficulty-wrap" style="display: none; margin-bottom: 12px;">
+        <label style="font-size: 11px; color: #facc15; font-weight: bold;">🏆 選擇雙AI對手難度：</label>
+        <select id="pve-diff-select" style="padding: 4px 8px; background: #0f172a; color: #facc15; border: 1px solid #facc15; border-radius: 6px;">
+          <option value="1">入門新手高校 (N 級雙人)</option>
+          <option value="2">泥濘沼澤戰隊 (SR 級防守)</option>
+          <option value="3">常盤鋼鐵壁壘 (SSR 級攔網)</option>
+          <option value="4">疾風怒濤反攻 (SSR 級神域)</option>
+          <option value="5" selected>神域全明星隊 (全國冠軍級)</option>
+        </select>
+      </div>
+
+      <div id="venue-picker" style="margin:14px auto; padding:12px; max-width:460px; border:1px solid #4338ca; border-radius:14px; background:#0f172a;">
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:7px;">🗺️ 房主選擇本場場地</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:10px;">
+          <button class="btn-action" style="padding:8px 12px" onclick="cycleVenue(-1)">◀</button>
+          <div id="venue-card" style="width:290px;height:112px;border:2px solid #38bdf8;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#111827;box-shadow:inset 0 0 30px rgba(56,189,248,.08);">
+            <div id="venue-card-icon" style="font-size:34px">🏟️</div>
+            <div id="venue-card-name" style="font-weight:900;color:#facc15">標準體育館</div>
+            <div id="venue-card-desc" style="font-size:10px;color:#94a3b8;margin-top:4px">規則很正常。真正不正常的是場上的人。</div>
+          </div>
+          <button class="btn-action" style="padding:8px 12px" onclick="cycleVenue(1)">▶</button>
+        </div>
+        <label style="display:block;margin-top:9px;font-size:11px;color:#cbd5e1;"><input id="venue-events-toggle" type="checkbox" checked> 開啟突發事件（牌組下一階段啟用）</label>
+      </div>
+
+      <button class="btn-action" style="padding: 8px 20px; font-size: 13px;" onclick="startHosting()">創建房間並取得代碼</button>
+      <div id="host-code-display" style="display: none; margin-top: 12px;">
+        <span style="font-size: 12px; color: #94a3b8;">將此 6 碼房號傳給朋友：</span>
+        <div id="room-code-text" style="font-size: 28px; font-weight: 900; color: #facc15; letter-spacing: 6px; margin: 4px 0;">------</div>
+        <span style="font-size: 11px; color: #38bdf8;">⏳ 等待對手連線中...</span>
+      </div>
+    </div>
+
+    <div style="background: #18153d; border: 1.5px solid #4338ca; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+      <h3 style="color: #38bdf8; font-size: 15px; margin-bottom: 8px;">🎮 方案 B：我是訪客 (Client)</h3>
+      <div style="display: flex; justify-content: center; gap: 8px;">
+        <input type="text" id="join-room-input" placeholder="輸入 6 碼房號" maxlength="6" style="width: 160px; text-align: center; text-transform: uppercase; font-size: 16px; font-weight: bold; background: #0f172a; color: #facc15; border: 1.5px solid #38bdf8; border-radius: 8px; padding: 6px;">
+        <button class="btn-action" style="background: #10b981; border-color: #34d399; padding: 8px 18px;" onclick="joinRoom()">連線加入</button>
+      </div>
+      <div id="join-status-text" style="font-size: 11px; color: #f43f5e; margin-top: 8px;"></div>
+    </div>
+
+    <button class="btn-home" onclick="closeMultiplayerModal()">返回主選單</button>
+  </div>
+</div>
+
+<!-- 🎰 轉蛋專區 (GACHA ARCADE) - 2x2 對齊 -->
+<div id="gacha-arcade-modal">
+  <div class="arcade-frame" style="width: 1100px; height: 860px; max-height: 92vh; overflow-y: auto; padding: 24px 30px;">
+    <div class="arcade-header">
+      <h2 style="color: #facc15; font-size: 24px; font-weight: 900; letter-spacing: 2px;">🎰 排球競技轉蛋大街 (GACHA ARCADE)</h2>
+      <div style="display: flex; gap: 14px; align-items: center;">
+        <div class="coin-badge">🪙 持有金幣: <span id="arcade-coin-display">99999</span></div>
+        <button class="btn-home" onclick="closeGachaArcade()">🏠 返回主選單</button>
+      </div>
+    </div>
+
+    <!-- 🌟 改為 2 欄 2 列 完美對齊 -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 10px 15px;">
+      <!-- 1. 裝備轉蛋 -->
+      <div class="machine-card" style="border-color: #a855f7; height: 350px;">
+        <div class="machine-title" style="color: #c084fc;">裝備轉蛋</div>
+        <div class="globe-dome" style="border-color: #a855f7; width: 130px; height: 110px;">
+          <div class="floating-capsule" style="width: 72px; height: 72px; border-radius: 50%; background: radial-gradient(circle, #7e22ce 0%, #0f172a 100%); border: 3px solid #c084fc; box-shadow: 0 0 20px rgba(192,132,252,0.7);">
+            <span style="font-size: 18px; font-weight: 900; color: #facc15;">EQUIP</span>
+          </div>
+        </div>
+        <div class="turn-knob-slot" style="border-color: #a855f7;"><div class="turn-knob" style="background: #a855f7;"></div></div>
+        <div style="font-size: 11px; color: #d8b4fe;">單抽 150 幣 / 十連 1350 幣 (R70% SR25% SSR5%)</div>
+        <div class="gacha-btn-group">
+          <button class="btn-action" style="background: #9333ea;" onclick="promptConfirmGacha('equip', false, 150)">一抽 (150 幣)</button>
+          <button class="btn-action" style="background: #7e22ce;" onclick="promptConfirmGacha('equip', true, 1350)">十抽 (1350 幣)</button>
+        </div>
+      </div>
+
+      <!-- 2. 時尚轉蛋 -->
+      <div class="machine-card" style="border-color: #ef4444; height: 350px;">
+        <div class="machine-title" style="color: #ef4444;">時尚轉蛋</div>
+        <div class="globe-dome" style="border-color: #ef4444; width: 130px; height: 110px;">
+          <div class="floating-capsule" style="width: 72px; height: 72px; border-radius: 50%; background: linear-gradient(180deg, #fff 0%, #fff 48%, #dc2626 52%, #dc2626 100%); border: 3px solid #0f172a; box-shadow: 0 0 15px rgba(220,38,38,0.6);">
+            <span style="font-size: 28px; font-weight: 900; color: #0f172a;">?</span>
+          </div>
+        </div>
+        <div class="turn-knob-slot"><div class="turn-knob"></div></div>
+        <div style="font-size: 11px; color: #a5b4fc;">單抽 50 幣 / 十連 450 幣 (不重複)</div>
+        <div class="gacha-btn-group">
+          <button class="btn-action" style="background: #3b82f6;" onclick="promptConfirmGacha('cosmetic', false, 50)">一抽 (50 幣)</button>
+          <button class="btn-action" style="background: #2563eb;" onclick="promptConfirmGacha('cosmetic', true, 450)">十抽 (450 幣)</button>
+        </div>
+      </div>
+
+      <!-- 3. 角色轉蛋 -->
+      <div class="machine-card" style="border-color: #facc15; height: 350px;">
+        <div class="machine-title" style="color: #facc15;">角色轉蛋</div>
+        <div class="globe-dome" style="border-color: #facc15; width: 130px; height: 110px;">
+          <div class="floating-capsule" style="width: 72px; height: 72px; border-radius: 50%; background: #94a3b8; border: 3.5px solid #0f172a; box-shadow: 0 0 20px rgba(250,204,21,0.5);">
+            <span style="font-size: 32px; font-weight: 900; color: #0f172a;">?</span>
+          </div>
+        </div>
+        <div class="turn-knob-slot" style="border-color: #facc15;"><div class="turn-knob" style="background: #ef4444;"></div></div>
+        <div style="font-size: 11px; color: #fde047;">單抽 100 幣 / 十連 900 幣 (附突破EXP)</div>
+        <div class="gacha-btn-group">
+          <button class="btn-action" style="background: #f59e0b;" onclick="promptConfirmGacha('player', false, 100)">一抽 (100 幣)</button>
+          <button class="btn-action" style="background: #d97706;" onclick="promptConfirmGacha('player', true, 900)">十抽 (900 幣)</button>
+        </div>
+      </div>
+
+      <!-- 4. 技能轉蛋 -->
+      <div class="machine-card" style="border-color: #38bdf8; height: 350px;">
+        <div class="machine-title" style="color: #38bdf8;">技能轉蛋</div>
+        <div class="globe-dome" style="border-color: #38bdf8; width: 130px; height: 110px;">
+          <div class="floating-capsule" style="width: 76px; height: 76px; border-radius: 50%; background: radial-gradient(circle, #0284c7 0%, #0f172a 100%); border: 3px solid #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.7);">
+            <span style="font-size: 20px; font-weight: 900; color: #f43f5e; text-shadow: 0 0 8px #f43f5e;">Skill</span>
+          </div>
+        </div>
+        <div class="turn-knob-slot" style="border-color: #38bdf8;"><div class="turn-knob" style="background: #38bdf8;"></div></div>
+        <div style="font-size: 11px; color: #7dd3fc;">單抽 250 幣 / 十連 2350 幣 (研習解鎖)</div>
+        <div class="gacha-btn-group">
+          <button class="btn-action" style="background: #0284c7;" onclick="promptConfirmGacha('skill', false, 250)">一抽 (250 幣)</button>
+          <button class="btn-action" style="background: #0369a1;" onclick="promptConfirmGacha('skill', true, 2350)">十抽 (2350 幣)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 防手殘二次確認彈窗 -->
+<div id="confirm-gacha-modal">
+  <div style="width: 440px; background: #1e1b4b; border: 3px solid #facc15; border-radius: 18px; padding: 24px; text-align: center;">
+    <h3 style="color: #facc15; font-size: 20px; font-weight: 900; margin-bottom: 12px;">⚠️ 抽取確認</h3>
+    <p id="confirm-gacha-text" style="font-size: 14px; color: #f8fafc; line-height: 1.6; margin-bottom: 20px;"></p>
+    <div style="display: flex; gap: 12px; justify-content: center;">
+      <button class="btn-sound" onclick="window.closeConfirmGacha()">取消</button>
+      <button class="btn-action" style="background: #10b981; border-color: #34d399;" onclick="window.executeConfirmedGacha()">確定抽取！</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🪞 試衣化妝間 (支援全背包角色換裝) -->
+<div id="wardrobe-modal">
+  <div style="position: relative; width: 1100px; height: 680px; background: #1e1b4b; border: 3.5px solid #facc15; border-radius: 24px; padding: 28px; display: grid; grid-template-columns: 340px 1fr; gap: 24px;">
+    <div style="background: radial-gradient(circle at center, #312e81 0%, #0f172a 100%); border: 2px solid #6366f1; border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 20px;">
+      <div style="width: 100%;">
+        <label style="font-size: 11px; color: #facc15; font-weight: bold;">👕 選擇要換裝的球員：</label>
+        <select id="wb-char-select" style="width: 100%; padding: 6px; background: #0f172a; color: #fff; border: 1.5px solid #38bdf8; border-radius: 8px; margin-top: 4px;" onchange="onWardrobeCharChange(this.value)"></select>
+      </div>
+
+      <div style="position: relative; width: 220px; height: 240px; display: flex; align-items: center; justify-content: center;">
+        <canvas id="wardrobe-preview-canvas" width="220" height="240"></canvas>
+      </div>
+      <div style="text-align: center;">
+        <h3 id="wardrobe-char-name" style="color: #facc15; font-size: 16px;">青空主攻手</h3>
+        <p id="wardrobe-char-desc" style="font-size: 11px; color: #a5b4fc; margin-top: 4px;"></p>
+      </div>
+      <div style="display: flex; gap: 8px; width: 100%;">
+        <button class="btn-sound" style="flex: 1; font-size: 11px;" onclick="unequipAllWardrobe()">❌ 全身卸下</button>
+        <button class="btn-action" style="flex: 1; font-size: 11px;" onclick="closeWardrobeModal()">💾 確定保存</button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; justify-content: space-between;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4338ca; padding-bottom: 8px;">
+        <div style="display: flex; gap: 8px;">
+          <button id="wb-tab-hats" class="btn-sound" onclick="switchWardrobeCategory('hats')">🎩 帽子頭飾</button>
+          <button id="wb-tab-faces" class="btn-sound" onclick="switchWardrobeCategory('faces')">👓 個性臉飾</button>
+          <button id="wb-tab-effects" class="btn-sound" onclick="switchWardrobeCategory('effects')">✨ 炫彩光效</button>
+        </div>
+        <button class="btn-action" style="background: #f59e0b;" onclick="openGachaArcadeFromWardrobe()">🎰 抽新時裝</button>
+      </div>
+      <div id="wardrobe-items-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 12px; height: 440px; margin: 12px 0;"></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #4338ca; padding-top: 8px;">
+        <button class="btn-sound" onclick="changeWardrobePage(-1)">◀ 上一頁</button>
+        <span id="wardrobe-page-num" style="font-size: 12px; color: #cbd5e1;">第 1 / 3 頁</span>
+        <button class="btn-sound" onclick="changeWardrobePage(1)">下一頁 ▶</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 🏆 聯賽關卡選擇面板 -->
+<div id="career-modal">
+  <div style="width: 1040px; background: #1e1b4b; border: 2.5px solid #facc15; border-radius: 20px; padding: 28px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4338ca; padding-bottom: 12px; margin-bottom: 20px;">
+      <h2 style="color: #facc15; font-size: 22px; font-weight: 900; letter-spacing: 2px;">🏆 全國聯賽梯度挑戰賽 (CAREER LEAGUE)</h2>
+      <button class="btn-home" onclick="closeCareerMenu()">🏠 返回首頁</button>
+    </div>
+    <div id="career-stages-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 20px;"></div>
+  </div>
+</div>
+<!-- 🪜 天梯賽前準備室 (無倒數、支援賭狗模式) -->
+<div id="ladder-prep-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(10px); z-index: 20010; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="width: 960px; background: #1e1b4b; border: 2.5px solid #818cf8; border-radius: 24px; padding: 28px; box-shadow: 0 0 70px rgba(129, 140, 248, 0.45); display: flex; flex-direction: column; align-items: center;">
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; border-bottom: 2px solid #4338ca; padding-bottom: 12px; margin-bottom: 18px;">
+      <h2 style="color: #818cf8; font-size: 24px; font-weight: 900; letter-spacing: 2px;">🪜 天梯五度五關 · 賽前整備室</h2>
+      <button class="btn-home" onclick="closeLadderPrepModal()">🏠 返回主選單</button>
+    </div>
+
+    <!-- 賭狗模式開關大看板 -->
+    <div style="width: 100%; background: #110d24; border: 2px dashed #f59e0b; border-radius: 16px; padding: 14px 20px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <!-- 💰 押注本金選單 (100 / 300 / 500 / 1000 幣) -->
+    <div style="width: 100%; background: #110d24; border: 1.5px solid #6366f1; border-radius: 14px; padding: 12px 18px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <strong style="color: #facc15; font-size: 14px;">💰 選擇入場押注金額 (Bet)：</strong>
+        <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">開局扣款入池，隨階梯倍率翻倍滾存；中途輸球全數沒收！</div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn-action ladder-bet-btn" style="background: #4338ca; border-color: #facc15; transform: scale(1.05);" onclick="selectLadderBet(100)">100 幣</button>
+        <button class="btn-action ladder-bet-btn" style="background: #312e81; border-color: #4338ca;" onclick="selectLadderBet(300)">300 幣</button>
+        <button class="btn-action ladder-bet-btn" style="background: #312e81; border-color: #4338ca;" onclick="selectLadderBet(500)">500 幣</button>
+        <button class="btn-action ladder-bet-btn" style="background: #312e81; border-color: #4338ca;" onclick="selectLadderBet(1000)">1000 幣</button>
+      </div>
+    </div>
+        <div style="font-size: 15px; font-weight: 900; color: #facc15;">🎲 開啟【天堂 or 地獄】賭徒模式</div>
+        <div style="font-size: 11px; color: #cbd5e1; margin-top: 3px;">隊友將由系統完全隨機抽選！抽到弱卡倍率大幅飆升，抽到神仙倍率折損！</div>
+      </div>
+      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; font-weight: bold; color: #38bdf8;">
+        <input type="checkbox" id="ladder-gamble-toggle" style="width: 20px; height: 20px; accent-color: #f59e0b;" onchange="toggleLadderGambleUI(this.checked)">
+        啟用賭狗模式
+      </label>
+    </div>
+
+    <div style="display: flex; gap: 24px; width: 100%; margin-bottom: 18px;">
+      <!-- 主控配置 -->
+      <div class="prep-card-panel" style="flex: 1;">
+        <h3 style="color: #38bdf8; font-size: 16px; border-bottom: 1px solid #4338ca; padding-bottom: 6px;">👤 我主控的角色 (Player 1)</h3>
+        <div style="margin-top: 8px;">
+          <label style="font-size: 11px; color: #94a3b8;">出戰球員：</label>
+          <select id="ladder-my-char" style="width: 100%; padding: 6px; background: #0f172a; color: #facc15; border: 1.5px solid #38bdf8; border-radius: 6px; margin-top: 4px;"></select>
+        </div>
+        <div style="margin-top: 8px;">
+          <label style="font-size: 11px; color: #94a3b8;">主動戰術大招：</label>
+          <select id="ladder-my-skill" style="width: 100%; padding: 6px; background: #0f172a; color: #38bdf8; border: 1.5px solid #6366f1; border-radius: 6px; margin-top: 4px;"></select>
+        </div>
+      </div>
+
+      <!-- 隊友配置 (受賭狗模式開關控制) -->
+      <div class="prep-card-panel" style="flex: 1;" id="ladder-mate-panel">
+        <h3 style="color: #34d399; font-size: 16px; border-bottom: 1px solid #4338ca; padding-bottom: 6px;" id="ladder-mate-title">🤝 隨行搭檔隊友 (Player 2)</h3>
+        <div style="margin-top: 8px;">
+          <label style="font-size: 11px; color: #94a3b8;">搭檔球員：</label>
+          <select id="ladder-mate-char" style="width: 100%; padding: 6px; background: #0f172a; color: #34d399; border: 1.5px solid #10b981; border-radius: 6px; margin-top: 4px;"></select>
+        </div>
+        <div style="margin-top: 8px;">
+          <label style="font-size: 11px; color: #94a3b8;">搭檔大招：</label>
+          <select id="ladder-mate-skill" style="width: 100%; padding: 6px; background: #0f172a; color: #38bdf8; border: 1.5px solid #6366f1; border-radius: 6px; margin-top: 4px;"></select>
+        </div>
+        <div id="ladder-gamble-mate-desc" style="display: none; font-size: 12px; color: #facc15; font-weight: bold; margin-top: 15px; text-align: center;">
+          🎰 點擊開戰後將於球場當場揭曉隊友！
+        </div>
+      </div>
+    </div>
+
+    <!-- 獎勵倍率規則說明條 -->
+    <div id="ladder-rate-desc" style="font-size: 12px; color: #a5b4fc; margin-bottom: 20px; text-align: center; line-height: 1.5;">
+      門票押注：<strong style="color: #facc15;">100 幣</strong> ｜ 5 連戰連勝制 ｜ 基礎滿關倍率：<strong style="color: #34d399;">4.5x</strong> (450幣)
+    </div>
+
+    <button class="btn-action" style="padding: 10px 60px; font-size: 16px; background: #10b981; border-color: #34d399;" onclick="startLadderRun()">⚔️ 開始爬天梯 (START RUN)</button>
+  </div>
+</div>
+
+<!-- 🏃‍♂️ 天梯階梯跳躍過場動畫 Modal -->
+<div id="ladder-stage-anim-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(12px); z-index: 25000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="text-align: center; margin-bottom: 12px;">
+    <h2 id="ladder-anim-title" style="color: #facc15; font-size: 28px; font-weight: 900; letter-spacing: 2px;">STAGE CLEAR!</h2>
+    <p id="ladder-anim-sub" style="color: #38bdf8; font-size: 14px; margin-top: 4px;">滾存獎金池累積中...</p>
+  </div>
+  <canvas id="ladder-climb-canvas" width="800" height="380" style="border: 2px solid #6366f1; border-radius: 18px; background: #0f172a; box-shadow: 0 0 50px rgba(99,102,241,0.3);"></canvas>
+  <div style="display: flex; gap: 15px; margin-top: 18px;">
+    <button id="btn-ladder-cashout" class="btn-home" style="border-color: #f59e0b; color: #facc15;" onclick="ladderCashoutAndQuit()">💰 提款收手 (放棄後續挑戰)</button>
+    <button id="btn-ladder-next" class="btn-action" style="padding: 8px 30px; font-size: 14px;" onclick="ladderProceedNextFloor()">⚔️ 挑戰下一階 [Enter]</button>
+  </div>
+</div>
+<!-- 📊 天梯遠征總結報表 (雙人綜合戰績與經驗結算) -->
+<div id="ladder-summary-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(12px); z-index: 30000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="width: 880px; background: #1e1b4b; border: 3px solid #facc15; border-radius: 24px; padding: 28px; text-align: center; box-shadow: 0 0 60px rgba(250, 204, 21, 0.4);">
+    <h1 id="ladder-sum-title" style="font-size: 28px; font-weight: 900; color: #facc15; margin-bottom: 4px;">🏆 LADDER EXPEDITION COMPLETE</h1>
+    <p id="ladder-sum-sub" style="font-size: 13px; color: #38bdf8; margin-bottom: 16px;">天梯遠征雙人攻防總結算</p>
+
+    <div id="ladder-sum-pot-banner" style="font-size: 18px; font-weight: bold; color: #34d399; margin-bottom: 14px; background: #110d24; padding: 8px 16px; border-radius: 12px; border: 1px solid #4338ca;">
+      🪙 最終獎金：+0 幣
+    </div>
+
+    <!-- 我方雙人格子戰績對比表 -->
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; border: 1.5px solid #4338ca;">
+      <thead>
+        <tr style="background: #25215c; color: #facc15;">
+          <th style="padding: 10px;">出戰球員</th>
+          <th>總扣殺 (得分)</th>
+          <th>總接球 (完美綠圈)</th>
+          <th>總攔網 (攔死)</th>
+          <th>極限球速</th>
+          <th>累計獲得 EXP</th>
+        </tr>
+      </thead>
+      <tbody id="ladder-sum-table-body">
+        <!-- JS 動態生成主控與搭檔兩列 -->
+      </tbody>
+    </table>
+
+    <button class="btn-action" style="padding: 10px 50px; font-size: 15px; background: #10b981; border-color: #34d399;" onclick="closeLadderSummaryAndExit()">🏠 返回大廳主選單</button>
+  </div>
+</div>
+
+<!-- 更衣室視窗 -->
+<div id="locker-modal">
+  <div class="locker-box" style="width: 1140px; max-height: 94vh; overflow-y: auto; padding: 20px 24px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid #4338ca; padding-bottom: 10px; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h2 style="color: #facc15; font-size: 18px;">🏟️ 球員屬性與戰術配置</h2>
+        <span style="font-size: 11px; color: #94a3b8;">(支援雙裝備槽位・裝備主屬加成反饋)</span>
+      </div>
+      <span style="font-size: 12px; color: #38bdf8; font-weight: 800; border: 1.5px solid #6366f1; padding: 4px 12px; border-radius: 8px; background: #0f172a;">按 [ESC] 離開</span>
+    </div>    
+
+    <!-- 選手分頁 Tab -->
+    <div class="roster-tabs" id="roster-tabs" style="display: flex; gap: 10px; margin-bottom: 12px;"></div>
+
+    <!-- 上半部：三欄（選手資訊、一級屬性配點、二級實戰數值） -->
+    <div class="locker-grid-ms" style="display: grid; grid-template-columns: 280px 360px 1fr; gap: 14px; margin-bottom: 14px;">
+      <!-- 欄 1：選手卡牌概覽與槽位裝備展示 -->
+      <div class="card-summary">
+        <div style="text-align: center;">
+          <div id="card-avatar" style="width: 54px; height: 54px; border-radius: 50%; margin: 0 auto 6px; border: 3px solid #fff;"></div>
+          <h3 id="card-name" style="font-size: 15px;">青空主攻手</h3>
+          <p id="card-desc" style="font-size: 11px; color: #a5b4fc; margin-top: 2px;">Lv.1</p>
+          <div style="font-size: 11px; color: #38bdf8; margin-top: 2px;" id="card-exp">EXP: 0 / 100</div>
+        </div>
+
+        <div style="width: 100%; margin: 4px 0;">
+          <label style="font-size: 11px; color: #94a3b8;">出場陣容交換：</label>
+          <select id="bench-select" style="width: 100%; padding: 4px; background: #1e1b4b; color: #fff; border: 1px solid #4338ca; border-radius: 6px; font-size: 11px;" onchange="swapActivePlayer(this.value)"></select>
+        </div>
+
+        <div style="width: 100%; margin: 4px 0;">
+          <label style="font-size: 11px; color: #facc15; font-weight: bold;">⚡ 裝備主動技能：</label>
+          <select id="skill-select" style="width: 100%; padding: 4px; background: #1e1b4b; color: #38bdf8; border: 1.5px solid #6366f1; border-radius: 6px; font-size: 11px; font-weight: bold;" onchange="equipSkillToActivePlayer(this.value)"></select>
+          <p id="skill-card-desc" style="font-size: 10px; color: #a5b4fc; margin-top: 3px; line-height: 1.3; min-height: 28px;"></p>
+        </div>
+
+        <!-- 🌟 當前穿戴裝備展示格（支援點擊卸下） -->
+        <div style="width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px; margin: 4px 0;">
+          <div style="font-size: 11px; font-weight: bold; color: #facc15; margin-bottom: 4px;">🛡️ 身上穿戴裝備</div>
+          <div id="equipped-preview-mount"></div>
+        </div>
+
+        <button class="btn-sound" style="width: 100%; font-size: 11px; margin-top: 4px;" onclick="rollStagedStats()">🎲 隨機分配點數</button>
+      </div>
+
+      <!-- 欄 2：一級母體屬性 (帶加乘括號標註) -->
+      <div class="panel-column">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #4338ca; padding-bottom: 4px;">
+          <span style="font-size: 12px;">未分配 AP: <strong id="free-pts-display" style="color: #facc15; font-size: 15px;">5</strong></span>
+          <span style="font-size: 11px; color: #94a3b8;">(單項上限 60)</span>
+        </div>
+        <div id="stats-mount"></div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
+          <button class="btn-sound" onclick="resetStagedStats()">重置</button>
+          <button class="btn-action" onclick="saveStagedStats()">💾 儲存配點 (存檔)</button>
+        </div>
+      </div>
+
+      <!-- 欄 3：二級實戰戰鬥數值 (帶加乘反饋) -->
+      <div class="panel-column">
+        <div style="margin-bottom: 8px; border-bottom: 1px solid #4338ca; padding-bottom: 4px; color: #38bdf8; font-size: 12px; font-weight: bold;">📊 實戰戰鬥數值 (Combat Specs)</div>
+        <div id="derived-mount"></div>
+        <div style="font-size: 10px; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
+          * 數值括號內顯示格式為：總值 (基礎 + 裝備加成)。三階滿階裝備將於腳底綻放專屬階級升騰光暈！
+        </div>
+      </div>
+    </div>
+
+    <!-- 🌟 下半部：全寬橫向滾動裝備庫 (裝備背包 + 穿戴/強化/突破/重鑄) -->
+    <div style="background: #18153d; border: 1.5px solid #6366f1; border-radius: 12px; padding: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <div style="font-size: 13px; font-weight: bold; color: #facc15;">🎒 裝備庫存背包 (點擊穿戴至當前球員・滑鼠移入看詳細詞條)</div>
+        <div style="font-size: 11px; color: #38bdf8;" id="equip-count-display">持有裝備: 0 件</div>
+      </div>
+      <div id="inventory-equips-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; max-height: 220px; overflow-y: auto; padding-right: 4px;">
+        <!-- JS 動態渲染卡牌 -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 15 分結算面板 (清晰格線 + 新增 ACE 得分欄) -->
+<div id="settlement-modal">
+  <div style="width: 1240px; max-height: 90vh; overflow-y: auto; background: #1e1b4b; border: 3px solid #facc15; border-radius: 20px; padding: 24px; text-align: center;">
+    <h1 id="settle-title" style="font-size: 28px; font-weight: 900; color: #facc15; margin-bottom: 6px;">MATCH VICTORY!</h1>
+    <p id="settle-desc" style="font-size: 13px; color: #a5b4fc;">率先拿下 15 分局勝利！</p>
+    <div style="margin: 10px 0; font-size: 16px; color: #fbbf24; font-weight: bold;" id="settle-coins-reward">🪙 +40 排球金幣入帳！</div>
+    
+    <table id="settle-table-main">
+      <thead>
+        <tr>
+          <th>選手名</th><th>進攻總數</th><th>扣殺得分</th><th>TouchOut得分</th><th>發球ACE</th><th>峰值球速</th><th>接球總數</th><th>完美(綠)</th><th>一般(橘)</th><th>接噴(紅)</th><th>Cover救球</th><th>攔網總數</th><th>攔死得分</th><th>賽後EXP</th>
+        </tr>
+      </thead>
+      <tbody id="settle-table-body"></tbody>
+    </table>
+
+    <div style="display: flex; justify-content: center; gap: 15px; margin-top: 14px;">
+      <button class="btn-home" onclick="returnToStartMenuFromSettle()">🏠 主選單</button>
+      <button class="btn-action" style="padding: 8px 24px; font-size: 14px;" id="btn-settle-rematch" onclick="handleSettlementRematch()">開始下一局比賽 [Enter]</button>
+    </div>
+  </div>
+</div>
+
+<!-- 轉蛋開箱動畫 -->
+<div id="gacha-spinner-modal">
+  <div class="capsule-box"></div>
+  <div style="margin-top: 25px; font-size: 20px; font-weight: 900; color: #facc15; letter-spacing: 2px;">🎰 球探招募中...</div>
+</div>
+<div id="gacha-anim-modal" onclick="closeGachaAnim()">
+  <!-- 🌟 加上 id="gacha-card-stage" 以套用階級發光與彈出關鍵影格 -->
+  <div id="gacha-card-stage">
+    <div id="gacha-dup-badge" style="display: none; position: absolute; top: 16px; right: 16px; background: #ef4444; color: #fff; font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: bold;">重複突破</div>
+    <div id="gacha-avatar" style="width: 86px; height: 86px; border-radius: 50%; margin-bottom: 15px; border: 3px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.5);"></div>
+    <div id="gacha-tier" style="font-size: 28px; font-weight: 900; color: #facc15; margin-bottom: 4px; letter-spacing: 1px;">SSR</div>
+    <div id="gacha-name" style="font-size: 20px; font-weight: bold; color: #fff; margin-bottom: 10px;">黑岩霸生</div>
+    <p style="font-size: 12px; color: #a5b4fc; text-align: center; padding: 0 15px; line-height: 1.4;" id="gacha-feature"></p>
+    <div id="gacha-reward-msg" style="margin-top: 14px; font-size: 13px; font-weight: bold; color: #38bdf8;"></div>
+    <span style="font-size: 11px; color: #94a3b8; margin-top: 24px;">點擊任意處收入名冊</span>
+  </div>
+</div>
+<div id="gacha-ten-modal">
+  <div style="width: 1080px; background: #1e1b4b; border: 3px solid #facc15; border-radius: 20px; padding: 24px; text-align: center;">
+    <h2 style="color: #facc15; font-size: 24px; font-weight: 900;">🎉 十連招募成果</h2>
+    <div id="ten-gacha-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin: 18px 0;"></div>
+    <button class="btn-action" style="padding: 8px 30px;" onclick="closeTenGachaModal()">全部收入名冊</button>
+  </div>
+</div>
+
+<script src="game_data.js"></script>
+<script src="game_ui.js"></script>
+<script src="game_render.js"></script>
+<script src="game_ai.js"></script>
+<script src="game_core.js"></script>
+<!-- 👤 Firebase 雲端登入彈窗 -->
+<div id="cloud-auth-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(8px); z-index: 30000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="width: 400px; background: #1e1b4b; border: 2.5px solid #34d399; border-radius: 20px; padding: 26px; text-align: center; box-shadow: 0 0 50px rgba(52, 211, 153, 0.4);">
+    <h3 style="color: #34d399; font-size: 20px; font-weight: 900; margin-bottom: 6px;">🏐 雲端帳號登入 / 註冊</h3>
+    <p style="font-size: 11px; color: #94a3b8; margin-bottom: 18px;">連線至 Firebase 雲端資料庫 · 換裝置進度不丟失</p>
+    
+    <div style="text-align: left; margin-bottom: 12px;">
+      <label style="font-size: 11px; color: #cbd5e1;">球團帳號 (Username)：</label>
+      <input type="text" id="cloud-user" placeholder="例如: danny" style="width: 100%; padding: 8px; background: #0f172a; color: #fff; border: 1.5px solid #4338ca; border-radius: 8px; margin-top: 4px; font-size: 13px;">
+    </div>
+    <div style="text-align: left; margin-bottom: 20px;">
+      <label style="font-size: 11px; color: #cbd5e1;">密碼 (Password)：</label>
+      <input type="password" id="cloud-pass" placeholder="輸入密碼" style="width: 100%; padding: 8px; background: #0f172a; color: #fff; border: 1.5px solid #4338ca; border-radius: 8px; margin-top: 4px; font-size: 13px;">
+    </div>
+
+    <div style="display: flex; gap: 10px;">
+      <button class="btn-sound" style="flex: 1;" onclick="closeCloudAuthModal()">取消</button>
+      <button class="btn-action" style="flex: 1; background: #10b981; border-color: #34d399;" onclick="submitCloudAuth()">登入 / 建立</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openCloudAuthModal() { document.getElementById('cloud-auth-modal').style.display = 'flex'; }
+function closeCloudAuthModal() { document.getElementById('cloud-auth-modal').style.display = 'none'; }
+function submitCloudAuth() {
+  const u = document.getElementById('cloud-user').value.trim();
+  const p = document.getElementById('cloud-pass').value.trim();
+  if (!u || !p) { alert('請填寫帳號與密碼！'); return; }
+  handleFirebaseAuth(u, p);
+}
+</script>
+<!-- ⚙️ 遊戲設置面板 (與主選單同風格，含 ESC 返回、雙音量滑桿、自定義按鍵、MP3) -->
+<div id="settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(8px); z-index: 25000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="position: relative; width: 520px; background: rgba(30, 27, 75, 0.95); border: 2.5px solid #6366f1; border-radius: 24px; padding: 36px 32px; box-shadow: 0 0 80px rgba(99, 102, 241, 0.4); text-align: center;">
+    
+    <!-- 邊側小按鈕：返回 [ESC] -->
+    <button onclick="closeSettingsModal()" style="position: absolute; top: 18px; right: 20px; background: #0f172a; color: #38bdf8; border: 1.5px solid #6366f1; border-radius: 8px; padding: 4px 12px; font-size: 11px; font-weight: 800; cursor: pointer;">返回 [ESC]</button>
+    
+    <h2 style="font-size: 24px; font-weight: 900; color: #facc15; letter-spacing: 2px; margin-bottom: 22px;">⚙️ 遊戲設置 (SETTINGS)</h2>
+
+    <!-- 功能 1：按鍵自定義 -->
+    <div style="background: #18153d; border: 1.5px solid #4338ca; border-radius: 14px; padding: 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="text-align: left;">
+        <div style="font-size: 13px; font-weight: bold; color: #fff;">⌨️ 鍵盤操作自定義</div>
+        <div style="font-size: 11px; color: #94a3b8;">自由映射移動、跳躍、扣殺與接球鍵位</div>
+      </div>
+      <button class="btn-action" style="padding: 6px 16px;" onclick="openKeybindModal()">前往設置</button>
+    </div>
+
+    <!-- 功能 2：雙音量滑桿 -->
+    <div style="background: #18153d; border: 1.5px solid #4338ca; border-radius: 14px; padding: 16px; margin-bottom: 14px;">
+      <!-- BGM 滑桿 -->
+      <div style="margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+          <span style="color: #cbd5e1;">🎵 背景音樂音量 (BGM)</span>
+          <span id="bgm-vol-text" style="color: #38bdf8; font-weight: bold;">70%</span>
+        </div>
+        <input type="range" id="bgm-slider" min="0" max="100" value="70" style="width: 100%; accent-color: #38bdf8; cursor: pointer;" oninput="updateBgmVolume(this.value)">
+      </div>
+
+      <!-- SFX 滑桿 -->
+      <div>
+        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+          <span style="color: #cbd5e1;">💥 比賽音效音量 (SFX)</span>
+          <span id="sfx-vol-text" style="color: #facc15; font-weight: bold;">85%</span>
+        </div>
+        <input type="range" id="sfx-slider" min="0" max="100" value="85" style="width: 100%; accent-color: #facc15; cursor: pointer;" oninput="updateSfxVolume(this.value)">
+      </div>
+    </div>
+
+    <!-- 功能 3：自選 MP3 -->
+    <div style="background: #18153d; border: 1.5px solid #4338ca; border-radius: 14px; padding: 14px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="text-align: left;">
+        <div style="font-size: 13px; font-weight: bold; color: #fff;">🎶 自選本機音樂</div>
+        <div id="settings-bgm-status" style="font-size: 11px; color: #94a3b8;">未載入檔案</div>
+      </div>
+      <label class="btn-action" style="background: #2563eb; border-color: #38bdf8; padding: 6px 14px; cursor: pointer;">
+        選擇 MP3
+        <input type="file" id="settings-audio-file" accept="audio/*" style="display: none;" onchange="handleSettingsAudio(this)">
+      </label>
+    </div>
+
+  </div>
+</div>
+
+<script>
+let isSettingsOpen = false;
+let settingsOpenedFromPause = false;
+let globalSfxVolume = 0.85;
+
+function openSettingsModal() {
+  settingsOpenedFromPause = false;
+  isSettingsOpen = true;
+  document.getElementById('settings-modal').style.display = 'flex';
+}
+
+function openSettingsFromPause() {
+  settingsOpenedFromPause = true;
+  isSettingsOpen = true;
+  document.getElementById('pause-menu-modal').style.display = 'none';
+  document.getElementById('settings-modal').style.display = 'flex';
+}
+
+function closeSettingsModal() {
+  isSettingsOpen = false;
+  document.getElementById('settings-modal').style.display = 'none';
+  saveAudioSettings();
+  if (settingsOpenedFromPause && typeof isPauseMenuOpen !== 'undefined' && isPauseMenuOpen) {
+    document.getElementById('pause-menu-modal').style.display = 'flex';
+  }
+  settingsOpenedFromPause = false;
+}
+
+function updateBgmVolume(val) {
+  document.getElementById('bgm-vol-text').innerText = `${val}%`;
+  if (typeof customAudio !== 'undefined') {
+    customAudio.volume = val / 100;
+  }
+}
+
+function updateSfxVolume(val) {
+  globalSfxVolume = val / 100;
+  document.getElementById('sfx-vol-text').innerText = `${val}%`;
+  if (typeof _venueAmbience !== 'undefined' && _venueAmbience.master && typeof audioCtx !== 'undefined' && audioCtx) {
+    const id=(typeof getCurrentVenue==='function'&&getCurrentVenue())?getCurrentVenue().id:'stadium';
+    const surge=(id==='rain' && typeof venueIncidentState!=='undefined' && venueIncidentState.active==='RAIN_SURGE')?1.75:1;
+    _venueAmbience.master.gain.setTargetAtTime((_venueAmbience.baseGain||.06)*globalSfxVolume*surge,audioCtx.currentTime,.05);
+  }
+}
+
+function handleSettingsAudio(input) {
+  const f = input.files[0];
+  if (f) {
+    customAudio.src = URL.createObjectURL(f);
+    customAudio.volume = parseInt(document.getElementById('bgm-slider').value) / 100;
+    customAudio.play().then(() => {
+      isAudioLoaded = true;
+      document.getElementById('settings-bgm-status').innerText = `已播放: ${f.name.slice(0, 16)}...`;
+      document.getElementById('settings-bgm-status').style.color = '#10b981';
+      const btn = document.getElementById('btn-bgm');
+      if (btn) { btn.innerText = 'BGM: 播放中'; btn.style.background = '#10b981'; }
+    });
+  }
+}
+
+function saveAudioSettings() {
+  try {
+    const conf = {
+      bgm: document.getElementById('bgm-slider').value,
+      sfx: Math.round(globalSfxVolume * 100)
+    };
+    localStorage.setItem('VOLLEY_AUDIO_SETTINGS', JSON.stringify(conf));
+  } catch(e) {}
+}
+
+function loadAudioSettings() {
+  try {
+    const saved = localStorage.getItem('VOLLEY_AUDIO_SETTINGS');
+    if (saved) {
+      const conf = JSON.parse(saved);
+      document.getElementById('bgm-slider').value = conf.bgm;
+      document.getElementById('sfx-slider').value = conf.sfx;
+      updateBgmVolume(conf.bgm);
+      updateSfxVolume(conf.sfx);
+    }
+  } catch(e) {}
+}
+
+window.addEventListener('DOMContentLoaded', loadAudioSettings);
+</script>
+<!-- ⌨️ 操作按鍵自定義彈窗 (含黑名單過濾與衝突檢查) -->
+<div id="keybind-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(8px); z-index: 35000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="width: 500px; background: #1e1b4b; border: 2.5px solid #6366f1; border-radius: 20px; padding: 26px; box-shadow: 0 0 50px rgba(99, 102, 241, 0.4);">
+    <h3 style="color: #facc15; font-size: 20px; font-weight: 900; text-align: center; margin-bottom: 6px;">⌨️ 操作按鍵自定義</h3>
+    <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-bottom: 16px;">點擊按鈕後，按下鍵盤任意鍵即可重新綁定</p>
+    
+    <div id="keybind-warning" style="display: none; color: #ef4444; font-size: 11px; text-align: center; margin-bottom: 10px; font-weight: bold;"></div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;" id="keybind-list-mount">
+      <!-- 8 個設置鍵按鈕由 JS 動態生成 -->
+    </div>
+
+    <div style="display: flex; gap: 10px;">
+      <button class="btn-sound" style="flex: 1;" onclick="resetDefaultKeybinds()">↺ 恢復預設</button>
+      <button class="btn-action" style="flex: 1;" onclick="closeKeybindModal()">💾 保存設定 [ESC]</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let isKeybindModalOpen = false;
+let listeningAction = null;
+
+// 🌟 8 大動作設定項目
+const ACTION_DEFS = [
+  { id: 'left', label: '向左移動', default: 'a' },
+  { id: 'right', label: '向右移動', default: 'd' },
+  { id: 'jump', label: '跳躍起跳', default: 'w' },
+  { id: 'spike', label: '攻擊鍵', default: 'j' },
+  { id: 'receive', label: '接球/拋球', default: 'k' },
+  { id: 'thrust', label: '魚躍/吊球/飄球', default: 'l' },
+  { id: 'set', label: '舉球托球', default: 'o' },
+  { id: 'block', label: '攔網起跳', default: ' ' }
+];
+
+// 🚫 不可設置的按鍵黑名單
+const FORBIDDEN_KEYS = [
+  'escape', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12',
+  'tab', 'capslock', 'meta', 'contextmenu', 'alt'
+];
+
+function openKeybindModal() {
+  isKeybindModalOpen = true;
+  listeningAction = null;
+  document.getElementById('keybind-warning').style.display = 'none';
+  document.getElementById('keybind-modal').style.display = 'flex';
+  renderKeybindList();
+}
+
+function closeKeybindModal() {
+  isKeybindModalOpen = false;
+  listeningAction = null;
+  document.getElementById('keybind-modal').style.display = 'none';
+  try {
+    localStorage.setItem('VOLLEY_CUSTOM_KEYS', JSON.stringify(KEY_BINDS));
+  } catch(e) {}
+}
+
+function renderKeybindList() {
+  const mount = document.getElementById('keybind-list-mount');
+  if (!mount) return;
+  mount.innerHTML = '';
+
+  ACTION_DEFS.forEach(act => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 8px 12px; border-radius: 8px; border: 1px solid #334155;';
+    
+    const isListening = (listeningAction === act.id);
+    const rawVal = KEY_BINDS[act.id] || act.default;
+    const keyDisplay = rawVal === ' ' ? 'Space' : rawVal.toUpperCase();
+
+    row.innerHTML = `
+      <span style="font-size: 12px; color: #cbd5e1;">${act.label}</span>
+      <button onclick="startListeningKey('${act.id}')" style="min-width: 68px; padding: 5px 10px; background: ${isListening ? '#f59e0b' : '#312e81'}; border: 1.5px solid ${isListening ? '#facc15' : '#6366f1'}; color: #fff; border-radius: 6px; font-weight: bold; cursor: pointer;">
+        ${isListening ? '請按鍵...' : keyDisplay}
+      </button>
+    `;
+    mount.appendChild(row);
+  });
+}
+
+function startListeningKey(actionId) {
+  listeningAction = actionId;
+  const warnEl = document.getElementById('keybind-warning');
+  warnEl.style.display = 'none';
+  renderKeybindList();
+}
+
+// 監聽改鍵按鍵並實施黑名單過濾
+window.addEventListener('keydown', (e) => {
+  if (!isKeybindModalOpen || !listeningAction) return;
+
+  e.preventDefault();
+  const k = e.key.toLowerCase();
+  const warnEl = document.getElementById('keybind-warning');
+
+  // 1. 黑名單檢查 (ESC, F1~F12 等)
+  if (FORBIDDEN_KEYS.includes(k) || e.key === 'Escape') {
+    warnEl.innerText = `⚠️ 按鍵 [${e.key}] 受到系統保留限制，無法設置！`;
+    warnEl.style.display = 'block';
+    return;
+  }
+
+  // 2. 轉換按鍵名稱（空白鍵特化處理）
+  const targetKey = (e.code === 'Space' || k === ' ') ? ' ' : k;
+
+  // 3. 重複鍵位檢查
+  for (let act of ACTION_DEFS) {
+    if (act.id !== listeningAction && KEY_BINDS[act.id] === targetKey) {
+      warnEl.innerText = `⚠️ 該鍵位已被【${act.label}】占用，請選擇其他按鍵！`;
+      warnEl.style.display = 'block';
+      return;
+    }
+  }
+
+  // 4. 設定成功並更新
+  KEY_BINDS[listeningAction] = targetKey;
+  listeningAction = null;
+  warnEl.style.display = 'none';
+  renderKeybindList();
+});
+
+function resetDefaultKeybinds() {
+  ACTION_DEFS.forEach(act => {
+    KEY_BINDS[act.id] = act.default;
+  });
+  KEY_BINDS.jumpAlt = ' ';
+  try {
+    localStorage.removeItem('VOLLEY_CUSTOM_KEYS');
+  } catch(e) {}
+  document.getElementById('keybind-warning').style.display = 'none';
+  renderKeybindList();
+}
+</script>
+<!-- 🔨 裝備副詞條重鑄彈窗 -->
+<div id="reforge-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); z-index: 40000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="width: 440px; background: #1e1b4b; border: 2.5px solid #38bdf8; border-radius: 20px; padding: 24px; text-align: center; box-shadow: 0 0 50px rgba(56, 189, 248, 0.4);">
+    <h3 style="color: #38bdf8; font-size: 20px; font-weight: 900; margin-bottom: 6px;">🔨 副詞條重鑄洗練</h3>
+    <p style="font-size: 11px; color: #94a3b8; margin-bottom: 16px;">重新隨機 Roll 既有副詞條數值高低 (追求頂標)</p>
+    <div id="reforge-item-info" style="background: #0f172a; border: 1px solid #4338ca; border-radius: 10px; padding: 12px; margin-bottom: 16px; text-align: left; font-size: 12px;"></div>
+    <div style="display: flex; gap: 10px;">
+      <button class="btn-sound" style="flex: 1;" onclick="closeReforgeModal()">關閉</button>
+      <button class="btn-action" style="flex: 1; background: #0284c7;" id="btn-do-reforge" onclick="executeReforgeAction()">進行重鑄</button>
+    </div>
+  </div>
+</div>
+
+<!-- ⚡ 裝備同名突破吞噬彈窗 -->
+<div id="breakthrough-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); z-index: 40000; flex-direction: column; align-items: center; justify-content: center;">
+  <div style="width: 520px; background: #1e1b4b; border: 2.5px solid #facc15; border-radius: 20px; padding: 24px; text-align: center; box-shadow: 0 0 50px rgba(250, 204, 21, 0.4);">
+    <h3 style="color: #facc15; font-size: 20px; font-weight: 900; margin-bottom: 6px;">⚡ 裝備同名突破升階</h3>
+    <p style="font-size: 11px; color: #94a3b8; margin-bottom: 14px;">請選擇一件「要被吃掉」的同名裝備 (升階 100% 成功)</p>
+    <div id="breakthrough-target-info" style="background: #0f172a; border: 1px solid #6366f1; border-radius: 10px; padding: 10px; margin-bottom: 12px; text-align: left; font-size: 12px;"></div>
+    <div id="breakthrough-materials-list" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;"></div>
+    <button class="btn-sound" style="width: 100%;" onclick="closeBreakthroughModal()">取消</button>
+  </div>
+</div>
+
+<div id="venue-reveal-curtain" style="display:none;position:fixed;inset:0;z-index:99999;background:radial-gradient(circle at 50% 42%,#1e1b4b 0%,#09090f 70%);align-items:center;justify-content:center;flex-direction:column;text-align:center;">
+  <div id="venue-reveal-kicker" style="font-size:18px;color:#94a3b8;font-weight:800;letter-spacing:8px;">VENUE</div>
+  <div id="venue-reveal-icon" style="font-size:72px;margin:16px 0 6px;">🎲</div>
+  <div id="venue-reveal-name" style="font-size:42px;color:#facc15;font-weight:1000;">場地抽選中……</div>
+  <div id="venue-reveal-desc" style="font-size:15px;color:#cbd5e1;margin-top:12px;">先別偷看後面。</div>
+</div>
+</body>
+</html>
