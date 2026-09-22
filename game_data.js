@@ -994,7 +994,8 @@ const NET = {
   isMultiplayer: false,
   isHost: false,
   peer: null,
-  conn: null,
+  conn: null,           // reliable control / input / one-shot events
+  stateConn: null,      // V75-2.4: lossy snapshot channel; latest state wins
   roomCode: '',
   mode: 'PVP',
   pveDifficulty: 5,
@@ -1013,12 +1014,17 @@ function resetNetworkSessionIdentity(destroyPeer = false) {
   NET.isHost = false;
   NET.peer = destroyPeer ? null : NET.peer;
   NET.conn = null;
+  NET.stateConn = null;
   NET.roomCode = '';
   NET.mode = 'PVP';
   NET.mySlot = 0;
   NET.mateSlot = 1;
   NET.myTeam = 'LEFT';
   NET.remoteKeys = { a:false, d:false, w:false, j:false, k:false, l:false, o:false, space:false };
+  if (typeof NET_DEBUG!=='undefined') {
+    NET_DEBUG.lastRecvSeq=0; NET_DEBUG.lastAppliedSeq=0; NET_DEBUG.packetSeq=0; NET_DEBUG.packetGaps=0;
+    NET_DEBUG.staleStateDrops=0; NET_DEBUG.stateSkipCount=0; NET_DEBUG.stateSkipRate=0;
+  }
   NET.rematchRequested = false;
   NET.remoteRematchRequested = false;
   NET.intentionalDisconnect = false;

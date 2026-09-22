@@ -62,8 +62,14 @@ function resetIronWallCamera(reason='safety') {
 let ironWallWatchdog = 0;
 
 // V62 multiplayer instrumentation: distinguish network latency from prediction divergence.
-const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, txCount:0, txRate:0, eventRxCount:0, eventRxRate:0, lastRateAt:performance.now(), correctionSum:0, correctionCount:0, correctionMax:0, lastPingAt:0, lastSyncAt:0, lastAnyRxAt:0, syncAge:0, anyRxAge:0, hardReconciles:0, mediumReconciles:0, sanitizeCount:0, sendErrors:0, packetSeq:0, lastRecvSeq:0, packetGaps:0, freezeWatchdog:0, duplicateEvents:0, lastConnError:'-' };
+const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, txCount:0, txRate:0, eventRxCount:0, eventRxRate:0, inputTxCount:0, inputTxRate:0, stateSkipCount:0, stateSkipRate:0, staleStateDrops:0, lastRateAt:performance.now(), correctionSum:0, correctionCount:0, correctionMax:0, lastPingAt:0, lastSyncAt:0, lastAnyRxAt:0, syncAge:0, anyRxAge:0, hardReconciles:0, mediumReconciles:0, sanitizeCount:0, sendErrors:0, packetSeq:0, lastRecvSeq:0, lastAppliedSeq:0, packetGaps:0, freezeWatchdog:0, duplicateEvents:0, lastConnError:'-' };
 const NET_EVENT_SEEN = new Map();
+function resetNetDebugForSession(){
+  NET_EVENT_SEEN.clear();
+  Object.assign(NET_DEBUG,{rtt:0,syncCount:0,syncRate:0,txCount:0,txRate:0,eventRxCount:0,eventRxRate:0,inputTxCount:0,inputTxRate:0,stateSkipCount:0,stateSkipRate:0,staleStateDrops:0,correctionSum:0,correctionCount:0,correctionMax:0,lastPingAt:0,lastSyncAt:0,lastAnyRxAt:0,syncAge:0,anyRxAge:0,hardReconciles:0,mediumReconciles:0,sanitizeCount:0,sendErrors:0,packetSeq:0,lastRecvSeq:0,lastAppliedSeq:0,packetGaps:0,freezeWatchdog:0,duplicateEvents:0,lastConnError:'-'});
+  NET_DEBUG.lastRateAt=performance.now();
+  _lastNetInputSig=''; _lastNetInputSentAt=0;
+}
 function consumeNetEvent(eventId, ttl=12000){
   if(!eventId) return true;
   const now=performance.now(), prev=NET_EVENT_SEEN.get(eventId);
@@ -79,7 +85,7 @@ function tickNetDebug() {
     NET_DEBUG.lastPingAt=now; NET.conn.send({type:'PING',t:now});
   }
   if (now-NET_DEBUG.lastRateAt>=1000) {
-    NET_DEBUG.syncRate=NET_DEBUG.syncCount; NET_DEBUG.syncCount=0; NET_DEBUG.txRate=NET_DEBUG.txCount; NET_DEBUG.txCount=0; NET_DEBUG.eventRxRate=NET_DEBUG.eventRxCount; NET_DEBUG.eventRxCount=0; NET_DEBUG.lastRateAt=now;
+    NET_DEBUG.syncRate=NET_DEBUG.syncCount; NET_DEBUG.syncCount=0; NET_DEBUG.txRate=NET_DEBUG.txCount; NET_DEBUG.txCount=0; NET_DEBUG.eventRxRate=NET_DEBUG.eventRxCount; NET_DEBUG.eventRxCount=0; NET_DEBUG.inputTxRate=NET_DEBUG.inputTxCount; NET_DEBUG.inputTxCount=0; NET_DEBUG.stateSkipRate=NET_DEBUG.stateSkipCount; NET_DEBUG.stateSkipCount=0; NET_DEBUG.lastRateAt=now;
     // Keep correction telemetry readable: one-second window instead of lifetime average.
     NET_DEBUG.correctionSum=0; NET_DEBUG.correctionCount=0; NET_DEBUG.correctionMax=0;
     NET_DEBUG.hardReconciles=0; NET_DEBUG.mediumReconciles=0;
@@ -89,9 +95,12 @@ function tickNetDebug() {
   const avg=NET_DEBUG.correctionCount?NET_DEBUG.correctionSum/NET_DEBUG.correctionCount:0;
   NET_DEBUG.syncAge = (!NET.isHost && NET_DEBUG.lastSyncAt) ? Math.max(0, now-NET_DEBUG.lastSyncAt) : 0;
   NET_DEBUG.anyRxAge = (!NET.isHost && NET_DEBUG.lastAnyRxAt) ? Math.max(0, now-NET_DEBUG.lastAnyRxAt) : 0;
-  let buffered=0; try{ buffered=NET.conn?.dataChannel?.bufferedAmount||0; }catch(e){}
+  let ctrlBuf=0,stateBuf=0,ctrlQ=0,stateQ=0;
+  try{ ctrlBuf=NET.conn?.dataChannel?.bufferedAmount||0; ctrlQ=NET.conn?.bufferSize||0; }catch(e){}
+  try{ stateBuf=NET.stateConn?.dataChannel?.bufferedAmount||0; stateQ=NET.stateConn?.bufferSize||0; }catch(e){}
   const connState=(NET.conn&&NET.conn.open)?'OPEN':'CLOSED';
-  el.textContent=`NET ${NET.isHost?'HOST':'GUEST'} RTT ${NET_DEBUG.rtt.toFixed(0)}ms  ${connState}\nSTATE ${NET.isHost?'TX '+NET_DEBUG.txRate+'/s':'RX '+NET_DEBUG.syncRate+'/s'} AGE ${NET_DEBUG.syncAge.toFixed(0)}ms  ANY ${NET_DEBUG.anyRxAge.toFixed(0)}ms\nEVRX ${NET_DEBUG.eventRxRate}/s BUF ${Math.round(buffered/1024)}KB ERR ${NET_DEBUG.sendErrors} DUP ${NET_DEBUG.duplicateEvents}\nCORR ${avg.toFixed(1)} max ${NET_DEBUG.correctionMax.toFixed(1)} MED ${NET_DEBUG.mediumReconciles} HARD ${NET_DEBUG.hardReconciles}\nGAPS ${NET_DEBUG.packetGaps} SAN ${NET_DEBUG.sanitizeCount} FREEZE ${NET_DEBUG.freezeWatchdog} VENUE ${(typeof currentVenueId!=='undefined'?currentVenueId:'?')}`;
+  const stateState=(NET.stateConn&&NET.stateConn.open)?'S-OPEN':'S-FALLBACK';
+  el.textContent=`NET ${NET.isHost?'HOST':'GUEST'} RTT ${NET_DEBUG.rtt.toFixed(0)}ms ${connState}/${stateState}\nSTATE ${NET.isHost?'TX '+NET_DEBUG.txRate+'/s SKIP '+NET_DEBUG.stateSkipRate+'/s':'RX '+NET_DEBUG.syncRate+'/s'} AGE ${NET_DEBUG.syncAge.toFixed(0)}ms ANY ${NET_DEBUG.anyRxAge.toFixed(0)}ms\nCTRL ${Math.round(ctrlBuf/1024)}KB Q${ctrlQ}  STATE ${Math.round(stateBuf/1024)}KB Q${stateQ}  IN ${NET_DEBUG.inputTxRate}/s\nEVRX ${NET_DEBUG.eventRxRate}/s ERR ${NET_DEBUG.sendErrors} DUP ${NET_DEBUG.duplicateEvents} STALE ${NET_DEBUG.staleStateDrops}\nCORR ${avg.toFixed(1)} max ${NET_DEBUG.correctionMax.toFixed(1)} MED ${NET_DEBUG.mediumReconciles} HARD ${NET_DEBUG.hardReconciles}\nGAPS ${NET_DEBUG.packetGaps} SAN ${NET_DEBUG.sanitizeCount} FREEZE ${NET_DEBUG.freezeWatchdog} VENUE ${(typeof currentVenueId!=='undefined'?currentVenueId:'?')}`;
 }
 let debugHitbox = false, maxRecordedSpeed = 0, maxRecordedSpin = 0;
 let lastCastSkillName = 'None', lastCastFrame = -999, lastCastSkillCasterSlot = 0;
@@ -3249,12 +3258,19 @@ function buildCanonicalNetworkInput() {
 }
 
 function applyWorldSync(data) {
+  const seq = Number(data?.netSeq) || 0;
   if (typeof NET_DEBUG!=='undefined') {
+    // V75-2.4: the snapshot channel is intentionally unreliable/unordered.
+    // Never rewind the world when an older snapshot arrives after a newer one.
+    if (seq>0 && NET_DEBUG.lastAppliedSeq>0 && seq<=NET_DEBUG.lastAppliedSeq) {
+      NET_DEBUG.staleStateDrops++;
+      return;
+    }
     NET_DEBUG.syncCount++; NET_DEBUG.lastSyncAt=performance.now();
-    const seq=Number(data.netSeq)||0;
     if (seq>0) {
       if (NET_DEBUG.lastRecvSeq>0 && seq>NET_DEBUG.lastRecvSeq+1) NET_DEBUG.packetGaps += (seq-NET_DEBUG.lastRecvSeq-1);
       NET_DEBUG.lastRecvSeq=Math.max(NET_DEBUG.lastRecvSeq,seq);
+      NET_DEBUG.lastAppliedSeq=seq;
     }
   }
   // 1. 同步發球狀態與發球員身分
@@ -3429,6 +3445,54 @@ function makeNetworkSafe(value, path='root') {
   return null;
 }
 
+// V75-2.4 NETWORK BACKPRESSURE
+// Real-time snapshots are disposable. Never let old world states accumulate behind the link.
+const NET_STATE_FALLBACK_INTERVAL = 6;        // 10 Hz only while state channel is unavailable
+const NET_STATE_BUFFER_STOP = 80 * 1024;       // state snapshots stop long before PeerJS's multi-MB ceiling
+const NET_STATE_BUFFER_FALLBACK_HIGH = 32 * 1024;
+function getPeerBufferedBytes(conn){ try{return conn?.dataChannel?.bufferedAmount||0;}catch(e){return 0;} }
+function getPeerQueuedMessages(conn){ try{return conn?.bufferSize||0;}catch(e){return 0;} }
+function getStateTxConnection(){
+  if (typeof NET==='undefined') return null;
+  if (NET.stateConn && NET.stateConn.open) return NET.stateConn;
+  return (NET.conn && NET.conn.open) ? NET.conn : null;
+}
+function shouldSendWorldSnapshot(conn){
+  if(!conn || !conn.open) return false;
+  const dedicated = (typeof NET!=='undefined' && NET.stateConn===conn && NET.stateConn?.open);
+  const buffered=getPeerBufferedBytes(conn), queued=getPeerQueuedMessages(conn);
+  if(!dedicated){
+    if(gameFrame % NET_STATE_FALLBACK_INTERVAL !== 0) return false;
+    if(buffered>=NET_STATE_BUFFER_FALLBACK_HIGH || queued>0){ if(typeof NET_DEBUG!=='undefined') NET_DEBUG.stateSkipCount++; return false; }
+    return true;
+  }
+  // Healthy link keeps the original 60 Hz feel. If the sender queue starts growing,
+  // automatically step down 60 -> 30 -> 15 Hz. Above 80 KB, send nothing until it drains.
+  let interval=1;
+  if(buffered>=NET_STATE_BUFFER_STOP || queued>0){ if(typeof NET_DEBUG!=='undefined') NET_DEBUG.stateSkipCount++; return false; }
+  if(buffered>=48*1024) interval=4;
+  else if(buffered>=24*1024) interval=2;
+  if(gameFrame % interval !== 0) return false;
+  return true;
+}
+let _lastNetInputSig='', _lastNetInputSentAt=0;
+function sendGuestInputSmart(){
+  if(typeof NET==='undefined'||!NET.conn||!NET.conn.open) return;
+  const payload=buildCanonicalNetworkInput();
+  const sig=`${+payload.a}${+payload.d}${+payload.w}${+payload.j}${+payload.k}${+payload.l}${+payload.o}${+payload.space}`;
+  const now=performance.now();
+  // Send edges immediately; while held, a 100 ms heartbeat is enough because Host keeps the last state.
+  if(sig===_lastNetInputSig && now-_lastNetInputSentAt<100) return;
+  // When the control channel is under pressure, drop redundant heartbeats but never suppress a key edge.
+  const changed=sig!==_lastNetInputSig;
+  if(!changed && getPeerBufferedBytes(NET.conn)>32*1024) return;
+  try{
+    NET.conn.send({type:'INPUT',keys:payload});
+    _lastNetInputSig=sig; _lastNetInputSentAt=now;
+    if(typeof NET_DEBUG!=='undefined') NET_DEBUG.inputTxCount++;
+  }catch(e){ if(typeof NET_DEBUG!=='undefined'){NET_DEBUG.sendErrors++;NET_DEBUG.lastConnError=String(e?.message||e);} }
+}
+
 function fixedUpdate() {
   gameFrame++;
   // V74-10 TRUE WORLD FREEZE: while Iron Wall owns the rally, absolutely no player/AI/particle/venue simulation advances.
@@ -3456,8 +3520,9 @@ function fixedUpdate() {
 
   if (typeof NET !== 'undefined' && NET.isMultiplayer) {
     if (NET.isHost) {
-      if (NET.conn && NET.conn.open) {
-try { NET.conn.send(makeNetworkSafe({
+      const stateTxConn = getStateTxConnection();
+      if (shouldSendWorldSnapshot(stateTxConn)) {
+try { stateTxConn.send(makeNetworkSafe({
           type: 'STATE_SYNC',
           netSeq: (typeof NET_DEBUG!=='undefined' ? ++NET_DEBUG.packetSeq : gameFrame),
           hostFrame: gameFrame,
@@ -3528,9 +3593,7 @@ try { NET.conn.send(makeNetworkSafe({
 // 🌟 訪客按鍵呼叫防二觸與邊緣判定分流器
       executeGuestActionWithEdge(guestPlayer, rk);
     } else {
-if (NET.conn && NET.conn.open) {
-        NET.conn.send({ type: 'INPUT', keys: buildCanonicalNetworkInput() });
-      }
+      sendGuestInputSmart();
 
       // 🌟 訪客客戶端預測 (0ms 本機先動)：自己的角色按下 A/D/W 立即位移，告別笨重感
       const myHero = allPlayers[NET.mySlot];

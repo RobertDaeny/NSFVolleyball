@@ -1046,6 +1046,7 @@ function generateRoomCode() {
 }
 
 function startHosting() {
+  if (typeof resetNetDebugForSession==='function') resetNetDebugForSession();
   const selectedMode = document.querySelector('input[name="netMode"]:checked').value;
   NET.mode = selectedMode;
   NET.isHost = true;
@@ -1086,8 +1087,17 @@ function startHosting() {
   });
 
   NET.peer.on('connection', (conn) => {
+    // V75-2.4: separate disposable world snapshots from reliable control/events.
+    // A state flood must never queue in front of INPUT / skill events / PING.
+    const channelKind = conn?.metadata?.channel || conn?.label || 'control-v1';
+    if (channelKind === 'state-v1') {
+      NET.stateConn = conn;
+      setupStateConnection(conn);
+      return;
+    }
+
     NET.conn = conn;
-    setupDataConnection();
+    setupDataConnection(conn);
     conn.on('open', () => {
       conn.send({
         type: 'INIT_SYNC',
@@ -1105,6 +1115,7 @@ function startHosting() {
 }
 
 function joinRoom() {
+  if (typeof resetNetDebugForSession==='function') resetNetDebugForSession();
   const inputCode = document.getElementById('join-room-input').value.trim().toUpperCase();
   if (inputCode.length !== 6) {
     document.getElementById('join-status-text').innerText = '請輸入 6 碼代碼！';
@@ -1119,36 +1130,21 @@ function joinRoom() {
 
   NET.peer.on('open', () => {
     const targetPeerId = `VB2026_${inputCode}`;
-    const conn = NET.peer.connect(targetPeerId);
+
+    // Reliable, low-volume channel: input edges, lobby/control, skill/SFX/VFX events, ping.
+    const conn = NET.peer.connect(targetPeerId, {
+      label: 'control-v1', metadata: { channel: 'control-v1' }, reliable: true, serialization: 'binary'
+    });
     NET.conn = conn;
+    setupDataConnection(conn);
 
-    conn.on('open', () => {
-      setupDataConnection();
+    // Unreliable snapshot channel: old world states are disposable; newest seq always wins.
+    // Keeping this separate prevents a state backlog from blocking Guest -> Host input.
+    const stateConn = NET.peer.connect(targetPeerId, {
+      label: 'state-v1', metadata: { channel: 'state-v1' }, reliable: false, serialization: 'binary'
     });
-
-    conn.on('data', (data) => {
-      if (data.type === 'INIT_SYNC') {
-        NET.mode = data.mode;
-        NET.pveDifficulty = data.diff || 5;
-        NET.venueChoice = data.venueChoice || data.venueId || 'stadium';
-        NET.venueId = data.venueId || 'stadium';
-        if (NET.venueChoice !== 'random') setCurrentVenue(NET.venueId);
-        venueEventsEnabled = data.venueEventsEnabled !== false;
-        NET.venueEventsEnabled = venueEventsEnabled;
-        if (NET.mode === 'COOP') {
-          NET.mySlot = 1;
-          NET.mateSlot = 0;
-          NET.myTeam = 'LEFT';
-          if (data.enemyFront) ACTIVE_ROSTER.enemyFront = data.enemyFront;
-          if (data.enemyBack) ACTIVE_ROSTER.enemyBack = data.enemyBack;
-        } else {
-          NET.mySlot = 2;
-          NET.mateSlot = 3;
-          NET.myTeam = 'RIGHT';
-        }
-        startNetPreparation();
-      }
-    });
+    NET.stateConn = stateConn;
+    setupStateConnection(stateConn);
   });
 
   NET.peer.on('error', () => {
@@ -1156,10 +1152,44 @@ function joinRoom() {
   });
 }
 
-function setupDataConnection() {
-  NET.conn.on('data', (data) => {
+function setupStateConnection(conn = NET.stateConn) {
+  if (!conn || conn._nsfStateSetup) return;
+  conn._nsfStateSetup = true;
+  const tuneBuffer = () => { try { if (conn.dataChannel) conn.dataChannel.bufferedAmountLowThreshold = 24 * 1024; } catch(e) {} };
+  tuneBuffer();
+  conn.on('open', tuneBuffer);
+  conn.on('data', (data) => {
+    if (typeof NET_DEBUG!=='undefined') NET_DEBUG.lastAnyRxAt = performance.now();
+    if (data && data.type === 'STATE_SYNC') applyWorldSync(data);
+  });
+  conn.on('close', () => { if (NET.stateConn === conn) NET.stateConn = null; });
+  conn.on('error', (err) => {
+    if (typeof NET_DEBUG!=='undefined') { NET_DEBUG.sendErrors++; NET_DEBUG.lastConnError=String(err?.message||err||'state-channel'); }
+  });
+}
+
+function setupDataConnection(conn = NET.conn) {
+  if (!conn || conn._nsfControlSetup) return;
+  conn._nsfControlSetup = true;
+  conn.on('data', (data) => {
     if (typeof NET_DEBUG!=='undefined') { NET_DEBUG.lastAnyRxAt=performance.now(); if(data.type!=='STATE_SYNC') NET_DEBUG.eventRxCount++; }
-    if (data.type === 'INPUT') {
+    if (data.type === 'INIT_SYNC') {
+      NET.mode = data.mode;
+      NET.pveDifficulty = data.diff || 5;
+      NET.venueChoice = data.venueChoice || data.venueId || 'stadium';
+      NET.venueId = data.venueId || 'stadium';
+      if (NET.venueChoice !== 'random') setCurrentVenue(NET.venueId);
+      venueEventsEnabled = data.venueEventsEnabled !== false;
+      NET.venueEventsEnabled = venueEventsEnabled;
+      if (NET.mode === 'COOP') {
+        NET.mySlot = 1; NET.mateSlot = 0; NET.myTeam = 'LEFT';
+        if (data.enemyFront) ACTIVE_ROSTER.enemyFront = data.enemyFront;
+        if (data.enemyBack) ACTIVE_ROSTER.enemyBack = data.enemyBack;
+      } else {
+        NET.mySlot = 2; NET.mateSlot = 3; NET.myTeam = 'RIGHT';
+      }
+      startNetPreparation();
+    } else if (data.type === 'INPUT') {
       NET.remoteKeys = data.keys;
     } else if (data.type === 'STATE_SYNC') {
       applyWorldSync(data);
@@ -1178,7 +1208,7 @@ function setupDataConnection() {
     } else if (data.type === 'ENERGY_FULL_SYNC') {
       if(typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)){ const p = allPlayers[Number(data.slotIndex)]; if (p) p.energyReadyFlash = Math.max(p.energyReadyFlash || 0, 52); }
     } else if (data.type === 'PING') {
-      if (NET.conn && NET.conn.open) NET.conn.send({type:'PONG', t:data.t});
+      if (conn && conn.open) conn.send({type:'PONG', t:data.t});
     } else if (data.type === 'PONG') {
       if (typeof NET_DEBUG !== 'undefined') NET_DEBUG.rtt = Math.max(0, performance.now() - data.t);
     } else if (data.type === 'MANGA_SHOUT_SYNC') {
