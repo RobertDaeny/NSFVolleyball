@@ -1158,25 +1158,25 @@ function joinRoom() {
 
 function setupDataConnection() {
   NET.conn.on('data', (data) => {
+    if (typeof NET_DEBUG!=='undefined') { NET_DEBUG.lastAnyRxAt=performance.now(); if(data.type!=='STATE_SYNC') NET_DEBUG.eventRxCount++; }
     if (data.type === 'INPUT') {
       NET.remoteKeys = data.keys;
     } else if (data.type === 'STATE_SYNC') {
       applyWorldSync(data);
     } else if (data.type === 'CALLOUT_SYNC') {
-      if(typeof pushCallout==='function') pushCallout(data.x,data.y,data.text,data.color); else calloutPopups.push({ x: data.x, y: data.y - 28, text: data.text, color: data.color, timer: 45, maxTimer: 45 });
+      if(typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)){ if(typeof pushCallout==='function') pushCallout(data.x,data.y,data.text,data.color,data.eventId); else calloutPopups.push({ x: data.x, y: data.y - 28, text: data.text, color: data.color, timer: 45, maxTimer: 45 }); }
     } else if (data.type === 'SFX_SYNC') {
-      if (typeof playSound === 'function') playSound(data.sfx, true);
+      if ((typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)) && typeof playSound === 'function') playSound(data.sfx, true);
     } else if (data.type === 'VENUE_SFX_SYNC') {
       if (typeof venueSfx === 'function') venueSfx(data.kind, true);
     } else if (data.type === 'SKILL_CAST_SYNC') {
-      // V64: 遠端技能 Cut-in/喊招，和一般頭頂 CALLOUT 分流。
-      lastCastSkillName = data.skillName || 'None';
-      lastCastSkillCasterSlot = Number.isInteger(data.casterSlot) ? data.casterSlot : 0;
-      lastCastFrame = gameFrame;
+      if(typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)){
+        lastCastSkillName = data.skillName || 'None';
+        lastCastSkillCasterSlot = Number.isInteger(data.casterSlot) ? data.casterSlot : 0;
+        lastCastFrame = gameFrame;
+      }
     } else if (data.type === 'ENERGY_FULL_SYNC') {
-      // V65: 公開 presentation event；任何角色集滿時 Guest 都要看見一次金光。
-      const p = allPlayers[Number(data.slotIndex)];
-      if (p) p.energyReadyFlash = Math.max(p.energyReadyFlash || 0, 52);
+      if(typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)){ const p = allPlayers[Number(data.slotIndex)]; if (p) p.energyReadyFlash = Math.max(p.energyReadyFlash || 0, 52); }
     } else if (data.type === 'PING') {
       if (NET.conn && NET.conn.open) NET.conn.send({type:'PONG', t:data.t});
     } else if (data.type === 'PONG') {
@@ -1184,6 +1184,13 @@ function setupDataConnection() {
     } else if (data.type === 'MANGA_SHOUT_SYNC') {
       if (typeof triggerMangaShout === 'function') {
         triggerMangaShout(data.speaker, data.text, data.sub, data.color);
+      }
+    } else if (data.type === 'SAVAGE_ROAR_FX_SYNC') {
+      if(typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)){
+        const p=allPlayers[Number(data.slotIndex)];
+        if(p) p.roarVfxTimer=Math.max(p.roarVfxTimer||0,24);
+        if(typeof createRoarWave==='function') createRoarWave(Number(data.x)||0,Number(data.y)||0);
+        if(typeof triggerScreenShake==='function') triggerScreenShake(12,18);
       }
 } else if (data.type === 'ROLLING_THUNDER_FX_SYNC') {
       const p = allPlayers[data.slotIndex];
@@ -1307,7 +1314,9 @@ function setupDataConnection() {
     }
   });
 
+  NET.conn.on('error', (err) => { if(typeof NET_DEBUG!=='undefined') NET_DEBUG.lastConnError=String(err?.message||err||'conn-error'); console.warn('[NET CONN ERROR]',err); });
   NET.conn.on('close', () => {
+    if (typeof NET_DEBUG!=='undefined') NET_DEBUG.lastConnError='closed';
     if (netPrepTimer) clearInterval(netPrepTimer);
     if (NET.intentionalDisconnect) return;
     alert('⚠️ 與對手的連線已中斷！正在返回主選單...');

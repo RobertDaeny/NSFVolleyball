@@ -62,7 +62,16 @@ function resetIronWallCamera(reason='safety') {
 let ironWallWatchdog = 0;
 
 // V62 multiplayer instrumentation: distinguish network latency from prediction divergence.
-const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, lastRateAt:performance.now(), correctionSum:0, correctionCount:0, correctionMax:0, lastPingAt:0, lastSyncAt:0, syncAge:0, hardReconciles:0, mediumReconciles:0, sanitizeCount:0, packetSeq:0, lastRecvSeq:0, packetGaps:0 };
+const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, txCount:0, txRate:0, eventRxCount:0, eventRxRate:0, lastRateAt:performance.now(), correctionSum:0, correctionCount:0, correctionMax:0, lastPingAt:0, lastSyncAt:0, lastAnyRxAt:0, syncAge:0, anyRxAge:0, hardReconciles:0, mediumReconciles:0, sanitizeCount:0, sendErrors:0, packetSeq:0, lastRecvSeq:0, packetGaps:0, freezeWatchdog:0, duplicateEvents:0, lastConnError:'-' };
+const NET_EVENT_SEEN = new Map();
+function consumeNetEvent(eventId, ttl=12000){
+  if(!eventId) return true;
+  const now=performance.now(), prev=NET_EVENT_SEEN.get(eventId);
+  if(prev && now-prev<ttl){ if(typeof NET_DEBUG!=='undefined') NET_DEBUG.duplicateEvents++; return false; }
+  NET_EVENT_SEEN.set(eventId,now);
+  if(NET_EVENT_SEEN.size>256){ for(const [k,t] of NET_EVENT_SEEN){ if(now-t>ttl) NET_EVENT_SEEN.delete(k); } }
+  return true;
+}
 function tickNetDebug() {
   if (typeof NET==='undefined' || !NET.isMultiplayer) return;
   const now=performance.now();
@@ -70,7 +79,7 @@ function tickNetDebug() {
     NET_DEBUG.lastPingAt=now; NET.conn.send({type:'PING',t:now});
   }
   if (now-NET_DEBUG.lastRateAt>=1000) {
-    NET_DEBUG.syncRate=NET_DEBUG.syncCount; NET_DEBUG.syncCount=0; NET_DEBUG.lastRateAt=now;
+    NET_DEBUG.syncRate=NET_DEBUG.syncCount; NET_DEBUG.syncCount=0; NET_DEBUG.txRate=NET_DEBUG.txCount; NET_DEBUG.txCount=0; NET_DEBUG.eventRxRate=NET_DEBUG.eventRxCount; NET_DEBUG.eventRxCount=0; NET_DEBUG.lastRateAt=now;
     // Keep correction telemetry readable: one-second window instead of lifetime average.
     NET_DEBUG.correctionSum=0; NET_DEBUG.correctionCount=0; NET_DEBUG.correctionMax=0;
     NET_DEBUG.hardReconciles=0; NET_DEBUG.mediumReconciles=0;
@@ -79,7 +88,10 @@ function tickNetDebug() {
   if (!el) { el=document.createElement('div'); el.id='net-debug-overlay'; el.style.cssText='position:fixed;left:8px;bottom:8px;z-index:99999;background:#020617cc;color:#a7f3d0;border:1px solid #334155;border-radius:6px;padding:5px 7px;font:11px monospace;pointer-events:none;white-space:pre'; document.body.appendChild(el); }
   const avg=NET_DEBUG.correctionCount?NET_DEBUG.correctionSum/NET_DEBUG.correctionCount:0;
   NET_DEBUG.syncAge = (!NET.isHost && NET_DEBUG.lastSyncAt) ? Math.max(0, now-NET_DEBUG.lastSyncAt) : 0;
-  el.textContent=`NET ${NET.isHost?'HOST':'GUEST'}  RTT ${NET_DEBUG.rtt.toFixed(0)}ms\nSYNC ${NET_DEBUG.syncRate}/s  AGE ${NET_DEBUG.syncAge.toFixed(0)}ms\nCORR ${avg.toFixed(1)}px max ${NET_DEBUG.correctionMax.toFixed(1)}px  MED ${NET_DEBUG.mediumReconciles} HARD ${NET_DEBUG.hardReconciles}\nGAPS ${NET_DEBUG.packetGaps}  SAN ${NET_DEBUG.sanitizeCount}  VENUE ${(typeof currentVenueId!=='undefined'?currentVenueId:'?')}`;
+  NET_DEBUG.anyRxAge = (!NET.isHost && NET_DEBUG.lastAnyRxAt) ? Math.max(0, now-NET_DEBUG.lastAnyRxAt) : 0;
+  let buffered=0; try{ buffered=NET.conn?.dataChannel?.bufferedAmount||0; }catch(e){}
+  const connState=(NET.conn&&NET.conn.open)?'OPEN':'CLOSED';
+  el.textContent=`NET ${NET.isHost?'HOST':'GUEST'} RTT ${NET_DEBUG.rtt.toFixed(0)}ms  ${connState}\nSTATE ${NET.isHost?'TX '+NET_DEBUG.txRate+'/s':'RX '+NET_DEBUG.syncRate+'/s'} AGE ${NET_DEBUG.syncAge.toFixed(0)}ms  ANY ${NET_DEBUG.anyRxAge.toFixed(0)}ms\nEVRX ${NET_DEBUG.eventRxRate}/s BUF ${Math.round(buffered/1024)}KB ERR ${NET_DEBUG.sendErrors} DUP ${NET_DEBUG.duplicateEvents}\nCORR ${avg.toFixed(1)} max ${NET_DEBUG.correctionMax.toFixed(1)} MED ${NET_DEBUG.mediumReconciles} HARD ${NET_DEBUG.hardReconciles}\nGAPS ${NET_DEBUG.packetGaps} SAN ${NET_DEBUG.sanitizeCount} FREEZE ${NET_DEBUG.freezeWatchdog} VENUE ${(typeof currentVenueId!=='undefined'?currentVenueId:'?')}`;
 }
 let debugHitbox = false, maxRecordedSpeed = 0, maxRecordedSpin = 0;
 let lastCastSkillName = 'None', lastCastFrame = -999, lastCastSkillCasterSlot = 0;
@@ -700,12 +712,15 @@ function updateServeRuleClock(){
 const match = { currentServingTeam: 'player', playerServerIdx: 0, enemyServerIdx: 0, leftHits: 0, rightHits: 0, lastTouchFrame: -100, isBlockedBack: false, inServeRally: true, serveAceEligible: true, serveReceiverTouches: 0, assistCandidate: null, assistAttackActor: null };
 
 // 🌟 pushCallout：若為房主，廣播給訪客同步繪製
-function pushCallout(x, y, text, color = '#facc15') {
-  // V60: 同一角色短時間連續操作時往上排，不再所有文字疊在同一座標。
+function pushCallout(x, y, text, color = '#facc15', netEventId = null) {
+  // V75-2.3: identical skill callouts in the same tiny window are presentation duplicates, not extra gameplay events.
+  const dup = calloutPopups.some(p => p.timer > 38 && p.text===text && Math.abs(p.x-x)<80 && Math.abs(p.baseY-(y-28))<90);
+  if (dup) return;
   const nearby = calloutPopups.filter(p => p.timer > 20 && Math.abs(p.x-x) < 120 && Math.abs(p.y-(y-28)) < 150).length;
-  calloutPopups.push({ x, y: y - 28 - Math.min(nearby,3)*30, text, color, timer: 45, maxTimer: 45 }); 
+  calloutPopups.push({ x, baseY:y-28, y: y - 28 - Math.min(nearby,3)*30, text, color, timer: 45, maxTimer: 45 }); 
   if (typeof NET !== 'undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
-    NET.conn.send({ type: 'CALLOUT_SYNC', x, y, text, color });
+    const eventId=netEventId||`callout:${gameFrame}:${Math.round(x)}:${text}`;
+    try{NET.conn.send({ type: 'CALLOUT_SYNC', x, y, text, color, eventId });}catch(e){}
   }
 }
 // 🌟 漫畫播報同步廣播給訪客
@@ -2454,6 +2469,9 @@ function handleUserBump(actor) {
     triggerScreenShake(12, 18);
     actor.roarVfxTimer = 24;
     createRoarWave(actor.x, actor.y - actor.radius);
+    if (typeof NET!=='undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
+      try { NET.conn.send({type:'SAVAGE_ROAR_FX_SYNC',slotIndex:actor.slotIndex,x:actor.x,y:actor.y-actor.radius,eventId:`roarfx:${gameFrame}:${actor.slotIndex}`}); } catch(e) {}
+    }
     pushCallout(actor.x, actor.y - 45, '野蠻怒吼 (SAVAGE ROAR)!!', '#dc2626');
     playMoodSound('excited'); setTimeout(()=>playMoodSound('depressed'),90);
     allPlayers.forEach(p => {
@@ -3416,10 +3434,22 @@ function fixedUpdate() {
   // V74-10 TRUE WORLD FREEZE: while Iron Wall owns the rally, absolutely no player/AI/particle/venue simulation advances.
   // handlePhysics itself advances only the cinematic timer, then only the intangible execution ball.
   if (ball.isIronWallSlam && ironWallExecution) {
-    handlePhysics();
-    camera.update(ball);
-    return;
-  }
+    // V75-2.3: this early-return used to bypass both NET telemetry and the Iron Wall watchdog.
+    // If the cinematic lifecycle ever got stuck, Host STATE_SYNC could stop forever while the Peer connection itself stayed alive.
+    if (typeof tickNetDebug==='function') tickNetDebug();
+    ironWallWatchdog++;
+    if (typeof NET_DEBUG!=='undefined') NET_DEBUG.freezeWatchdog=ironWallWatchdog;
+    if (ironWallWatchdog > 240) {
+      console.warn('[NET/CINEMATIC WATCHDOG] Iron Wall freeze exceeded 240f; forcing recovery.');
+      resetIronWallCamera('freeze-watchdog');
+      ironWallWatchdog=0;
+      if (typeof NET_DEBUG!=='undefined') NET_DEBUG.freezeWatchdog=0;
+    } else {
+      handlePhysics();
+      camera.update(ball);
+      return;
+    }
+  } else if (typeof NET_DEBUG!=='undefined') NET_DEBUG.freezeWatchdog=0;
   if ((typeof NET==='undefined' || !NET.isMultiplayer || NET.isHost) && typeof updateServeRuleClock==='function') updateServeRuleClock();
   if (typeof tickNetDebug==='function') tickNetDebug();
   if (typeof updateVenueIncidents === 'function') updateVenueIncidents();
@@ -3427,7 +3457,7 @@ function fixedUpdate() {
   if (typeof NET !== 'undefined' && NET.isMultiplayer) {
     if (NET.isHost) {
       if (NET.conn && NET.conn.open) {
-NET.conn.send(makeNetworkSafe({
+try { NET.conn.send(makeNetworkSafe({
           type: 'STATE_SYNC',
           netSeq: (typeof NET_DEBUG!=='undefined' ? ++NET_DEBUG.packetSeq : gameFrame),
           hostFrame: gameFrame,
@@ -3477,7 +3507,7 @@ NET.conn.send(makeNetworkSafe({
             venueShockTimer: p.venueShockTimer||0, venueShockRecoveryTimer: p.venueShockRecoveryTimer||0, venueShockRecoveryTotal: p.venueShockRecoveryTotal||0,
             despairTimer: p.despairTimer, recheckDelay: p.recheckDelay, runMomentum: p.runMomentum
           }))
-        }, 'STATE_SYNC'));
+        }, 'STATE_SYNC')); if(typeof NET_DEBUG!=='undefined') NET_DEBUG.txCount++; } catch(e) { if(typeof NET_DEBUG!=='undefined'){NET_DEBUG.sendErrors++;NET_DEBUG.lastConnError=String(e?.message||e);} console.warn('[NET STATE_SYNC SEND]',e); }
       }
 
       // 🌟 房主為遠端訪客執行動作分流

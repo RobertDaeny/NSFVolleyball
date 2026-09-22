@@ -347,7 +347,11 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
       if (actor.stats.skill.id === 'sk_savage_roar' && actor.energy >= actor.stats.skill.cost) {
         actor.consumeSkill('DEF_SAVE');
         playSound('time_freeze'); triggerScreenShake(8, 12);
-        createShockwave(actor.x, actor.y - actor.radius, '#dc2626');
+        actor.roarVfxTimer = 24;
+        createRoarWave(actor.x, actor.y - actor.radius);
+        if (typeof NET!=='undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
+          try { NET.conn.send({type:'SAVAGE_ROAR_FX_SYNC',slotIndex:actor.slotIndex,x:actor.x,y:actor.y-actor.radius,eventId:`roarfx:${gameFrame}:${actor.slotIndex}`}); } catch(e) {}
+        }
         pushCallout(actor.x, actor.y - 45, '野蠻怒吼 (SAVAGE ROAR)!!', '#dc2626');
         actor.excitedRallies = 4; actor.depressedRallies = 0; actor.roarMoodRallies = 4;
         partner.excitedRallies = 4; partner.depressedRallies = 0; partner.roarMoodRallies = 4;
