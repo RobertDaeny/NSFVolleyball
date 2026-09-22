@@ -67,7 +67,7 @@ const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, txCount:0, txRate:0, eventRx
 // V75-2.6 MATCH NETWORK DIAGNOSTIC RECORDER
 // Observation only: records render/simulation/transport health without changing gameplay or sync policy.
 const NET_DIAG = {
-  version:'V75-2.6.1', matchId:'-', startedAt:0, endedAt:0, finalized:false,
+  version:'V75-2.6.2', matchId:'-', startedAt:0, endedAt:0, finalized:false,
   role:'OFFLINE', rafCount:0, renderCount:0, simCount:0, lastRafAt:0, lastStateRxAt:0, lastStateTxAt:0,
   frameSum:0, frameCount:0, frameMax:0, long25:0, long50:0, long100:0,
   simTickMsSum:0, simTickMsCount:0, simTickMsMax:0, catchupFrames:0, catchupTicks:0,
@@ -79,6 +79,38 @@ const NET_DIAG = {
   prev:{fps:null,sim:null,tx:null,rx:null,age:null,ctrlBuf:0,stateBuf:0}, finalText:''
 };
 function netDiagNewMatchId(){ return 'NSF-'+Date.now().toString(36).toUpperCase()+'-'+Math.random().toString(36).slice(2,6).toUpperCase(); }
+const NET_DIAG_STORAGE_KEY='NSF_NET_DIAG_LAST_V1';
+function netDiagSnapshotRecord(status='INCOMPLETE'){
+  if(!NET_DIAG.startedAt) return null;
+  const role=(typeof NET!=='undefined'&&NET.isMultiplayer)?(NET.isHost?'HOST':'GUEST'):NET_DIAG.role;
+  let text='';
+  try{text=NET_DIAG.finalText||netDiagBuildText();}catch(e){text=`=== NSF VOLLEYBALL NETWORK DIAGNOSTIC ===\nBUILD: V75-2.6.2 · CRASH-SAFE MATCH DIAGNOSTIC\nROLE: ${role}\nMATCH ID: ${NET_DIAG.matchId||'-'}\nTERMINATION: ${status}\nRECOVERY NOTE: partial checkpoint; full text build failed: ${e?.message||e}`;}
+  return {schema:1,build:'V75-2.6.2',status,role,matchId:NET_DIAG.matchId||'-',venue:(typeof currentVenueId!=='undefined'?currentVenueId:'?'),savedAt:Date.now(),durationMs:Math.max(0,(NET_DIAG.endedAt||performance.now())-NET_DIAG.startedAt),text};
+}
+function persistNetDiagCheckpoint(status='INCOMPLETE'){
+  if(!NET_DIAG.startedAt) return;
+  try{const rec=netDiagSnapshotRecord(status); if(rec)localStorage.setItem(NET_DIAG_STORAGE_KEY,JSON.stringify(rec));}catch(e){}
+  updateRecoveredNetDiagMenu();
+}
+function loadRecoveredNetDiag(){
+  try{const raw=localStorage.getItem(NET_DIAG_STORAGE_KEY);if(!raw)return null;const rec=JSON.parse(raw);return rec&&rec.text?rec:null;}catch(e){return null;}
+}
+function updateRecoveredNetDiagMenu(){
+  const wrap=document.getElementById('last-net-diag-box'), meta=document.getElementById('last-net-diag-meta'); if(!wrap)return;
+  const rec=loadRecoveredNetDiag(); if(!rec){wrap.style.display='none';return;}
+  wrap.style.display='block';
+  const incomplete=rec.status!=='COMPLETE';
+  wrap.style.borderColor=incomplete?'#f59e0b':'#334155';
+  if(meta){const when=new Date(rec.savedAt||Date.now()).toLocaleString();meta.textContent=`${incomplete?'⚠ 未正常結束':'✓ 已完成'} · ${rec.role||'?'} · MATCH ${rec.matchId||'-'} · ${rec.venue||'?'} · ${when}`;meta.style.color=incomplete?'#fbbf24':'#94a3b8';}
+}
+async function copyRecoveredNetDiagnostic(){
+  const rec=loadRecoveredNetDiag();if(!rec){alert('沒有可用的上一場診斷資料。');return;}
+  try{await navigator.clipboard.writeText(rec.text);alert(`已複製上一場 ${rec.role||''} 診斷資料！`);}catch(e){const ta=document.createElement('textarea');ta.value=rec.text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();alert('已複製上一場診斷資料！');}
+}
+function downloadRecoveredNetDiagnostic(){
+  const rec=loadRecoveredNetDiag();if(!rec){alert('沒有可用的上一場診斷資料。');return;}
+  const blob=new Blob([rec.text],{type:'text/plain;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`NSF_NET_RECOVERED_${rec.role||'UNKNOWN'}_${rec.matchId||'-'}.txt`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
 function resetNetDiag(preserveMatchId=false){
   const id=preserveMatchId?NET_DIAG.matchId:'-';
   Object.assign(NET_DIAG,{matchId:id,startedAt:performance.now(),endedAt:0,finalized:false,role:(typeof NET!=='undefined'&&NET.isMultiplayer?(NET.isHost?'HOST':'GUEST'):'OFFLINE'),rafCount:0,renderCount:0,simCount:0,lastRafAt:0,lastStateRxAt:0,lastStateTxAt:0,frameSum:0,frameCount:0,frameMax:0,long25:0,long50:0,long100:0,simTickMsSum:0,simTickMsCount:0,simTickMsMax:0,catchupFrames:0,catchupTicks:0,stateRxGapSum:0,stateRxGapCount:0,stateRxGapMax:0,stateTxGapSum:0,stateTxGapCount:0,stateTxGapMax:0,inputRxCount:0,inputRxRate:0,stateBytesSample:0,stateBytesSamples:0,hiddenChanges:0,focusChanges:0,anomalies:[],samples:[],lastSampleAt:performance.now(),totals:{tx:0,rx:0,inputTx:0,inputRx:0,skip:0,gaps:0,stale:0,dup:0,err:0,hard:0,med:0},extrema:{fpsMin:999,simMin:999,txMin:999,rxMin:999,ageMax:0,ctrlBufMax:0,stateBufMax:0,corrMax:0},prev:{fps:null,sim:null,tx:null,rx:null,age:null,ctrlBuf:0,stateBuf:0},finalText:''});
@@ -88,7 +120,7 @@ function netDiagEvent(type, detail=''){
   const t=Math.max(0,performance.now()-NET_DIAG.startedAt), item={t:Math.round(t),type,detail:String(detail||'')};
   const last=NET_DIAG.anomalies[NET_DIAG.anomalies.length-1];
   if(last && last.type===item.type && last.detail===item.detail && item.t-last.t<2000) return;
-  NET_DIAG.anomalies.push(item); if(NET_DIAG.anomalies.length>180) NET_DIAG.anomalies.shift();
+  NET_DIAG.anomalies.push(item); if(NET_DIAG.anomalies.length>180) NET_DIAG.anomalies.shift(); persistNetDiagCheckpoint('INCOMPLETE');
 }
 function netDiagRecordRaf(now){
   if(!NET_DIAG.startedAt||NET_DIAG.finalized) return; NET_DIAG.rafCount++;
@@ -117,19 +149,19 @@ function netDiagSample(now=performance.now()){
   if(!NET.isHost && age>180 && (NET_DEBUG.inputTxRate||0)>0)netDiagEvent('INPUT_HEALTHY_WHILE_STATE_STALE',`INPUT ${NET_DEBUG.inputTxRate}/s AGE ${Math.round(age)}ms`);
   Object.assign(pr,{fps,sim,tx,rx,age,ctrlBuf:cb,stateBuf:sb});
   NET_DIAG.totals.tx+=tx;NET_DIAG.totals.rx+=rx;NET_DIAG.totals.inputTx+=(NET_DEBUG.inputTxRate||0);NET_DIAG.totals.inputRx+=irx;NET_DIAG.totals.skip+=(NET_DEBUG.stateSkipRate||0);
-  NET_DIAG.rafCount=0;NET_DIAG.simCount=0;NET_DIAG.inputRxCount=0;NET_DIAG.lastSampleAt=now;
+  NET_DIAG.rafCount=0;NET_DIAG.simCount=0;NET_DIAG.inputRxCount=0;NET_DIAG.lastSampleAt=now; persistNetDiagCheckpoint('INCOMPLETE');
 }
 function netDiagFmtMs(ms){return Number.isFinite(ms)?ms.toFixed(1):'0.0';}
 function netDiagBuildText(){
   const role=(typeof NET!=='undefined'&&NET.isMultiplayer)?(NET.isHost?'HOST':'GUEST'):NET_DIAG.role, dur=Math.max(0,(NET_DIAG.endedAt||performance.now())-NET_DIAG.startedAt), ss=NET_DIAG.samples, avg=k=>ss.length?ss.reduce((a,x)=>a+(Number(x[k])||0),0)/ss.length:0, min=k=>ss.length?Math.min(...ss.map(x=>Number(x[k])||0)):0, max=k=>ss.length?Math.max(...ss.map(x=>Number(x[k])||0)):0;
   const frameAvg=NET_DIAG.frameCount?NET_DIAG.frameSum/NET_DIAG.frameCount:0, rxGap=NET_DIAG.stateRxGapCount?NET_DIAG.stateRxGapSum/NET_DIAG.stateRxGapCount:0, txGap=NET_DIAG.stateTxGapCount?NET_DIAG.stateTxGapSum/NET_DIAG.stateTxGapCount:0;
-  const lines=[`=== NSF VOLLEYBALL NETWORK DIAGNOSTIC ===`,`BUILD: V75-2.6.1 · MATCH DIAGNOSTIC RECORDER`,`ROLE: ${role}`,`MATCH ID: ${NET_DIAG.matchId||'-'}`,`DURATION: ${(dur/1000).toFixed(1)}s`,`VENUE: ${typeof currentVenueId!=='undefined'?currentVenueId:'?'}`,'',`[PERFORMANCE]`,`FPS AVG ${avg('fps').toFixed(1)} / MIN ${min('fps')} / MAX ${max('fps')}`,`FRAME AVG ${netDiagFmtMs(frameAvg)}ms / MAX ${netDiagFmtMs(NET_DIAG.frameMax)}ms`,`LONG >25ms ${NET_DIAG.long25} / >50ms ${NET_DIAG.long50} / >100ms ${NET_DIAG.long100}`,`VISIBILITY CHANGES ${NET_DIAG.hiddenChanges} / FOCUS CHANGES ${NET_DIAG.focusChanges}`,'',`[SIMULATION]`,`SIM AVG ${avg('sim').toFixed(1)}/s / MIN ${min('sim')} / MAX ${max('sim')}`,`CATCHUP FRAMES ${NET_DIAG.catchupFrames} / EXTRA TICKS ${NET_DIAG.catchupTicks}`,'',`[NETWORK — ${role}]`,`RTT AVG ${avg('rtt').toFixed(1)}ms / MAX ${max('rtt')}ms`,`STATE ${role==='HOST'?'TX':'RX'} AVG ${(role==='HOST'?avg('tx'):avg('rx')).toFixed(1)}/s / MIN ${(role==='HOST'?min('tx'):min('rx'))}`,`${role==='HOST'?'SEND':'ARRIVAL'} GAP AVG ${netDiagFmtMs(role==='HOST'?txGap:rxGap)}ms / MAX ${netDiagFmtMs(role==='HOST'?NET_DIAG.stateTxGapMax:NET_DIAG.stateRxGapMax)}ms`,`STATE AGE AVG ${avg('age').toFixed(1)}ms / MAX ${max('age')}ms`,`ADAPT LAST ${NET_DEBUG.adaptiveReason||'-'} @${NET_DEBUG.adaptiveStateHz||0}Hz`,`CTRL BUF MAX ${Math.round(NET_DIAG.extrema.ctrlBufMax/1024)}KB / STATE BUF MAX ${Math.round(NET_DIAG.extrema.stateBufMax/1024)}KB`,`PACKET GAPS ${NET_DEBUG.packetGaps||0} / STALE ${NET_DEBUG.staleStateDrops||0} / DUP ${NET_DEBUG.duplicateEvents||0} / ERR ${NET_DEBUG.sendErrors||0}`,`CORRECTION MAX ${Math.max(NET_DIAG.extrema.corrMax,NET_DEBUG.correctionMax||0).toFixed(1)}`,'',`[INPUT]`,`INPUT TX AVG ${avg('inputTx').toFixed(1)}/s`,`INPUT RX AVG ${avg('inputRx').toFixed(1)}/s`,'',`[ENVIRONMENT]`,`hidden=${document.hidden} focus=${document.hasFocus()} DPR=${window.devicePixelRatio||1} viewport=${innerWidth}x${innerHeight}`,`canvas=${(typeof canvas!=='undefined'&&canvas)?canvas.width+'x'+canvas.height:'?'}`,'',`[ANOMALIES ${NET_DIAG.anomalies.length}]`];
+  const lines=[`=== NSF VOLLEYBALL NETWORK DIAGNOSTIC ===`,`BUILD: V75-2.6.2 · CRASH-SAFE MATCH DIAGNOSTIC`,`ROLE: ${role}`,`MATCH ID: ${NET_DIAG.matchId||'-'}`,`DURATION: ${(dur/1000).toFixed(1)}s`,`VENUE: ${typeof currentVenueId!=='undefined'?currentVenueId:'?'}`,`TERMINATION: ${NET_DIAG.finalized?'COMPLETE':'INCOMPLETE / LAST CHECKPOINT'}`,'',`[PERFORMANCE]`,`FPS AVG ${avg('fps').toFixed(1)} / MIN ${min('fps')} / MAX ${max('fps')}`,`FRAME AVG ${netDiagFmtMs(frameAvg)}ms / MAX ${netDiagFmtMs(NET_DIAG.frameMax)}ms`,`LONG >25ms ${NET_DIAG.long25} / >50ms ${NET_DIAG.long50} / >100ms ${NET_DIAG.long100}`,`VISIBILITY CHANGES ${NET_DIAG.hiddenChanges} / FOCUS CHANGES ${NET_DIAG.focusChanges}`,'',`[SIMULATION]`,`SIM AVG ${avg('sim').toFixed(1)}/s / MIN ${min('sim')} / MAX ${max('sim')}`,`CATCHUP FRAMES ${NET_DIAG.catchupFrames} / EXTRA TICKS ${NET_DIAG.catchupTicks}`,'',`[NETWORK — ${role}]`,`RTT AVG ${avg('rtt').toFixed(1)}ms / MAX ${max('rtt')}ms`,`STATE ${role==='HOST'?'TX':'RX'} AVG ${(role==='HOST'?avg('tx'):avg('rx')).toFixed(1)}/s / MIN ${(role==='HOST'?min('tx'):min('rx'))}`,`${role==='HOST'?'SEND':'ARRIVAL'} GAP AVG ${netDiagFmtMs(role==='HOST'?txGap:rxGap)}ms / MAX ${netDiagFmtMs(role==='HOST'?NET_DIAG.stateTxGapMax:NET_DIAG.stateRxGapMax)}ms`,`STATE AGE AVG ${avg('age').toFixed(1)}ms / MAX ${max('age')}ms`,`ADAPT LAST ${NET_DEBUG.adaptiveReason||'-'} @${NET_DEBUG.adaptiveStateHz||0}Hz`,`CTRL BUF MAX ${Math.round(NET_DIAG.extrema.ctrlBufMax/1024)}KB / STATE BUF MAX ${Math.round(NET_DIAG.extrema.stateBufMax/1024)}KB`,`PACKET GAPS ${NET_DEBUG.packetGaps||0} / STALE ${NET_DEBUG.staleStateDrops||0} / DUP ${NET_DEBUG.duplicateEvents||0} / ERR ${NET_DEBUG.sendErrors||0}`,`CORRECTION MAX ${Math.max(NET_DIAG.extrema.corrMax,NET_DEBUG.correctionMax||0).toFixed(1)}`,'',`[INPUT]`,`INPUT TX AVG ${avg('inputTx').toFixed(1)}/s`,`INPUT RX AVG ${avg('inputRx').toFixed(1)}/s`,'',`[ENVIRONMENT]`,`hidden=${document.hidden} focus=${document.hasFocus()} DPR=${window.devicePixelRatio||1} viewport=${innerWidth}x${innerHeight}`,`canvas=${(typeof canvas!=='undefined'&&canvas)?canvas.width+'x'+canvas.height:'?'}`,'',`[ANOMALIES ${NET_DIAG.anomalies.length}]`];
   if(!NET_DIAG.anomalies.length)lines.push('NONE'); else NET_DIAG.anomalies.forEach(a=>lines.push(`${(a.t/1000).toFixed(3)}s ${a.type}${a.detail?' — '+a.detail:''}`));
   lines.push('','[TIMELINE — 1s samples]','t  fps sim tx rx inTX inRX rtt age hz reason ctrlKB stateKB skip corr');
   ss.forEach(x=>lines.push(`${String(x.t).padStart(3)} ${String(x.fps).padStart(3)} ${String(x.sim).padStart(3)} ${String(x.tx).padStart(2)} ${String(x.rx).padStart(2)} ${String(x.inputTx).padStart(4)} ${String(x.inputRx).padStart(4)} ${String(x.rtt).padStart(3)} ${String(x.age).padStart(3)} ${String(x.hz).padStart(2)} ${x.reason} ${x.ctrlKB} ${x.stateKB} ${x.skip} ${x.corr}`));
   return lines.join('\n');
 }
-function finalizeNetDiag(){ if(NET_DIAG.finalized)return; NET_DIAG.endedAt=performance.now(); NET_DIAG.finalized=true; NET_DIAG.role=(typeof NET!=='undefined'&&NET.isMultiplayer?(NET.isHost?'HOST':'GUEST'):NET_DIAG.role); NET_DIAG.finalText=netDiagBuildText(); updateNetDiagSettlementUI(); }
+function finalizeNetDiag(){ if(NET_DIAG.finalized)return; NET_DIAG.endedAt=performance.now(); NET_DIAG.finalized=true; NET_DIAG.role=(typeof NET!=='undefined'&&NET.isMultiplayer?(NET.isHost?'HOST':'GUEST'):NET_DIAG.role); NET_DIAG.finalText=netDiagBuildText(); persistNetDiagCheckpoint('COMPLETE'); updateNetDiagSettlementUI(); }
 function ensureNetDiagSettlementUI(){
   let box=document.getElementById('settle-net-diag');
   if(box) return box;
@@ -158,6 +190,9 @@ async function copyNetDiagnostic(){ if(!NET_DIAG.finalized)finalizeNetDiag(); co
 function downloadNetDiagnostic(){ if(!NET_DIAG.finalized)finalizeNetDiag(); const txt=NET_DIAG.finalText||netDiagBuildText(), blob=new Blob([txt],{type:'text/plain;charset=utf-8'}), a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`NSF_NET_${NET_DIAG.role}_${NET_DIAG.matchId}.txt`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
 document.addEventListener('visibilitychange',()=>{ if(NET_DIAG.startedAt&&!NET_DIAG.finalized){NET_DIAG.hiddenChanges++;netDiagEvent('VISIBILITY_CHANGE',document.hidden?'HIDDEN':'VISIBLE');} });
 window.addEventListener('focus',()=>{if(NET_DIAG.startedAt&&!NET_DIAG.finalized){NET_DIAG.focusChanges++;netDiagEvent('FOCUS','ON');}}); window.addEventListener('blur',()=>{if(NET_DIAG.startedAt&&!NET_DIAG.finalized){NET_DIAG.focusChanges++;netDiagEvent('FOCUS','OFF');}});
+window.addEventListener('pagehide',()=>{if(NET_DIAG.startedAt&&!NET_DIAG.finalized)persistNetDiagCheckpoint('INCOMPLETE');});
+window.addEventListener('beforeunload',()=>{if(NET_DIAG.startedAt&&!NET_DIAG.finalized)persistNetDiagCheckpoint('INCOMPLETE');});
+document.addEventListener('DOMContentLoaded',()=>setTimeout(updateRecoveredNetDiagMenu,0));
 
 const NET_EVENT_SEEN = new Map();
 function resetNetDebugForSession(){
@@ -167,6 +202,7 @@ function resetNetDebugForSession(){
   _lastNetInputSig=''; _lastNetInputSentAt=0;
   resetNetDiag(false);
   if (typeof NET!=='undefined' && NET.isHost) NET_DIAG.matchId=netDiagNewMatchId();
+  persistNetDiagCheckpoint('INCOMPLETE');
 }
 function consumeNetEvent(eventId, ttl=12000){
   if(!eventId) return true;
@@ -1894,6 +1930,7 @@ function returnToStartMenu() {
     restoreActiveRosterFromSaved(true);
     resetMatchState();
     document.getElementById('start-menu-modal').style.display = 'flex';
+    if(typeof updateRecoveredNetDiagMenu==='function')updateRecoveredNetDiagMenu();
   }
 }
 
@@ -1915,6 +1952,7 @@ function returnToStartMenuFromSettle() {
   restoreActiveRosterFromSaved(true);
   resetMatchState();
   document.getElementById('start-menu-modal').style.display = 'flex';
+  if(typeof updateRecoveredNetDiagMenu==='function')updateRecoveredNetDiagMenu();
 }
 
 function closeLockerToMenu() {

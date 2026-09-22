@@ -479,7 +479,7 @@
 <!-- 封面選單 -->
 <div id="start-menu-modal" style="display: flex;">
   <canvas id="menu-bg-canvas"></canvas>
-  <div class="cover-version-label">V75-2.6.1 · MATCH NETWORK DIAGNOSTIC UI FIX</div>
+  <div class="cover-version-label">V75-2.6.2 · CRASH-SAFE NETWORK DIAGNOSTIC</div>
   <div class="hero-highlight-layer">
     <div class="hero-silhouette" id="hero-sil-1" style="background: #38bdf8;"></div>
     <div class="hero-silhouette" id="hero-sil-2" style="background: #ef4444;"></div>
@@ -504,7 +504,15 @@
     <button class="menu-btn" style="background: #312e81;" onclick="openLockerFromMenu()">📋 球隊戰術配置 (Tactics)</button>
 <button class="menu-btn" style="background: #1e1b4b; border-color: #6366f1;" onclick="openSettingsModal()">⚙️ 遊戲設置 (Settings)</button>
 <button class="menu-btn" id="btn-cloud-auth" style="background: #065f46; border-color: #34d399; font-size: 13px;" onclick="openCloudAuthModal()">👤 雲端帳號登入 (未登入)</button>    
-<button class="menu-btn" style="background: #18153d; border-color: #4338ca; font-size: 12px;" onclick="resetLocalStorageData()">⚠️ 重置所有本機存檔</button>
+<div id="last-net-diag-box" style="display:none;margin:10px 0 8px;padding:10px;border:1px solid #f59e0b;border-radius:10px;background:#0f172acc;text-align:left;">
+      <div style="font-size:12px;font-weight:900;color:#e2e8f0;">🧾 上一場連線診斷</div>
+      <div id="last-net-diag-meta" style="font-size:10px;color:#fbbf24;margin:4px 0 8px;line-height:1.35;">等待資料...</div>
+      <div style="display:flex;gap:7px;">
+        <button class="btn-action" style="flex:1;padding:6px 8px;font-size:11px;" onclick="copyRecoveredNetDiagnostic()">📋 複製上一場診斷</button>
+        <button class="btn-home" style="flex:1;padding:6px 8px;font-size:11px;" onclick="downloadRecoveredNetDiagnostic()">💾 下載上一場診斷</button>
+      </div>
+    </div>
+    <button class="menu-btn" style="background: #18153d; border-color: #4338ca; font-size: 12px;" onclick="resetLocalStorageData()">⚠️ 重置所有本機存檔</button>
   </div>
 </div>
 
