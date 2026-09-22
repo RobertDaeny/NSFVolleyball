@@ -62,11 +62,11 @@ function resetIronWallCamera(reason='safety') {
 let ironWallWatchdog = 0;
 
 // V62 multiplayer instrumentation: distinguish network latency from prediction divergence.
-const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, txCount:0, txRate:0, eventRxCount:0, eventRxRate:0, inputTxCount:0, inputTxRate:0, stateSkipCount:0, stateSkipRate:0, staleStateDrops:0, lastRateAt:performance.now(), correctionSum:0, correctionCount:0, correctionMax:0, lastPingAt:0, lastSyncAt:0, lastAnyRxAt:0, syncAge:0, anyRxAge:0, hardReconciles:0, mediumReconciles:0, sanitizeCount:0, sendErrors:0, packetSeq:0, lastRecvSeq:0, lastAppliedSeq:0, packetGaps:0, freezeWatchdog:0, duplicateEvents:0, lastConnError:'-' };
+const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, txCount:0, txRate:0, eventRxCount:0, eventRxRate:0, inputTxCount:0, inputTxRate:0, stateSkipCount:0, stateSkipRate:0, staleStateDrops:0, lastRateAt:performance.now(), correctionSum:0, correctionCount:0, correctionMax:0, lastPingAt:0, lastSyncAt:0, lastAnyRxAt:0, syncAge:0, anyRxAge:0, hardReconciles:0, mediumReconciles:0, sanitizeCount:0, sendErrors:0, packetSeq:0, lastRecvSeq:0, lastAppliedSeq:0, packetGaps:0, freezeWatchdog:0, duplicateEvents:0, lastConnError:'-', remoteStateRx:0, remoteStateAge:0, remoteRtt:0, adaptiveStateHz:60, adaptiveReason:'HEALTHY', adaptiveLastChangeAt:0, lastHealthSentAt:0 };
 const NET_EVENT_SEEN = new Map();
 function resetNetDebugForSession(){
   NET_EVENT_SEEN.clear();
-  Object.assign(NET_DEBUG,{rtt:0,syncCount:0,syncRate:0,txCount:0,txRate:0,eventRxCount:0,eventRxRate:0,inputTxCount:0,inputTxRate:0,stateSkipCount:0,stateSkipRate:0,staleStateDrops:0,correctionSum:0,correctionCount:0,correctionMax:0,lastPingAt:0,lastSyncAt:0,lastAnyRxAt:0,syncAge:0,anyRxAge:0,hardReconciles:0,mediumReconciles:0,sanitizeCount:0,sendErrors:0,packetSeq:0,lastRecvSeq:0,lastAppliedSeq:0,packetGaps:0,freezeWatchdog:0,duplicateEvents:0,lastConnError:'-'});
+  Object.assign(NET_DEBUG,{rtt:0,syncCount:0,syncRate:0,txCount:0,txRate:0,eventRxCount:0,eventRxRate:0,inputTxCount:0,inputTxRate:0,stateSkipCount:0,stateSkipRate:0,staleStateDrops:0,correctionSum:0,correctionCount:0,correctionMax:0,lastPingAt:0,lastSyncAt:0,lastAnyRxAt:0,syncAge:0,anyRxAge:0,hardReconciles:0,mediumReconciles:0,sanitizeCount:0,sendErrors:0,packetSeq:0,lastRecvSeq:0,lastAppliedSeq:0,packetGaps:0,freezeWatchdog:0,duplicateEvents:0,lastConnError:'-',remoteStateRx:0,remoteStateAge:0,remoteRtt:0,adaptiveStateHz:60,adaptiveReason:'HEALTHY',adaptiveLastChangeAt:0,lastHealthSentAt:0});
   NET_DEBUG.lastRateAt=performance.now();
   _lastNetInputSig=''; _lastNetInputSentAt=0;
 }
@@ -84,6 +84,12 @@ function tickNetDebug() {
   if (!NET.isHost && NET.conn && NET.conn.open && now-NET_DEBUG.lastPingAt>1000) {
     NET_DEBUG.lastPingAt=now; NET.conn.send({type:'PING',t:now});
   }
+  // V75-2.5: Guest reports receive health over the reliable control lane. This lets the Host
+  // detect one-way Host->Guest congestion even when the lossy STATE sender itself shows 0 KB.
+  if (!NET.isHost && NET.conn && NET.conn.open && now-NET_DEBUG.lastHealthSentAt>1000) {
+    NET_DEBUG.lastHealthSentAt=now;
+    try { NET.conn.send({type:'NET_HEALTH', stateRx:NET_DEBUG.syncRate||0, stateAge:NET_DEBUG.syncAge||0, rtt:NET_DEBUG.rtt||0}); } catch(e) {}
+  }
   if (now-NET_DEBUG.lastRateAt>=1000) {
     NET_DEBUG.syncRate=NET_DEBUG.syncCount; NET_DEBUG.syncCount=0; NET_DEBUG.txRate=NET_DEBUG.txCount; NET_DEBUG.txCount=0; NET_DEBUG.eventRxRate=NET_DEBUG.eventRxCount; NET_DEBUG.eventRxCount=0; NET_DEBUG.inputTxRate=NET_DEBUG.inputTxCount; NET_DEBUG.inputTxCount=0; NET_DEBUG.stateSkipRate=NET_DEBUG.stateSkipCount; NET_DEBUG.stateSkipCount=0; NET_DEBUG.lastRateAt=now;
     // Keep correction telemetry readable: one-second window instead of lifetime average.
@@ -100,7 +106,7 @@ function tickNetDebug() {
   try{ stateBuf=NET.stateConn?.dataChannel?.bufferedAmount||0; stateQ=NET.stateConn?.bufferSize||0; }catch(e){}
   const connState=(NET.conn&&NET.conn.open)?'OPEN':'CLOSED';
   const stateState=(NET.stateConn&&NET.stateConn.open)?'S-OPEN':'S-FALLBACK';
-  el.textContent=`NET ${NET.isHost?'HOST':'GUEST'} RTT ${NET_DEBUG.rtt.toFixed(0)}ms ${connState}/${stateState}\nSTATE ${NET.isHost?'TX '+NET_DEBUG.txRate+'/s SKIP '+NET_DEBUG.stateSkipRate+'/s':'RX '+NET_DEBUG.syncRate+'/s'} AGE ${NET_DEBUG.syncAge.toFixed(0)}ms ANY ${NET_DEBUG.anyRxAge.toFixed(0)}ms\nCTRL ${Math.round(ctrlBuf/1024)}KB Q${ctrlQ}  STATE ${Math.round(stateBuf/1024)}KB Q${stateQ}  IN ${NET_DEBUG.inputTxRate}/s\nEVRX ${NET_DEBUG.eventRxRate}/s ERR ${NET_DEBUG.sendErrors} DUP ${NET_DEBUG.duplicateEvents} STALE ${NET_DEBUG.staleStateDrops}\nCORR ${avg.toFixed(1)} max ${NET_DEBUG.correctionMax.toFixed(1)} MED ${NET_DEBUG.mediumReconciles} HARD ${NET_DEBUG.hardReconciles}\nGAPS ${NET_DEBUG.packetGaps} SAN ${NET_DEBUG.sanitizeCount} FREEZE ${NET_DEBUG.freezeWatchdog} VENUE ${(typeof currentVenueId!=='undefined'?currentVenueId:'?')}`;
+  el.textContent=`NET ${NET.isHost?'HOST':'GUEST'} RTT ${NET_DEBUG.rtt.toFixed(0)}ms ${connState}/${stateState}\nSTATE ${NET.isHost?'TX '+NET_DEBUG.txRate+'/s SKIP '+NET_DEBUG.stateSkipRate+'/s @'+NET_DEBUG.adaptiveStateHz+'Hz':'RX '+NET_DEBUG.syncRate+'/s'} AGE ${NET_DEBUG.syncAge.toFixed(0)}ms ANY ${NET_DEBUG.anyRxAge.toFixed(0)}ms\nCTRL ${Math.round(ctrlBuf/1024)}KB Q${ctrlQ}  STATE ${Math.round(stateBuf/1024)}KB Q${stateQ}  IN ${NET_DEBUG.inputTxRate}/s\nADAPT ${NET_DEBUG.adaptiveReason}${NET.isHost?' PEER '+NET_DEBUG.remoteStateRx+'/s '+NET_DEBUG.remoteRtt.toFixed(0)+'ms':''}\nEVRX ${NET_DEBUG.eventRxRate}/s ERR ${NET_DEBUG.sendErrors} DUP ${NET_DEBUG.duplicateEvents} STALE ${NET_DEBUG.staleStateDrops}\nCORR ${avg.toFixed(1)} max ${NET_DEBUG.correctionMax.toFixed(1)} MED ${NET_DEBUG.mediumReconciles} HARD ${NET_DEBUG.hardReconciles}\nGAPS ${NET_DEBUG.packetGaps} SAN ${NET_DEBUG.sanitizeCount} FREEZE ${NET_DEBUG.freezeWatchdog} VENUE ${(typeof currentVenueId!=='undefined'?currentVenueId:'?')}`;
 }
 let debugHitbox = false, maxRecordedSpeed = 0, maxRecordedSpin = 0;
 let lastCastSkillName = 'None', lastCastFrame = -999, lastCastSkillCasterSlot = 0;
@@ -3445,17 +3451,41 @@ function makeNetworkSafe(value, path='root') {
   return null;
 }
 
-// V75-2.4 NETWORK BACKPRESSURE
-// Real-time snapshots are disposable. Never let old world states accumulate behind the link.
-const NET_STATE_FALLBACK_INTERVAL = 6;        // 10 Hz only while state channel is unavailable
-const NET_STATE_BUFFER_STOP = 80 * 1024;       // state snapshots stop long before PeerJS's multi-MB ceiling
-const NET_STATE_BUFFER_FALLBACK_HIGH = 32 * 1024;
+// V75-2.5 ADAPTIVE STATE TRANSPORT
+// Snapshots are disposable. Sender queue pressure AND Guest receive-health can lower the send rate.
+// Recovery is deliberately gradual so a weak path cannot oscillate 60<->15 Hz every second.
+const NET_STATE_FALLBACK_INTERVAL = 6; // 10 Hz while dedicated state channel is unavailable
+const NET_STATE_BUFFER_STOP = 48 * 1024;
+const NET_STATE_BUFFER_FALLBACK_HIGH = 24 * 1024;
 function getPeerBufferedBytes(conn){ try{return conn?.dataChannel?.bufferedAmount||0;}catch(e){return 0;} }
 function getPeerQueuedMessages(conn){ try{return conn?.bufferSize||0;}catch(e){return 0;} }
 function getStateTxConnection(){
   if (typeof NET==='undefined') return null;
   if (NET.stateConn && NET.stateConn.open) return NET.stateConn;
   return (NET.conn && NET.conn.open) ? NET.conn : null;
+}
+function updateAdaptiveStateRate(buffered, queued){
+  if(typeof NET_DEBUG==='undefined') return 60;
+  const now=performance.now(), cur=NET_DEBUG.adaptiveStateHz||60;
+  let target=60, reason='HEALTHY';
+  if(buffered>=NET_STATE_BUFFER_STOP || queued>0){ target=10; reason='LOCAL_QUEUE'; }
+  else if(buffered>=24*1024){ target=15; reason='LOCAL_BUF'; }
+  else if(buffered>=12*1024){ target=30; reason='LOCAL_BUF'; }
+  const rr=NET_DEBUG.remoteStateRx||0, rtt=NET_DEBUG.remoteRtt||0, age=NET_DEBUG.remoteStateAge||0;
+  // Only judge RX after feedback exists. Compare against the CURRENT requested rate so an intentional
+  // 30 Hz mode does not falsely diagnose itself as packet loss.
+  if(rtt>2000 || age>900){ target=Math.min(target,10); reason='PEER_STALL'; }
+  else if(rtt>700 || age>350){ target=Math.min(target,15); reason='PEER_CONGEST'; }
+  else if(rtt>250 || age>180){ target=Math.min(target,30); reason='PEER_SLOW'; }
+  else if(rr>0 && rr < Math.max(8,cur*0.55)){ target=Math.min(target, Math.max(15, cur===60?30:cur)); reason='PEER_RX_DROP'; }
+  if(target < cur){ NET_DEBUG.adaptiveStateHz=target; NET_DEBUG.adaptiveReason=reason; NET_DEBUG.adaptiveLastChangeAt=now; return target; }
+  if(target > cur && now-(NET_DEBUG.adaptiveLastChangeAt||0)>3000){
+    const up = cur<=10?15:cur<=15?30:60;
+    NET_DEBUG.adaptiveStateHz=Math.min(target,up); NET_DEBUG.adaptiveReason='RECOVER'; NET_DEBUG.adaptiveLastChangeAt=now;
+    return NET_DEBUG.adaptiveStateHz;
+  }
+  NET_DEBUG.adaptiveReason = target<60 ? reason : (cur<60?'RECOVER_WAIT':'HEALTHY');
+  return cur;
 }
 function shouldSendWorldSnapshot(conn){
   if(!conn || !conn.open) return false;
@@ -3466,12 +3496,9 @@ function shouldSendWorldSnapshot(conn){
     if(buffered>=NET_STATE_BUFFER_FALLBACK_HIGH || queued>0){ if(typeof NET_DEBUG!=='undefined') NET_DEBUG.stateSkipCount++; return false; }
     return true;
   }
-  // Healthy link keeps the original 60 Hz feel. If the sender queue starts growing,
-  // automatically step down 60 -> 30 -> 15 Hz. Above 80 KB, send nothing until it drains.
-  let interval=1;
+  const hz=updateAdaptiveStateRate(buffered,queued);
   if(buffered>=NET_STATE_BUFFER_STOP || queued>0){ if(typeof NET_DEBUG!=='undefined') NET_DEBUG.stateSkipCount++; return false; }
-  if(buffered>=48*1024) interval=4;
-  else if(buffered>=24*1024) interval=2;
+  const interval = hz>=60?1:hz>=30?2:hz>=20?3:hz>=15?4:6;
   if(gameFrame % interval !== 0) return false;
   return true;
 }

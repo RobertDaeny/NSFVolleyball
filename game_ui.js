@@ -1207,6 +1207,13 @@ function setupDataConnection(conn = NET.conn) {
       }
     } else if (data.type === 'ENERGY_FULL_SYNC') {
       if(typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)){ const p = allPlayers[Number(data.slotIndex)]; if (p) p.energyReadyFlash = Math.max(p.energyReadyFlash || 0, 52); }
+    } else if (data.type === 'NET_HEALTH') {
+      // V75-2.5: Host-side feedback for one-way STATE congestion.
+      if (NET.isHost && typeof NET_DEBUG!=='undefined') {
+        NET_DEBUG.remoteStateRx = Math.max(0, Number(data.stateRx)||0);
+        NET_DEBUG.remoteStateAge = Math.max(0, Number(data.stateAge)||0);
+        NET_DEBUG.remoteRtt = Math.max(0, Number(data.rtt)||0);
+      }
     } else if (data.type === 'PING') {
       if (conn && conn.open) conn.send({type:'PONG', t:data.t});
     } else if (data.type === 'PONG') {
