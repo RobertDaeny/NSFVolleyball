@@ -649,13 +649,10 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
               ball.isSpiked = true; ball.isPerfectSpike = false; ball.armorPiercing = (spiker.stats.bonusAP || 0); ball.glowColor = null; playSound('spike');
             }
           } else {
-            const randomScatter = (Math.random() - 0.5) * 80;
-            const targetCrossX = (isLeft ? WORLD.RIGHT - 220 : WORLD.LEFT + 220) + randomScatter;
-            const targetVy = -11.0;
-            const timeInAir = (2 * Math.abs(targetVy)) / (WORLD.GRAVITY * 0.72);
-            ball.vx = (targetCrossX - ball.x) / timeInAir; ball.vy = targetVy;
-            ball.isSpiked = false; ball.isPerfectSpike = false; ball.isUltimate = false;
-            ball.armorPiercing = 0; ball.isTopspin = false; ball.glowColor = null; playSound('bump');
+            // V75-2.1: same Ground-J safety physics as the player. Deep/out-of-bounds third
+            // touches preserve the rally instead of using a fixed-time arc that can die at the net.
+            executeStandingJSafeSend(spiker, { debugActor: spiker });
+            playSound('bump');
           }
           ball.isFloat = false;
           const curSpd = Math.hypot(ball.vx, ball.vy);

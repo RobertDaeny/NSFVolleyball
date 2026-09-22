@@ -2179,6 +2179,68 @@ function handleServeFloat(actor) {
   statusSubtext.innerText = '';
 }
 
+// V75-2.1: shared standing-J safety send for Human + AI.
+// Ground J is a rally-preservation action, not an attack. It must always aim toward the
+// opponent court even when the actor is facing outward after chasing a sprayed ball.
+// The arc is solved from the REAL ball position and current venue gravity; no STR/DEX gate
+// is allowed to turn a legal standing touch into an unavoidable dead ball.
+function executeStandingJSafeSend(actor, options = {}) {
+  if (!actor || !ball) return false;
+
+  const dir = actor.isLeft ? 1 : -1; // team side is authoritative; actor.facing may point out of court.
+  const halfSpan = WORLD.RIGHT - WORLD.NET_X;
+  const targetDepth = Math.max(0.24, Math.min(0.42, options.targetDepth ?? 0.32));
+  const targetX = WORLD.NET_X + dir * halfSpan * targetDepth;
+  const venueGravity = (typeof getCurrentVenue === 'function') ? (getCurrentVenue().gravityMult || 1) : 1;
+  const anomalyGravity = (typeof venueGravityFactor === 'function') ? venueGravityFactor() : 1;
+  const g = Math.max(0.05, WORLD.GRAVITY * 0.72 * venueGravity * anomalyGravity);
+
+  // Start with a soft high arc. If the ball is extremely deep, increase hang time instead of
+  // turning the fallback into a flat/high-speed attack. Then verify net clearance analytically.
+  const distanceToNet = Math.abs(WORLD.NET_X - ball.x);
+  const deepExtra = Math.max(0, distanceToNet - halfSpan);
+  let launchUp = Math.min(17.5, 10.8 + deepExtra / 95);
+  const targetY = WORLD.FLOOR_Y - ball.radius;
+
+  function solve(up) {
+    const vy = -up;
+    const dy = targetY - ball.y;
+    const disc = Math.max(0.01, vy * vy + 2 * g * dy);
+    const flightT = Math.max(1, (-vy + Math.sqrt(disc)) / g);
+    const vx = (targetX - ball.x) / flightT;
+    const tNet = (WORLD.NET_X - ball.x) / vx;
+    const netY = (tNet > 0 && tNet < flightT)
+      ? ball.y + vy * tNet + 0.5 * g * tNet * tNet
+      : -Infinity;
+    return { vx, vy, flightT, netY };
+  }
+
+  let shot = solve(launchUp);
+  const safeNetY = WORLD.NET_TOP_Y - 34;
+  // Rare venue/deep-ball fallback: raise the arc until it clears the tape with margin.
+  for (let i = 0; i < 8 && shot.netY > safeNetY; i++) {
+    launchUp = Math.min(21.0, launchUp + 1.25);
+    shot = solve(launchUp);
+  }
+
+  ball.vx = shot.vx;
+  ball.vy = shot.vy;
+  ball.isSpiked = false;
+  ball.isPerfectSpike = false;
+  ball.isUltimate = false;
+  ball.armorPiercing = 0;
+  ball.isTopspin = false;
+  ball.isFloat = false;
+  ball.isTacticalThrust = false;
+  ball.glowColor = null;
+
+  if (options.debugActor && typeof pushAIDebug === 'function') {
+    pushAIDebug(options.debugActor, '3RD TOUCH: SAFE J',
+      `GROUND_J_SAFE_SEND net=${Math.round(distanceToNet)}px vx=${shot.vx.toFixed(1)} vy=${shot.vy.toFixed(1)}`);
+  }
+  return true;
+}
+
 function handleUserAttack(actor) {
   const shoulderX = actor.x, shoulderY = actor.y - actor.radius * 1.5;
   const dx = (ball.x - shoulderX) * actor.facing, dy = -(ball.y - shoulderY);
@@ -2263,15 +2325,10 @@ function handleUserAttack(actor) {
     // V73 沙灘球翻滾：接球判定不受影響；若玩家硬是在翻滾中扣球，出球角度依當下旋轉相位偏掉。
     if((actor.venueSpinTimer||0)>0 && (Math.abs(ball.vx)+Math.abs(ball.vy)>0.01)){const total=actor.venueSpinTotal||48,phase=(1-actor.venueSpinTimer/total)*Math.PI*2,offset=Math.sin(phase)*0.22,sp=Math.hypot(ball.vx,ball.vy),a0=Math.atan2(ball.vy,ball.vx)+offset;ball.vx=Math.cos(a0)*sp;ball.vy=Math.sin(a0)*sp;}
   } else {
-    const targetX = WORLD.NET_X + (actor.facing * 180);
-    const effGravity = WORLD.GRAVITY * 0.72, apexY = WORLD.NET_TOP_Y - 48;
-    const deltaY = Math.max(10, ball.y - apexY);
-    const reqVy = -Math.sqrt(2 * effGravity * deltaY);
-    const tUp = Math.abs(reqVy) / effGravity, tDown = Math.sqrt((2 * (WORLD.FLOOR_Y - apexY)) / effGravity);
-
-    ball.vx = (targetX - ball.x) / (tUp + tDown); ball.vy = reqVy;
-    ball.isSpiked = false; ball.isPerfectSpike = false; ball.isUltimate = false; ball.armorPiercing = 0;
-    ball.isTopspin = false; ball.glowColor = null; playSound('bump');
+    // V75-2.1: standing J always has a low-threat rally-preservation arc, including from
+    // behind the baseline. Direction comes from team side, never stale actor.facing.
+    executeStandingJSafeSend(actor);
+    playSound('bump');
     pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'SAFE PUSH', '#38bdf8');
   }
 
