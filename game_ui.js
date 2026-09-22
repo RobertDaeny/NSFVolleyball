@@ -1101,6 +1101,7 @@ function startHosting() {
     conn.on('open', () => {
       conn.send({
         type: 'INIT_SYNC',
+        matchId: (typeof NET_DIAG!=='undefined' ? (NET_DIAG.matchId==='-'?(NET_DIAG.matchId=netDiagNewMatchId()):NET_DIAG.matchId) : '-'),
         mode: NET.mode,
         diff: NET.pveDifficulty,
         venueChoice: NET.venueChoice, venueId: NET.venueId, venueEventsEnabled: NET.venueEventsEnabled,
@@ -1174,6 +1175,7 @@ function setupDataConnection(conn = NET.conn) {
   conn.on('data', (data) => {
     if (typeof NET_DEBUG!=='undefined') { NET_DEBUG.lastAnyRxAt=performance.now(); if(data.type!=='STATE_SYNC') NET_DEBUG.eventRxCount++; }
     if (data.type === 'INIT_SYNC') {
+      if(typeof NET_DIAG!=='undefined'){ NET_DIAG.matchId=data.matchId||NET_DIAG.matchId||'-'; NET_DIAG.role='GUEST'; NET_DIAG.startedAt=performance.now(); NET_DIAG.lastSampleAt=NET_DIAG.startedAt; }
       NET.mode = data.mode;
       NET.pveDifficulty = data.diff || 5;
       NET.venueChoice = data.venueChoice || data.venueId || 'stadium';
@@ -1190,6 +1192,7 @@ function setupDataConnection(conn = NET.conn) {
       }
       startNetPreparation();
     } else if (data.type === 'INPUT') {
+      if(typeof NET_DIAG!=='undefined'&&!NET_DIAG.finalized) NET_DIAG.inputRxCount++;
       NET.remoteKeys = data.keys;
     } else if (data.type === 'STATE_SYNC') {
       applyWorldSync(data);

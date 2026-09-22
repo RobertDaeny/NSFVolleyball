@@ -479,7 +479,7 @@
 <!-- 封面選單 -->
 <div id="start-menu-modal" style="display: flex;">
   <canvas id="menu-bg-canvas"></canvas>
-  <div class="cover-version-label">V75-2.5 · ADAPTIVE STATE TRANSPORT</div>
+  <div class="cover-version-label">V75-2.6 · MATCH NETWORK DIAGNOSTIC</div>
   <div class="hero-highlight-layer">
     <div class="hero-silhouette" id="hero-sil-1" style="background: #38bdf8;"></div>
     <div class="hero-silhouette" id="hero-sil-2" style="background: #ef4444;"></div>
@@ -941,6 +941,13 @@
       </thead>
       <tbody id="settle-table-body"></tbody>
     </table>
+
+    <div id="settle-net-diag" style="display:none; margin-top:16px; padding:12px 14px; border:1px solid #38bdf8; border-radius:12px; background:#02061799; text-align:left;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div><span style="color:#94a3b8;font-size:11px;">連線診斷</span> <b id="settle-net-role" style="color:#38bdf8;font-size:13px;">HOST</b><div id="settle-net-summary" style="color:#cbd5e1;font:11px monospace;margin-top:4px;">等待資料...</div></div>
+        <div style="display:flex;gap:8px;"><button class="btn-action" style="padding:7px 14px;font-size:12px;" onclick="copyNetDiagnostic()">📋 複製本機診斷</button><button class="btn-home" style="padding:7px 14px;font-size:12px;" onclick="downloadNetDiagnostic()">💾 下載完整診斷</button></div>
+      </div>
+    </div>
 
     <div style="display: flex; justify-content: center; gap: 15px; margin-top: 14px;">
       <button class="btn-home" onclick="returnToStartMenuFromSettle()">🏠 主選單</button>
