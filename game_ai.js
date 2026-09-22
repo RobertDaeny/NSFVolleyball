@@ -107,7 +107,23 @@ function getLandingRead(player) {
   if (chronoVictimAI) updateEvery = Math.max(updateEvery, Math.round(updateEvery * 3.0));
 
   if (read.touchKey !== touchKey || gameFrame >= read.nextUpdate) {
-    const truth = predictBallLandingForAI();
+    let truth = predictBallLandingForAI();
+    // V74-23 Phantom Wipe deception: AI is not omniscient. When a live fake ball exists on this team's side,
+    // it can commit its landing read to the decoy. Higher INT is fooled less often, but never reads the fake flag perfectly.
+    if (typeof phantomDecoys !== 'undefined') {
+      const decoy = phantomDecoys.find(d => d && d.fade<=0 && d.sourceIsLeft !== player.isLeft);
+      if (decoy) {
+        const deceiveChance = 0.65 - iq * 0.35; // INT 0: 65%, INT 60: 30%
+        const deceiveSeed = Math.sin((match.lastTouchFrame+31)*17.17 + (player.slotIndex+5)*43.73) * 43758.5453;
+        const deceiveRoll = deceiveSeed - Math.floor(deceiveSeed);
+        if (deceiveRoll < deceiveChance) {
+          let dx=decoy.x, dy=decoy.y, dvx=decoy.vx, dvy=decoy.vy, frames=240;
+          const rr=decoy.radius||13;
+          for(let f=1;f<=240;f++){dx+=dvx;dy+=dvy;dvy+=WORLD.GRAVITY*.72;if(dy+rr>=WORLD.FLOOR_Y){frames=f;break;}}
+          truth={x:dx,frames};
+        }
+      }
+    }
     // 低 INT 的中心位置有較大的穩定判讀誤差；每次「重新讀球」才改變，不會每幀亂跳。
     let maxError = 8 + (1 - iq) * 82;
     if(blackout && !brightInBlackout) maxError*=2.35;
@@ -126,6 +142,94 @@ function getLandingRead(player) {
 
   const uncertaintyRadius = 24 + (1 - iq) * 86;
   return { x: read.x, frames: read.frames, radius: uncertaintyRadius };
+}
+
+// V75-1 DEFENSE RELIABILITY helpers. These only arbitrate AI responsibility; they do not change ball physics.
+function estimateAIChaseFrames(player, targetX, reach = null) {
+  if (!player) return 9999;
+  const r = reach == null ? (player.stats.reach || 64) : reach;
+  const gap = Math.max(0, Math.abs(targetX - player.x) - r);
+  return gap / Math.max(1, player.effectiveSpeed || 1);
+}
+
+function aiCanActNow(player) {
+  return !!player && player.reactionTimer <= 0 && !(typeof player.stunTimer !== 'undefined' && player.stunTimer > 0);
+}
+
+function steerAIToFreshBallIntent(player, targetX, speed, touchFrame, label='CHASE') {
+  if (!player) return;
+  // When a legal touch changes the ball path, a previous SUPPORT/FORMATION instruction must not keep pulling
+  // the newly assigned handler the wrong way. We only damp stale locomotion once per touch transition;
+  // this is braking, not teleportation or a speed buff.
+  if (player._aiMoveIntentTouch !== touchFrame) {
+    const desiredDir = targetX > player.x + 6 ? 1 : (targetX < player.x - 6 ? -1 : 0);
+    if (player.isGrounded && desiredDir && player.vx * desiredDir < -0.25) {
+      player.vx *= 0.45;
+      if (typeof pushAIDebug === 'function') pushAIDebug(player, 'INTENT BRAKE', `${label} new path`);
+    }
+    player._aiMoveIntentTouch = touchFrame;
+  }
+  moveTowards(player, targetX, speed);
+}
+
+function canAIAirborneCover(player, distance, aiReach) {
+  if (!player || player.isGrounded || player.isDiving || player.isBlocking) return false;
+  // Never recreate the old superhuman sequence: spike -> blocked -> zero-frame perfect self-cover.
+  const sinceAttack = gameFrame - (player._lastAttackContactFrame ?? -9999);
+  if (sinceAttack < 10 || player.swingTimer > 0 || player.thrustTimer > 0) return false;
+  // Airborne cover is an emergency body-control action with a deliberately smaller contact envelope.
+  const airReach = Math.min(aiReach * 0.72, 52);
+  return distance < airReach;
+}
+
+
+// V75-2 DEFENSE ACTION SELECTION
+// Responsibility is decided first; only the assigned owner chooses K / Dive / airborne Cover.
+// This keeps the owner system stable while making the actual defensive action inspectable in debug.
+function chooseAIDefenseAction(player, perceivedLandingX, framesToFloor, distance, aiReach, isCover) {
+  const speed = Math.max(1, player.effectiveSpeed || 1);
+  const horizontalGap = Math.max(0, Math.abs(perceivedLandingX - player.x) - aiReach);
+  const runFramesNeeded = horizontalGap / speed;
+  const runIsTooLate = framesToFloor <= (runFramesNeeded + 3);
+  const kReachableNow = player.isGrounded && !player.isDiving && !player.isBlocking && distance < aiReach;
+  const airCoverReachable = !!isCover && canAIAirborneCover(player, distance, aiReach);
+
+  // A committed dive owns its own follow-through. Do not oscillate back to K mid-dive.
+  if (player.isDiving) {
+    return { action:'DIVE_ACTIVE', reason:'DIVE_ALREADY_COMMITTED', horizontalGap, runFramesNeeded, runIsTooLate, kReachableNow, airCoverReachable };
+  }
+
+  // Planted K is the control-first option whenever the ball is already inside the real receive envelope.
+  if (kReachableNow) {
+    return { action:'K', reason:'K_IN_RANGE', horizontalGap, runFramesNeeded, runIsTooLate, kReachableNow, airCoverReachable };
+  }
+
+  // Airborne Cover is legal only through the recovery gate above; it never replaces ordinary airborne receiving.
+  if (airCoverReachable) {
+    return { action:'AIR_COVER', reason:'LEGAL_AIR_COVER', horizontalGap, runFramesNeeded, runIsTooLate, kReachableNow, airCoverReachable };
+  }
+
+  // Dive is a rescue action, not a stronger K. Wait until running is no longer sufficient and the ball is in a
+  // realistic emergency window. Even when the dive ETA is poor, a live chance ball should still get an attempt.
+  const diveWindowOpen = framesToFloor <= 18 && ball.y > WORLD.NET_TOP_Y - 40;
+  const needsDive = player.isGrounded && !player.isBlocking && distance > aiReach * 0.90 && runIsTooLate && diveWindowOpen;
+  if (needsDive) {
+    const diveGap = Math.max(0, Math.abs(perceivedLandingX - player.x) - 85);
+    const diveFramesNeeded = diveGap / Math.max(1, speed * 2.0);
+    return { action:'DIVE', reason:(diveFramesNeeded <= framesToFloor + 2 ? 'RUN_LATE_DIVE_REACHABLE' : 'RUN_LATE_LAST_CHANCE'), horizontalGap, runFramesNeeded, diveFramesNeeded, runIsTooLate, kReachableNow, airCoverReachable };
+  }
+
+  return { action:'CHASE', reason:(runIsTooLate ? 'TOO_EARLY_FOR_DIVE_WINDOW' : 'RUN_CAN_STILL_REACH'), horizontalGap, runFramesNeeded, runIsTooLate, kReachableNow, airCoverReachable };
+}
+
+function traceAIDefenseDecision(player, decision, framesToFloor, distance, aiReach) {
+  if (!player || !decision || typeof pushAIDebug !== 'function') return;
+  const key = `${match.lastTouchFrame}|${decision.action}|${decision.reason}`;
+  if (player._aiDefenseDecisionKey === key) return;
+  player._aiDefenseDecisionKey = key;
+  const eta = Number.isFinite(decision.runFramesNeeded) ? decision.runFramesNeeded.toFixed(1) : '-';
+  const diveEta = Number.isFinite(decision.diveFramesNeeded) ? ` diveETA=${decision.diveFramesNeeded.toFixed(1)}` : '';
+  pushAIDebug(player, `DEFENSE -> ${decision.action}`, `${decision.reason} | d=${distance.toFixed(0)}/${aiReach.toFixed(0)} floor=${framesToFloor}f runETA=${eta}${diveEta}`);
 }
 
 function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
@@ -153,10 +257,35 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
     const timeB = claimGapB / Math.max(1, pB.effectiveSpeed);
     actor = (timeA <= timeB) ? pA : pB;
   }
-  const partner = (actor === pA) ? pB : pA;
+  let partner = (actor === pA) ? pB : pA;
 
-// 🌟 若 AI 正在承受重扣震退硬直中，大腦暫停尋路與操作，乖乖被推後滑行！
-  if (actor.reactionTimer > 0 || (typeof actor.stunTimer !== 'undefined' && actor.stunTimer > 0)) return;
+  // V75-0 FOUNDATION: one unavailable actor must never shut down the whole team brain.
+  // If the claimed receiver is temporarily unavailable, transfer the live-ball responsibility to the teammate
+  // when that teammate is AI-controlled and available. Humans are never commandeered here.
+  const actorUnavailable = actor.reactionTimer > 0 || (typeof actor.stunTimer !== 'undefined' && actor.stunTimer > 0);
+  const partnerUnavailable = partner.reactionTimer > 0 || (typeof partner.stunTimer !== 'undefined' && partner.stunTimer > 0);
+  if (actorUnavailable && !partnerUnavailable && !isSlotHumanControlled(partner)) {
+    const oldActor = actor; actor = partner; partner = oldActor;
+    if (typeof pushAIBrainTrace === 'function') pushAIBrainTrace(isLeft?'LEFT':'RIGHT', 'OWNER FAILOVER', `${oldActor.name} unavailable -> ${actor.name}`);
+  } else if (actorUnavailable && partnerUnavailable) {
+    if (typeof flagAIBug === 'function') flagAIBug(isLeft?'LEFT':'RIGHT', 'BOTH_UNAVAILABLE', `${actor.name}/${partner.name}`);
+    return;
+  }
+
+  // V75-1 live-ball reassignment: keep the original positional claimant unless it is clearly becoming unreachable.
+  // This fixes rare chance-ball freezes without making both teammates chase every ball. A human teammate is never commandeered.
+  const actorClaimRead = (actor === pA) ? readA : readB;
+  const partnerClaimRead = (partner === pA) ? readA : readB;
+  const actorReachForEta = actor.stats.reach || 64;
+  const partnerReachForEta = partner.stats.reach || 64;
+  const actorEta = estimateAIChaseFrames(actor, actorClaimRead.x, actorReachForEta);
+  const partnerEta = estimateAIChaseFrames(partner, partnerClaimRead.x, partnerReachForEta);
+  const actorLikelyLate = actorEta > Math.max(0, framesToFloor - 3);
+  const partnerClearlyBetter = partnerEta + 7 < actorEta && partnerEta <= Math.max(0, framesToFloor + 2);
+  if (actorLikelyLate && partnerClearlyBetter && !isSlotHumanControlled(partner) && aiCanActNow(partner)) {
+    const oldActor = actor; actor = partner; partner = oldActor;
+    if (typeof pushAIBrainTrace === 'function') pushAIBrainTrace(isLeft?'LEFT':'RIGHT', 'LIVE REASSIGN', `${oldActor.name} ETA ${actorEta.toFixed(1)}f -> ${actor.name} ${partnerEta.toFixed(1)}f`);
+  }
 
   let skillNoise = 0;
   if (ball.isSineFloat) skillNoise = Math.sin(gameFrame * 0.25) * 45;
@@ -194,7 +323,11 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
   const actorIsHuman = isSlotHumanControlled(actor);
   const partnerIsHuman = isSlotHumanControlled(partner);
 
-  if (isBallThreat && (teamHits === 0 || match.isBlockedBack)) {
+  // V75-0: incoming opponent/blocked-back ball ALWAYS overrides stale offensive hit-count state.
+  // Before the first new touch, match.leftHits/rightHits can still contain the previous possession's 1/2 hits.
+  // Gating defense on teamHits===0 caused rare chance balls (especially non-3rd-touch J returns) to be treated as SET/ATTACK phases.
+  if (isBallThreat) {
+    if (typeof setAITeamIntent === 'function') setAITeamIntent(isLeft?'LEFT':'RIGHT', match.isBlockedBack?'COVER_CHASE':'RECEIVE_CHASE', actor, partner, perceivedLandingX, match.isBlockedBack?'BLOCK_RETURN':'INCOMING_OPPONENT', teamHits, 'THIRD_BALL_SAFETY');
     if (!actorIsHuman) {
       // V12 COVER READ：攔網反彈不是 AI 瞬間知道答案。
       // 第一次辨識到 blocked-back 時，用既有 reactionDelay / INT 產生短暫辨識延遲；
@@ -256,32 +389,24 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
           actor.recheckDelay = 0;
         }
 
-        moveTowards(actor, perceivedLandingX, actor.effectiveSpeed*(typeof venuePlayerSpeedFactor==='function'?venuePlayerSpeedFactor(actor):1));
+        steerAIToFreshBallIntent(actor, perceivedLandingX, actor.effectiveSpeed*(typeof venuePlayerSpeedFactor==='function'?venuePlayerSpeedFactor(actor):1), match.lastTouchFrame, match.isBlockedBack?'COVER_CHASE':'RECEIVE_CHASE');
         const d = getDist(actor);
         const aiReach = actor.stats.reach || 64;
 
-        // 先問「正常跑接還來得及嗎？」；若答案是否，進入緊急魚躍。
-        // 不要求魚躍一定救得到：追不到也要撲，保留競技感與運動家精神。
-        const horizontalGap = Math.max(0, Math.abs(perceivedLandingX - actor.x) - aiReach);
-        const runFramesNeeded = horizontalGap / Math.max(1, actor.effectiveSpeed);
-        const runIsTooLate = framesToFloor <= (runFramesNeeded + 3);
-        const diveWindowOpen = framesToFloor <= 18 && ball.y > WORLD.NET_TOP_Y - 40;
-        const needsEmergencyDive = d > aiReach * 0.9 && runIsTooLate && diveWindowOpen;
+        // V75-2: owner first, action second. K / Dive / airborne Cover are mutually exclusive decisions
+        // from the same live ball read, so we can debug exactly why an AI did or did not dive.
+        const defenseDecision = chooseAIDefenseAction(actor, perceivedLandingX, framesToFloor, d, aiReach, match.isBlockedBack);
+        traceAIDefenseDecision(actor, defenseDecision, framesToFloor, d, aiReach);
 
-        if (!actor.isBlocking && !actor.isDiving && actor.isGrounded && needsEmergencyDive) {
+        if (defenseDecision.action === 'DIVE') {
           actor.facing = (perceivedLandingX > actor.x) ? 1 : -1;
-          if (typeof pushAIDebug === 'function') pushAIDebug(actor, 'EMERGENCY DIVE', `readX=${perceivedLandingX.toFixed(0)} floor=${framesToFloor}f`);
           actor.dive();
         }
 
-
         const canTouch = (!isCooldown) && (ball.lastHitter !== actor || actor.hasBlockSelfHitPrivilege);
-        const isBlockerInAir = !actor.isGrounded && Math.abs(actor.jumpStartX - WORLD.NET_X) < 95;
-
-        if (!actor.isDiving && !isBlockerInAir && !actor.isBlocking && actor.isGrounded && d < aiReach && canTouch) {
+        if ((defenseDecision.action === 'K' || defenseDecision.action === 'AIR_COVER') && canTouch) {
           const wasBlocked = match.isBlockedBack;
-          if (typeof pushAIDebug === 'function') pushAIDebug(actor, wasBlocked ? 'COVER RECEIVE' : 'RECEIVE', `dist=${d.toFixed(1)} reach=${aiReach.toFixed(1)}`);
-          if (recordTouch(actor)) executePlayerTimingReceive(actor, wasBlocked);
+          if (recordTouch(actor)) executePlayerTimingReceive(actor, wasBlocked, defenseDecision.action === 'AIR_COVER' ? 'AIR_COVER' : 'K');
         } else if (d > 165 && ball.y > WORLD.FLOOR_Y - 50 && actor.despairTimer <= 0) {
           const phrases = ['接不到！', '來不及了！', '啊！'];
           pushCallout(actor.x, actor.y - actor.radius * 2, phrases[Math.floor(Math.random() * phrases.length)], '#f87171');
@@ -305,11 +430,12 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
   else if (teamHits === 1) {
     const handler = (ball.lastHitter === pA) ? pB : pA;
     const spiker = (handler === pA) ? pB : pA;
+    if (typeof setAITeamIntent === 'function') setAITeamIntent(isLeft?'LEFT':'RIGHT', 'SET_CHASE', handler, spiker, ball.x, 'TEAM_HIT_1', teamHits, 'THIRD_BALL_SAFETY');
     const handlerIsHuman = isSlotHumanControlled(handler);
     const spikerIsHuman = isSlotHumanControlled(spiker);
 
     if (!handlerIsHuman && handler.reactionTimer <= 0) {
-      moveTowards(handler, ball.x, handler.effectiveSpeed);
+      steerAIToFreshBallIntent(handler, ball.x, handler.effectiveSpeed, match.lastTouchFrame, 'SET_CHASE');
 
       // V15：二次進攻只看自己的球況 + 既有 INT/DEX，不讀對手防守站位。
       // 每次第一觸後只擲一次，避免逐幀重骰讓低機率變相成為必出。
@@ -402,6 +528,7 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
   else if (teamHits === 2) {
     const spiker = (ball.lastHitter === pA) ? pB : pA;
     const supporter = (spiker === pA) ? pB : pA;
+    if (typeof setAITeamIntent === 'function') setAITeamIntent(isLeft?'LEFT':'RIGHT', 'THIRD_TOUCH', spiker, supporter, ball.x, 'TEAM_HIT_2', teamHits, 'COVER_SUPPORT');
     const spikerIsHuman = isSlotHumanControlled(spiker);
     const supporterIsHuman = isSlotHumanControlled(supporter);
 
@@ -492,7 +619,7 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
               ball.armorPiercing = (sk.armorPiercing || 0) + (spiker.stats.bonusAP || 0); ball.topspinRating += (sk.extraDown || 0); ball.activeSkillTag = sk.name;
               ball.glowColor = sk.glowColor || '#ef4444';
 
-              if (sk.id === 'sk_breaker') { ball.vx *= 1.03; ball.vy = 10.5; ball.armorPiercing += 5.0; }
+              if (sk.id === 'sk_breaker') { ball.vx *= 1.03; ball.vy = 10.5; ball.armorPiercing += 5.0; ball.breakerSourceIsLeft=spiker.isLeft; ball.breakerImpactDone=false; ball.breakerTrailFrames=90; }
               if (sk.id === 'sk_deep_impact') { ball.vx *= 1.16; ball.vy = 4.8; ball.deepWaterActive = true; }
               if (sk.id === 'sk_steepexec') { ball.vx *= 0.82; ball.vy = 18.5; }
               if (sk.id === 'sk_bungee_gum') ball.isBungeeGum = true;
@@ -501,8 +628,8 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
                 const halfSpan = WORLD.RIGHT - WORLD.NET_X;
                 ball.gravityDropTargetX = isLeft ? WORLD.NET_X + halfSpan * (0.10 + Math.random() * 0.80) : WORLD.NET_X - halfSpan * (0.10 + Math.random() * 0.80);
               }
-              if (sk.id === 'sk_greased_ball') ball.greaseCharges = 1;
-              if (sk.id === 'sk_mud_spike') ball.mudContaminationAvailable = true;
+              if (sk.id === 'sk_greased_ball') { ball.greaseCharges = 1; ball.greaseSourceIsLeft = spiker.isLeft; }
+              if (sk.id === 'sk_mud_spike') { ball.mudContaminationAvailable = true; ball.mudCharges = 2; ball.mudSourceIsLeft = spiker.isLeft; }
               if (sk.id === 'sk_time_lag') { ball.timeLagStoredVx = ball.vx; ball.timeLagStoredVy = ball.vy; ball.timeLagFrames = 24; ball.vx = 0; ball.vy = 0; ball.timeLagVfxSeed = Math.random()*1000; playSkillAsset('SFX/skills/time_1.wav',1.0,{key:'time_lag_hold'}); }
 
               if (sk.id !== 'sk_time_lag') playSound('perfect_spike'); triggerScreenShake(10, 10);
@@ -534,6 +661,24 @@ function runTeamBrain(pA, pB, teamHits, baseNetX, isLeft) {
           const curSpd = Math.hypot(ball.vx, ball.vy);
           if (curSpd > proMatchStats[spiker.slotKey].maxSpeed) proMatchStats[spiker.slotKey].maxSpeed = curSpd;
         }
+      }
+    }
+  }
+
+  // V75-0 lightweight anomaly detector: emits breadcrumbs instead of silently failing.
+  if (typeof flagAIBug === 'function' && isBallThreat && framesToFloor <= 42) {
+    const side = isLeft ? 'LEFT' : 'RIGHT';
+    const state = (typeof aiTeamIntentState !== 'undefined') ? aiTeamIntentState[side] : null;
+    if (!state || gameFrame - state.frame > 2) flagAIBug(side, 'NO_FRESH_INTENT', `floor=${framesToFloor}f hits=${teamHits}`);
+    const bothFar = Math.min(Math.abs(pA.x-realLandingX), Math.abs(pB.x-realLandingX)) > 260;
+    if (bothFar && framesToFloor <= 24) flagAIBug(side, 'LATE_TO_CHANCE', `landing=${realLandingX.toFixed(0)} floor=${framesToFloor}f`);
+    if (state && state.ownerKey) {
+      const owner = [pA,pB].find(p => (p.slotKey||`slot${p.slotIndex}`) === state.ownerKey);
+      const other = owner===pA?pB:pA;
+      if (owner && other) {
+        const oe = estimateAIChaseFrames(owner, realLandingX);
+        const pe = estimateAIChaseFrames(other, realLandingX);
+        if (oe > framesToFloor + 5 && pe + 8 < oe) flagAIBug(side, 'OWNER_LATE', `${owner.name} ${oe.toFixed(1)}f / ${other.name} ${pe.toFixed(1)}f / floor ${framesToFloor}f`);
       }
     }
   }

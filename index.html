@@ -479,7 +479,7 @@
 <!-- 封面選單 -->
 <div id="start-menu-modal" style="display: flex;">
   <canvas id="menu-bg-canvas"></canvas>
-  <div class="cover-version-label">V74-18 · CHRONO FIRST-PASS RELEASE / 20F FADE</div>
+  <div class="cover-version-label">V75-2 · DEFENSE ACTION SELECTION / K-DIVE-COVER</div>
   <div class="hero-highlight-layer">
     <div class="hero-silhouette" id="hero-sil-1" style="background: #38bdf8;"></div>
     <div class="hero-silhouette" id="hero-sil-2" style="background: #ef4444;"></div>
@@ -1103,6 +1103,7 @@ function updateBgmVolume(val) {
 function updateSfxVolume(val) {
   globalSfxVolume = val / 100;
   document.getElementById('sfx-vol-text').innerText = `${val}%`;
+  if (typeof _syncVenueMediaVolume === 'function') _syncVenueMediaVolume();
   if (typeof _venueAmbience !== 'undefined' && _venueAmbience.master && typeof audioCtx !== 'undefined' && audioCtx) {
     const id=(typeof getCurrentVenue==='function'&&getCurrentVenue())?getCurrentVenue().id:'stadium';
     const surge=(id==='rain' && typeof venueIncidentState!=='undefined' && venueIncidentState.active==='RAIN_SURGE')?1.75:1;

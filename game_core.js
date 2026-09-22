@@ -83,6 +83,35 @@ let lastBlockDebug = { effectiveRigidity: 0, incomingSpeed: 0, ap: 0, isBroken: 
 // V14：AI 決策偵錯。只記錄資訊，不參與任何 AI 判斷或數值。
 let aiDebugEvents = [];
 let aiDebugState = {};
+// V75-0 AI FOUNDATION: persistent team intent + anomaly trace. Observation only; it does not alter ball physics.
+let aiBrainTrace = [];
+let aiBugFlags = [];
+let aiTeamIntentState = {
+  LEFT:  { phase:'IDLE', ownerKey:null, ownerName:'-', secondaryKey:null, secondaryName:'-', secondaryTask:'-', targetX:null, reason:'-', frame:-1, touchFrame:-1, hits:0 },
+  RIGHT: { phase:'IDLE', ownerKey:null, ownerName:'-', secondaryKey:null, secondaryName:'-', secondaryTask:'-', targetX:null, reason:'-', frame:-1, touchFrame:-1, hits:0 }
+};
+function aiSlotKey(player){ return player ? (player.slotKey || `slot${player.slotIndex}`) : null; }
+function pushAIBrainTrace(side, event, detail='') {
+  aiBrainTrace.unshift({ side, event, detail, frame:gameFrame });
+  if (aiBrainTrace.length > 20) aiBrainTrace.length = 20;
+}
+function flagAIBug(side, code, detail='') {
+  const last = aiBugFlags[0];
+  if (last && last.code===code && last.side===side && gameFrame-last.frame<15) return;
+  aiBugFlags.unshift({ side, code, detail, frame:gameFrame });
+  if (aiBugFlags.length > 12) aiBugFlags.length = 12;
+  pushAIBrainTrace(side, `BUG? ${code}`, detail);
+}
+function setAITeamIntent(side, phase, owner, secondary, targetX, reason, hits, secondaryTask='-') {
+  const state = aiTeamIntentState[side];
+  const ownerKey = aiSlotKey(owner), secondaryKey = aiSlotKey(secondary);
+  const changed = state.phase!==phase || state.ownerKey!==ownerKey || state.touchFrame!==match.lastTouchFrame;
+  state.phase=phase; state.ownerKey=ownerKey; state.ownerName=owner?owner.name:'-';
+  state.secondaryKey=secondaryKey; state.secondaryName=secondary?secondary.name:'-'; state.secondaryTask=secondaryTask||'-';
+  state.targetX=Number.isFinite(targetX)?targetX:null; state.reason=reason||'-'; state.frame=gameFrame;
+  state.touchFrame=match.lastTouchFrame; state.hits=hits;
+  if (changed) pushAIBrainTrace(side, `${phase} -> ${state.ownerName}`, `${reason||'-'} | hits=${hits} | touch=${match.lastTouchFrame}`);
+}
 // V17：真人接球診斷快照。只觀測，不改任何 K/L 判定或物理。
 let receiveDebugSeq = 0;
 let lastReceiveDebug = null;
@@ -184,7 +213,7 @@ class Player {
     this.reactionTimer = 0; this.despairTimer = 0; this.recheckDelay = 0;
     this.jumpExhaustion = 1.0; this.energy = 0; this.hasPlayedFullSound = false; this.energyReadyFlash = 0;
     this.depressedRallies = 0; this.excitedRallies = 0; this.roarMoodRallies = 0;
-    this.mudDebuffTimer = 0; this.mudDebuffRallies = 0; this.softWallRallies = 0;
+    this.mudDebuffTimer = 0; this.mudDebuffRallies = 0; this.softWallRallies = 0; this.softWallVfxAlpha = 0;
     this.godspeedCharges = 0; this.greaseDebuffRallies = 0; this.flowAbsorbRallies = 0;
     this.ghostTrail = [];
     this._nextFootstepFrame = 0;
@@ -339,6 +368,10 @@ dive() {
     if (this.despairTimer > 0) this.despairTimer--;
     if (this.recheckDelay > 0) this.recheckDelay--;
     if (this.mudDebuffTimer > 0) this.mudDebuffTimer--; // legacy visual timer only; V27 gameplay uses mudDebuffRallies
+    // V74-19 Gravity Soft Wall presentation: gameplay toggles immediately, field feathers in/out independently.
+    const softWallTargetAlpha = this.softWallRallies > 0 ? 1 : 0;
+    this.softWallVfxAlpha += (softWallTargetAlpha - this.softWallVfxAlpha) * (softWallTargetAlpha ? 0.14 : 0.09);
+    if (this.softWallVfxAlpha < 0.004) this.softWallVfxAlpha = 0;
 
 // 🌟 處理被重扣震退時的硬直與地板滑行摩擦力
     if (this.stunTimer > 0) {
@@ -574,7 +607,7 @@ const ball = {
   // V19: rally responsibility context. Physics contacts may change lastHitter; scoring attribution must not guess from it.
   lastAttackHitter: null, serveOriginServer: null, pointContext: null,
   opacity: 1.0, activeSkillTag: '', isSineFloat: false, sineTargetX: null, sineStartX: null, sineElapsed: 0, sineDuration: 0, sineAmplitude: 0, sineCycles: 0, isSkyComet: false, isPhantomDrop: false, glowColor: null,
-  isBungeeGum: false, bungeeTetherFrames: 0, bungeeTetherSlot: null, isGravityDrop: false, gravityDropTargetX: null, gravityDropTriggered: false, greaseCharges: 0, mudContaminationAvailable: false, steepexecCutAvailable: false, hasTossedFromGodspeed: false, skillOutcomeSfxPlayed: {},
+  isBungeeGum: false, bungeeTetherFrames: 0, bungeeTetherSlot: null, isGravityDrop: false, gravityDropTargetX: null, gravityDropTriggered: false, greaseCharges: 0, greaseSourceIsLeft: null, phantomRestoreFrames: 0, phantomWipeSourceIsLeft: null, kineticTrailFrames: 0, kineticIntensity: 0, kineticSourceIsLeft: null, mudContaminationAvailable: false, mudCharges: 0, mudSourceIsLeft: null, breakerSourceIsLeft: null, breakerImpactDone: false, breakerTrailFrames: 0, skySourceIsLeft: null, skyImpactDone: false, skyImpactFadeFrames: 0, skySonicSpawn: 0, softWallGlowFrames: 0, softWallGlowSideIsLeft: null, steepexecCutAvailable: false, hasTossedFromGodspeed: false, skillOutcomeSfxPlayed: {},
   phantomGhostFrames: 0, timeLagFrames: 0, timeLagStoredVx: 0, timeLagStoredVy: 0, ironWallBounceFrames: 0, deepWaterActive: false, stormTrailFrames: 0,
   floatPhase: 0, floatDrift: 0, ufoNeutralRelease: false,
 
@@ -584,7 +617,7 @@ const ball = {
     this.isBrokenSpike = false; this.isUltimate = false; this.isTopspin = false; this.topspinRating = 0.5;
     this.armorPiercing = 0; this.lastHitter = null; this.lastAttackHitter = null; this.venueNeutralLive = false; this.serveOriginServer = null; this.pointContext = null;
     this.opacity = 1.0; this.activeSkillTag = ''; this.isSineFloat = false; this.sineTargetX = null; this.sineStartX = null; this.sineElapsed = 0; this.sineDuration = 0; this.sineAmplitude = 0; this.sineCycles = 0; this.isSkyComet = false; this.isPhantomDrop = false; this.glowColor = null;
-    this.isBungeeGum = false; this.bungeeTetherFrames = 0; this.bungeeTetherSlot = null; this.isGravityDrop = false; this.gravityDropTargetX = null; this.gravityDropTriggered = false; this.greaseCharges = 0; this.mudContaminationAvailable = false; this.steepexecCutAvailable = false; this.hasTossedFromGodspeed = false; this.skillOutcomeSfxPlayed = {};
+    this.isBungeeGum = false; this.bungeeTetherFrames = 0; this.bungeeTetherSlot = null; this.isGravityDrop = false; this.gravityDropTargetX = null; this.gravityDropTriggered = false; this.greaseCharges = 0; this.greaseSourceIsLeft = null; this.phantomRestoreFrames = 0; this.phantomWipeSourceIsLeft = null; this.kineticTrailFrames = 0; this.kineticIntensity = 0; this.kineticSourceIsLeft = null; this.mudContaminationAvailable = false; this.mudCharges = 0; this.mudSourceIsLeft = null; this.breakerSourceIsLeft = null; this.breakerImpactDone = false; this.breakerTrailFrames = 0; this.skySourceIsLeft = null; this.skyImpactDone = false; this.skyImpactFadeFrames = 0; this.skySonicSpawn = 0; this.softWallGlowFrames = 0; this.softWallGlowSideIsLeft = null; this.steepexecCutAvailable = false; this.hasTossedFromGodspeed = false; this.skillOutcomeSfxPlayed = {};
     this.phantomGhostFrames = 0; this.timeLagFrames = 0; this.timeLagStoredVx = 0; this.timeLagStoredVy = 0; this.ironWallBounceFrames = 0; this.deepWaterActive=false; this.stormTrailFrames=0;
     this.floatPhase = 0; this.floatDrift = 0; this.ufoNeutralRelease = false;
     this.vx = 0; this.vy = 0; match.leftHits = 0; match.rightHits = 0; match.isBlockedBack = false;
@@ -724,7 +757,15 @@ function receiveEnergyReward(player, ballSpeed, isPerfect){
 }
 
 function executePlayerTimingReceive(player, isCover = false, receiveSource = 'K') {
-  if (ball.isIronWallSlam) return; // 🌟 必殺下釘不可接起
+  if (ball.isIronWallSlam) return;
+  // V74-21 Phantom Wipe: a receive/dive can commit to the decoy. The fake reacts, but never enters volleyball rules.
+  if (typeof phantomDecoys !== 'undefined' && phantomDecoys.length) {
+    const py=player.y-player.radius;
+    let best=null,bestDist=Infinity;
+    for(const d of phantomDecoys){if(d.fade>0||d.sourceIsLeft===player.isLeft)continue;const dd=Math.hypot(player.x-d.x,py-d.y);if(dd<bestDist){best=d;bestDist=dd;}}
+    const realDist=Math.hypot(player.x-ball.x,py-ball.y);
+    if(best && bestDist<76 && (realDist>76 || bestDist<realDist)){best.fade=12;visualEffects.push({type:'phantom_dissolve',x:best.x,y:best.y,life:14,maxLife:14});playSound('bump');pushCallout(player.x,player.y-45,'PHANTOM!!','#a78bfa');return;}
+  } // 🌟 必殺下釘不可接起
   if (isNaN(ball.x) || isNaN(ball.y)) return;
   if (isNaN(ball.x) || isNaN(ball.y)) return;
   const shoulderX = player.x, shoulderY = player.y - player.radius;
@@ -735,7 +776,7 @@ function executePlayerTimingReceive(player, isCover = false, receiveSource = 'K'
   if (ball.isSkyComet) extraDefPenalty += 20.0; 
   // V27 落日正弦的難度來自誇張滯空/漂移，不再靠隱形 Pressure 懲罰接球。
   if (ball.isPhantomDrop) extraDefPenalty += 16.0; 
-  if (player.greaseDebuffRallies > 0) { extraDefPenalty += 8.0; playSkillAsset('SFX/skills/油滑脫手.wav',1.0); }
+  if (player.greaseDebuffRallies > 0) { playSkillAsset('SFX/skills/油滑脫手.wav',1.0); }
 
 // 🌟 修正：因為 recordTouch 剛把 lastHitter 改成自己，所以只要前一擊或不是自接，就是對手的來球！
   const isOpponentBall = player._receiveIncomingOpponent === true;
@@ -750,7 +791,6 @@ function executePlayerTimingReceive(player, isCover = false, receiveSource = 'K'
     ((chronoCasterSide === 'player' && !player.isLeft) || (chronoCasterSide === 'enemy' && player.isLeft));
   if (chronoVictimReceive) releaseChronoBulletTime('first-receive');
 
-  if(isOpponentBall && ball.activeSkillTag==='天際墜石' && !ball.skillOutcomeSfxPlayed?.sky){ ball.skillOutcomeSfxPlayed=ball.skillOutcomeSfxPlayed||{}; ball.skillOutcomeSfxPlayed.sky=true; playSkillAsset('SFX/skills/sky_2.wav',1.0); }
   if(ball.activeSkillTag==='深海重砲' && !ball.skillOutcomeSfxPlayed?.deep){ ball.skillOutcomeSfxPlayed=ball.skillOutcomeSfxPlayed||{}; ball.skillOutcomeSfxPlayed.deep=true; ball.deepWaterActive=false; createWaterBurst(ball.x,ball.y); playSkillAsset('SFX/skills/deep_2.wav',1.0,{start:.04}); }
   if(isOpponentBall && ball.activeSkillTag==='時流差' && !ball.skillOutcomeSfxPlayed?.timeBurst){ ball.skillOutcomeSfxPlayed=ball.skillOutcomeSfxPlayed||{}; ball.skillOutcomeSfxPlayed.timeBurst=true; createTimeBurst(ball.x,ball.y); triggerScreenShake(7,8); }
   if (isOpponentBall && ball.activeSkillTag === '斷頭台下釘' && ball.steepexecCutAvailable) {
@@ -760,30 +800,25 @@ function executePlayerTimingReceive(player, isCover = false, receiveSource = 'K'
     triggerScreenShake(8,9);
   }
 
-  if (isOpponentBall && ball.greaseCharges > 0) {
-    ball.greaseCharges = 0;
-    player.greaseDebuffRallies = 3; playSkillAsset('SFX/skills/油滑脫手.wav',1.0);
-    pushCallout(player.x, player.y - 45, '油滑沾染 (DEF-8)!!', '#475569');
-    // V74-4 authored oil contact replaces generic dong.
+  // V74-21 Greased Ball: only a TARGET-SIDE first-pass style receive bursts the oil membrane.
+  // Blocks never consume it; a block-back received by the caster side is explicitly ignored.
+  if (ball.greaseCharges > 0 && ball.greaseSourceIsLeft !== null && player.isLeft !== ball.greaseSourceIsLeft) {
+    triggerGreaseBurst(ball.x, ball.y, ball.greaseSourceIsLeft);
   }
 
-  if (isOpponentBall && ball.activeSkillTag === '泥沼重扣' && ball.mudContaminationAvailable) {
-    ball.mudContaminationAvailable = false;
-    playSkillAsset('SFX/skills/泥沼重扣.wav',1.0);
-    allPlayers.filter(p => p.isLeft === player.isLeft).forEach(p => {
-      p.mudDebuffRallies = Math.max(p.mudDebuffRallies || 0, 3); // 當下不算，後續完整2 Rally
-      p.mudDebuffTimer = 45; // 僅視覺提示
-      createMudSplash(p.x, p.y - p.radius, 16);
-      pushCallout(p.x, p.y - p.radius * 2, 'TEAM MUD!!', '#78350f');
-    });
-  }
+  // V74-19 Mud contamination is handled centrally by processSkillContactPayload().
+
 
 let baseDef = player.stats.defense;
+  // V75-1 airborne cover is legal but less controlled than a planted K receive.
+  // This avoids the old all-or-nothing 'airborne receive forbidden' fix while preventing machine-perfect midair covers.
+  if (receiveSource === 'AIR_COVER') baseDef *= 0.82;
   const pPerks = (player.stats && player.stats.perks) ? player.stats.perks : {};
   const diveRatio = Math.min(0.85, 0.70 + (pPerks.diveDefBuff || 0));
   if (player.isDiving) baseDef *= diveRatio;
 
-  const effectiveDef = Math.max(0, baseDef - extraDefPenalty);
+  const greaseDefMult = player.greaseDebuffRallies > 0 ? 0.75 : 1.0;
+  const effectiveDef = Math.max(0, (baseDef * greaseDefMult) - extraDefPenalty);
   proMatchStats[player.slotKey].totalReceives++;
 
 // 🌟 只有「站立接球 (K 鍵)」且「對方打過來的球」才計算震退，L 魚躍 (isDiving) 嚴格排除！
@@ -1111,6 +1146,79 @@ function addCoins(amount, desc = '', spawnX = null, spawnY = null) {
   if (desc && !isPaused) statusSubtext.innerText = `🪙 +${amount} 幣 (${desc})!`;
 }
 
+// V74-19 unified skill-contact payloads. This runs only after recordTouch has accepted a legal volleyball touch.
+function processSkillContactPayload(hitter) {
+  if (!hitter) return;
+
+  // Mud Spike: exactly two enemy legal touches may carry contamination. Same player may consume both.
+  // Source-team touches never consume a charge, preventing the old block-back self-infection bug.
+  if (ball.mudCharges > 0 && ball.mudSourceIsLeft !== null && hitter.isLeft !== ball.mudSourceIsLeft) {
+    ball.mudCharges--;
+    ball.mudContaminationAvailable = ball.mudCharges > 0;
+    hitter.mudDebuffRallies = Math.max(hitter.mudDebuffRallies || 0, 3);
+    hitter.mudDebuffTimer = 45;
+    createMudSplash(ball.x, ball.y, ball.mudCharges > 0 ? 30 : 40);
+    visualEffects.push({type:'mud_burst',x:ball.x,y:ball.y,life:30,maxLife:30,heavy:ball.mudCharges===0});
+    playSkillAsset('SFX/skills/mud_hit.wav',1.0);
+    pushCallout(hitter.x, hitter.y - hitter.radius * 2, `MUD ${ball.mudCharges > 0 ? 'x1' : 'BREAK'}!!`, '#78350f');
+    if (ball.mudCharges <= 0) { ball.mudContaminationAvailable = false; ball.mudSourceIsLeft = null; }
+  }
+
+  // Time Lag: any legal opponent touch (receive / dive / cover / block) resolves the touch burst once.
+  if (ball.activeSkillTag === '時流差' && !ball.skillOutcomeSfxPlayed?.timeBurst && ball.lastAttackHitter && hitter.isLeft !== ball.lastAttackHitter.isLeft) {
+    ball.skillOutcomeSfxPlayed = ball.skillOutcomeSfxPlayed || {};
+    ball.skillOutcomeSfxPlayed.timeBurst = true;
+    createTimeBurst(ball.x, ball.y); triggerScreenShake(7,8);
+  }
+
+  // Siege Breaker: first enemy legal touch consumes only the attack presentation; physics already owns AP/speed.
+  if (ball.activeSkillTag === '破城重槌' && !ball.breakerImpactDone && ball.breakerSourceIsLeft !== null && hitter.isLeft !== ball.breakerSourceIsLeft) {
+    ball.breakerImpactDone = true; ball.breakerTrailFrames = 0;
+    visualEffects.push({type:'breaker_impact',x:ball.x,y:ball.y,life:16,maxLife:16,angle:Math.atan2(ball.vy,ball.vx)});
+    triggerScreenShake(6,7);
+  }
+
+  // Sky Comet: a successful defender touch is still a full meteor impact. SFX2/VFX are not downgraded.
+  if (ball.activeSkillTag === '天際墜石' && !ball.skyImpactDone && ball.skySourceIsLeft !== null && hitter.isLeft !== ball.skySourceIsLeft) {
+    triggerSkyCometImpact(ball.x, ball.y);
+  }
+
+  // V74-23 Phantom Wipe lifecycle: if the original attack reaches the target team without being blocked,
+  // the paid skill is over. It must never survive into the opponent's return attack and trigger on our later block.
+  if (ball.activeSkillTag === '幻影抹手' && ball.phantomWipeSourceIsLeft !== null && hitter.isLeft !== ball.phantomWipeSourceIsLeft) {
+    ball.activeSkillTag = '';
+    ball.phantomWipeSourceIsLeft = null;
+  }
+
+  // V74-23 Kinetic Counter: the borrowed-energy payload is consumed by the first legal opponent touch.
+  // The same impact VFX used on ground is emitted at the actual receive/contact point; ground remains fallback.
+  if (ball.activeSkillTag === '動能反噬' && ball.kineticSourceIsLeft !== null && hitter.isLeft !== ball.kineticSourceIsLeft) {
+    const I = ball.kineticIntensity || .3;
+    visualEffects.push({type:'kinetic_impact',x:ball.x,y:ball.y,life:28,maxLife:28,intensity:I});
+    createImpactSparks(ball.x,ball.y,16+Math.floor(I*24),'#fde68a');
+    triggerScreenShake(5+Math.floor(I*7),9);
+    ball.kineticTrailFrames=0; ball.kineticIntensity=0; ball.kineticSourceIsLeft=null; ball.activeSkillTag=''; ball.glowColor=null;
+  }
+
+  // Gravity Soft Wall one-touch leaves a white charged ball; the next teammate legal touch starts the fade.
+  if (ball.softWallGlowFrames > 12 && ball.softWallGlowSideIsLeft !== null && hitter.isLeft === ball.softWallGlowSideIsLeft) {
+    ball.softWallGlowFrames = 12;
+  }
+}
+
+function triggerSkyCometImpact(x,y){
+  if(ball.skyImpactDone) return;
+  ball.skyImpactDone=true;
+  stopSkillAsset('sky_comet_flight',.10);
+  playSkillAsset('SFX/skills/sky_2.wav',1.0,{start:.02});
+  visualEffects.push({type:'meteor_impact',x,y,life:24,maxLife:24});
+  visualEffects.push({type:'sonic_ring',x,y,life:18,maxLife:18,angle:Math.atan2(ball.vy,ball.vx),scale:1.45});
+  createImpactSparks(x,y,34,'#fff7d6');
+  triggerScreenShake(14,12);
+  ball.skyImpactFadeFrames=12;
+  ball.isSkyComet=false; // stop comet gravity immediately; renderer uses fade frames for the visual tail.
+}
+
 function recordTouch(hitter, isBlockTouch = false) {
   // V29 時流差：時間鎖定期間球不屬於可觸碰物件。Human / AI / Block 共用此閘門。
   if (ball.timeLagFrames > 0) return false;
@@ -1127,7 +1235,7 @@ function recordTouch(hitter, isBlockTouch = false) {
   }
 
   if (ball.isPhantomDrop && ball.lastHitter && ball.lastHitter.isLeft !== hitter.isLeft) {
-    ball.opacity = 1.0; ball.isPhantomDrop = false;
+    ball.isPhantomDrop = false; ball.phantomRestoreFrames = 20; visualEffects.push({type:'ghost_reform',x:ball.x,y:ball.y,life:24,maxLife:24});
   }
 
   // V18: ACE eligibility is independent from the old inServeRally pressure flag.
@@ -1166,6 +1274,9 @@ function recordTouch(hitter, isBlockTouch = false) {
   }
 
   const isAttacking = hitter.swingTimer > 0 || hitter.thrustTimer > 0;
+  // V75-1: remember the actual attack-contact frame. AI may still make an airborne emergency cover later,
+  // but never with zero-frame post-spike precision. This is observational state only; it does not alter ball physics.
+  if (isAttacking) hitter._lastAttackContactFrame = gameFrame;
   const isOpponentBall = (ball.lastHitter && ball.lastHitter.isLeft !== hitter.isLeft);
 
   const isHuman = (typeof isSlotHumanControlled === 'function') ? isSlotHumanControlled(hitter) : hitter.isLocallyControlled;
@@ -1180,6 +1291,7 @@ function recordTouch(hitter, isBlockTouch = false) {
     hitter.hasBlockSelfHitPrivilege = true;
     hitter.addEnergy(25);
     proMatchStats[hitter.slotKey].totalBlocks++;
+    processSkillContactPayload(hitter);
     return true; 
   }
 
@@ -1213,6 +1325,8 @@ function recordTouch(hitter, isBlockTouch = false) {
   if(match.assistAttackActor && ball.lastHitter && ball.lastHitter.isLeft!==match.assistAttackActor.isLeft && hitter.isLeft===ball.lastHitter.isLeft){
     match.assistCandidate=null; match.assistAttackActor=null;
   }
+
+  processSkillContactPayload(hitter);
 
   // V19: remember the real server independently from later receive/block touches.
   if (match.inServeRally && serveState.currentServer === hitter && !ball.serveOriginServer) ball.serveOriginServer = hitter;
@@ -1932,11 +2046,18 @@ function handleServeSpike(actor) {
 
   if (isCometSkill) {
     ball.isSkyComet = true; ball.activeSkillTag = '天際墜石'; ball.armorPiercing = 7.5; ball.glowColor = '#facc15';
-    const targetX = actor.isLeft ? (WORLD.NET_X + 120 + Math.random() * 260) : (WORLD.NET_X - 120 - Math.random() * 260);
-    const effGravity = WORLD.GRAVITY * 1.8, reqVy = -22.5; 
-    const tUp = Math.abs(reqVy) / effGravity, tDown = Math.sqrt((2 * (WORLD.FLOOR_Y - 90)) / effGravity);
-    ball.vx = (targetX - ball.x) / (tUp + tDown); ball.vy = reqVy;
-    playSound('perfect_spike'); triggerScreenShake(12, 12); createImpactSparks(ball.x, ball.y, 20, '#facc15');
+    ball.skySourceIsLeft=actor.isLeft; ball.skyImpactDone=false; ball.skyImpactFadeFrames=0; ball.skySonicSpawn=3;
+    const courtMin = actor.isLeft ? WORLD.NET_X + 125 : WORLD.LEFT + 90;
+    const courtMax = actor.isLeft ? WORLD.RIGHT - 90 : WORLD.NET_X - 125;
+    const rawTarget = actor.isLeft ? (WORLD.NET_X + 150 + Math.random() * 235) : (WORLD.NET_X - 150 - Math.random() * 235);
+    const targetX = Math.max(Math.min(courtMin,courtMax), Math.min(Math.max(courtMin,courtMax), rawTarget));
+    const effGravity = WORLD.GRAVITY * 1.55, launchUp = 27.5;
+    const rise = (launchUp*launchUp)/(2*effGravity), apexY = ball.y - rise, targetY = WORLD.FLOOR_Y - ball.radius;
+    const tUp = launchUp/effGravity, tDown = Math.sqrt(Math.max(1,2*(targetY-apexY)/effGravity));
+    ball.vx = (targetX - ball.x) / Math.max(1,tUp+tDown); ball.vy = -launchUp;
+    hitStopFrames = Math.max(hitStopFrames,3);
+    visualEffects.push({type:'sonic_ring',x:ball.x,y:ball.y,life:18,maxLife:18,angle:Math.atan2(ball.vy,ball.vx),scale:1.0});
+    playSound('perfect_spike'); triggerScreenShake(12, 12); createImpactSparks(ball.x, ball.y, 24, '#fff7d6');
     pushCallout(actor.x, actor.y - actor.radius * 2 - 15, '天際墜石 (SKY COMET)!!', '#facc15');
     pendingCoinReward = 3; pendingCoinReason = 'SKY COMET';
   } else if (!actor.isGrounded) {
@@ -2098,7 +2219,7 @@ function handleUserAttack(actor) {
       ball.topspinRating += (currentSkill.extraDown || 0);
       ball.activeSkillTag = currentSkill.name; ball.glowColor = currentSkill.glowColor || '#ef4444';
 
-      if (currentSkill.id === 'sk_breaker') { ball.vx *= 1.03; ball.vy = 10.5; ball.armorPiercing += 5.0; }
+      if (currentSkill.id === 'sk_breaker') { ball.vx *= 1.03; ball.vy = 10.5; ball.armorPiercing += 5.0; ball.breakerSourceIsLeft=actor.isLeft; ball.breakerImpactDone=false; ball.breakerTrailFrames=90; }
       if (currentSkill.id === 'sk_deep_impact') { ball.vx *= 1.16; ball.vy = 4.8; ball.deepWaterActive = true; }
       if (currentSkill.id === 'sk_steepexec') { ball.vx *= 0.82; ball.vy = 18.5; ball.steepexecCutAvailable = true; visualEffects.push({type:'blade_slash',x:ball.x,y:ball.y,angle:Math.atan2(ball.vy,ball.vx),life:12,maxLife:12,scale:1.0}); }
       if (currentSkill.id === 'sk_bungee_gum') ball.isBungeeGum = true;
@@ -2107,8 +2228,8 @@ function handleUserAttack(actor) {
         const halfSpan = WORLD.RIGHT - WORLD.NET_X;
         ball.gravityDropTargetX = actor.isLeft ? WORLD.NET_X + halfSpan * (0.10 + Math.random() * 0.80) : WORLD.NET_X - halfSpan * (0.10 + Math.random() * 0.80);
       }
-      if (currentSkill.id === 'sk_greased_ball') ball.greaseCharges = 1;
-      if (currentSkill.id === 'sk_mud_spike') ball.mudContaminationAvailable = true;
+      if (currentSkill.id === 'sk_greased_ball') { ball.greaseCharges = 1; ball.greaseSourceIsLeft = actor.isLeft; }
+      if (currentSkill.id === 'sk_mud_spike') { ball.mudContaminationAvailable = true; ball.mudCharges = 2; ball.mudSourceIsLeft = actor.isLeft; }
       if (currentSkill.id === 'sk_time_lag') {
         // V29：擊球瞬間即完成 Touch，但 Ball Launch 延後。鎖定期間完全不可觸球。
         ball.timeLagStoredVx = ball.vx; ball.timeLagStoredVy = ball.vy;
@@ -2176,7 +2297,7 @@ function handleUserThrust(actor) {
   const isPhantomDrop = (hits === 2) && actor.consumeSkill('SET_ATTACK');
 
   if (isPhantomDrop) {
-    ball.isPhantomDrop = true; ball.phantomGhostFrames = 12; ball.opacity = 0.05; ball.activeSkillTag = '幽靈吊球'; ball.glowColor = null;
+    ball.isPhantomDrop = true; ball.phantomGhostFrames = 16; ball.phantomRestoreFrames = 0; ball.opacity = 0.05; ball.activeSkillTag = '幽靈吊球'; ball.glowColor = null; visualEffects.push({type:'phantom_shell',x:ball.x,y:ball.y,life:16,maxLife:16,radius:ball.radius});
     const targetX = WORLD.NET_X + (actor.facing * 130), effGravity = WORLD.GRAVITY * 0.72, apexY = WORLD.NET_TOP_Y - 30;
     const deltaY = Math.max(10, ball.y - apexY), reqVy = -Math.sqrt(2 * effGravity * deltaY);
     const tUp = Math.abs(reqVy) / effGravity, tDown = Math.sqrt((2 * (WORLD.FLOOR_Y - apexY)) / effGravity);
@@ -2193,8 +2314,8 @@ function handleUserThrust(actor) {
     ball.vy = 0.5; ball.activeSkillTag = '伸縮自在的愛'; ball.glowColor = '#f472b6';
     pushCallout(actor.x, actor.y - actor.radius * 2 - 15, '伸縮自在的愛!!', '#f472b6');
   } else if (isPhantomThrust) {
-    ball.vy = 0.2; ball.activeSkillTag = '幻影抹手'; ball.glowColor = '#10b981';
-    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, `${currentSkill.name}!!`, '#10b981');
+    ball.vy = 0.2; ball.activeSkillTag = '幻影抹手'; ball.phantomWipeSourceIsLeft = actor.isLeft; ball.glowColor = null;
+    pushCallout(actor.x, actor.y - actor.radius * 2 - 15, `${currentSkill.name}!!`, '#a78bfa');
   } else if (verticalDelta < -15) {
     ball.vy = -3.2; pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'PUSH DEEP!', '#38bdf8');
   } else if (verticalDelta >= -15 && verticalDelta <= 15) {
@@ -2329,11 +2450,14 @@ function updateVisualEffectsOnly() {
     } else if (fx.type === 'skin_mote') {
       fx.x += fx.vx; fx.y += fx.vy; fx.life--;
       if (fx.life <= 0) visualEffects.splice(i, 1);
-    } else if (fx.type==='water_drop') {fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=.08;fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (fx.type==='wind_trail') {fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (fx.type==='solar_filament') {fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=.025;fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (['water_burst','storm_burst','roar_wave','time_burst','time_collapse','blade_slash','thunder_arc','gravity_arc','solar_burst','gum_snap'].includes(fx.type)) { fx.life--; if(fx.life<=0) visualEffects.splice(i,1); }
+    } else if (fx.type==='water_drop') {fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=.08;fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (fx.type==='wind_trail') {fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (fx.type==='solar_filament') {fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=.025;fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (['water_burst','storm_burst','roar_wave','time_burst','time_collapse','blade_slash','thunder_arc','gravity_arc','solar_burst','gum_snap','mud_burst','breaker_wake','breaker_impact','sonic_ring','meteor_trail','meteor_impact','soft_wall_touch','grease_burst','phantom_shell','ghost_reform','phantom_split','phantom_dissolve','kinetic_absorb','kinetic_release','kinetic_impact','kinetic_trail','grease_splatter'].includes(fx.type)) { fx.life--; if(fx.life<=0) visualEffects.splice(i,1); }
   }
 }
 
 function handlePhysics() {
+  updatePhantomDecoys();
+  if(ball.kineticTrailFrames>0 && ball.activeSkillTag==='動能反噬'){ball.kineticTrailFrames--;if(gameFrame%2===0)visualEffects.push({type:'kinetic_trail',x:ball.x,y:ball.y,vx:ball.vx,vy:ball.vy,life:12,maxLife:12,intensity:ball.kineticIntensity||.3});}
+  if(ball.phantomRestoreFrames>0){const total=20;ball.phantomRestoreFrames--;ball.opacity=0.05+0.95*(1-ball.phantomRestoreFrames/total);if(ball.phantomRestoreFrames<=0)ball.opacity=1;}
   if (banner.active || isSettlementOpen) {
     if (banner.active) {
       banner.timer--;
@@ -2480,7 +2604,7 @@ function handlePhysics() {
     visualEffects.push({type:'solar_filament',x:ball.x-ball.vx*.35,y:ball.y-ball.vy*.25,vx:-ball.vx*.035+(Math.random()-.5)*.4,vy:.35+Math.random()*.55,life:24,maxLife:24,size:1.5+Math.random()*2.5});
   }
 
-  if (ball.activeSkillTag === '泥沼重扣' && gameFrame % 2 === 0) {
+  if (ball.mudCharges > 0 && gameFrame % 2 === 0) {
     visualEffects.push({
       type: 'mud_drop', x: ball.x, y: ball.y,
       vx: -ball.vx * 0.15 + (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2,
@@ -2488,10 +2612,25 @@ function handlePhysics() {
     });
   }
 
+  // V74-19 authored attack trails.
+  if (ball.activeSkillTag === '破城重槌' && (ball.breakerTrailFrames||0)>0 && !ball.breakerImpactDone) {
+    ball.breakerTrailFrames--;
+    if(gameFrame%2===0) visualEffects.push({type:'breaker_wake',x:ball.x,y:ball.y,vx:ball.vx,vy:ball.vy,life:12,maxLife:12});
+  }
+  if ((ball.isSkyComet || (ball.skyImpactFadeFrames||0)>0) && !ball.skyImpactDone) {
+    if(gameFrame%2===0) visualEffects.push({type:'meteor_trail',x:ball.x,y:ball.y,vx:ball.vx,vy:ball.vy,life:16,maxLife:16});
+    if((ball.skySonicSpawn||0)>0 && gameFrame%3===0){
+      visualEffects.push({type:'sonic_ring',x:ball.x-ball.vx*.55,y:ball.y-ball.vy*.55,life:16,maxLife:16,angle:Math.atan2(ball.vy,ball.vx),scale:1+(3-ball.skySonicSpawn)*.16});
+      ball.skySonicSpawn--;
+    }
+  }
+  if((ball.skyImpactFadeFrames||0)>0){ball.skyImpactFadeFrames--; if(ball.skyImpactFadeFrames<=0 && ball.activeSkillTag==='天際墜石'){ball.activeSkillTag='';ball.glowColor=null;}}
+  if((ball.softWallGlowFrames||0)>0 && ball.softWallGlowFrames<900) ball.softWallGlowFrames--;
+
   if (ball.isSineFloat) effGravity *= 0.45;
 
   if (ball.isSkyComet) {
-    effGravity = WORLD.GRAVITY * 1.8;
+    effGravity = WORLD.GRAVITY * 1.55;
     if (ball.vy > 0) ball.vy = Math.min(39.5, ball.vy + 0.8);
   }
 
@@ -2534,7 +2673,7 @@ function handlePhysics() {
   }
 
   if (ball.phantomGhostFrames > 0) ball.phantomGhostFrames--;
-  ball.opacity = ball.isPhantomDrop ? (ball.y > WORLD.FLOOR_Y - 70 ? Math.min(1.0, ball.opacity + 0.18) : 0.05) : 1.0;
+  if(ball.isPhantomDrop) ball.opacity=0.05; else if(ball.phantomRestoreFrames<=0) ball.opacity=1.0;
 
   const currentSpeed = Math.hypot(ball.vx, ball.vy);
   if (currentSpeed > maxRecordedSpeed) maxRecordedSpeed = currentSpeed;
@@ -2608,6 +2747,7 @@ function handlePhysics() {
       if (isEligibleBlock && !ball.isPhantomDrop && !phantomEarlyGhost && getDist(p) < blockContactReach) {
         // 保留攔網前的原攻擊者；recordTouch(p, true) 會把 ball.lastHitter 改成攔網者。
         const attackingHitter = ball.lastHitter;
+        const isPhantomWipeContact = ball.activeSkillTag === '幻影抹手' && ball.phantomWipeSourceIsLeft !== null && attackingHitter && attackingHitter.isLeft === ball.phantomWipeSourceIsLeft && p.isLeft !== ball.phantomWipeSourceIsLeft;
         recordTouch(p, true);
         p.isBlocking = false; p.wantsToBlock = false; match.isBlockedBack = true;
         if (p.isLeft) match.rightHits = 0; else match.leftHits = 0;
@@ -2617,16 +2757,8 @@ function handlePhysics() {
 
         if (attackingHitter && attackingHitter.isLeft !== p.isLeft) {
           // 油滑脫手：攔網不消耗污染機會；只在真正 Receive 時觸發。
-          if (ball.activeSkillTag === '泥沼重扣' && ball.mudContaminationAvailable) {
-            ball.mudContaminationAvailable = false;
-            playSkillAsset('SFX/skills/泥沼重扣.wav',1.0);
-            allPlayers.filter(m => m.isLeft === p.isLeft).forEach(m => {
-              m.mudDebuffRallies = Math.max(m.mudDebuffRallies || 0, 3);
-              m.mudDebuffTimer = 45;
-              createMudSplash(m.x, m.y - m.radius, 14);
-              pushCallout(m.x, m.y - m.radius * 2, 'TEAM MUD!!', '#78350f');
-            });
-          }
+          // V74-19 Mud block contamination is handled by recordTouch/processSkillContactPayload.
+
         }
 
         let isFingertip = false, isToolOut = false;
@@ -2696,9 +2828,15 @@ const isIronWall = (p.stats.skill.id === 'sk_iron_wall') && p.consumeSkill('BLOC
           if (Math.sign(ball.vx) !== opponentDir) ball.vx = opponentDir * Math.max(2.5, Math.abs(ball.vx));
           ball.vy = -launchUp;
           ball.isSpiked = true; ball.isPerfectSpike = false; ball.isUltimate = true; ball.isTopspin = false;
-          ball.armorPiercing = Math.min(10, borrowed * 0.22); ball.activeSkillTag = '動能反噬'; ball.glowColor = '#fb7185';
-          createShockwave(ball.x, ball.y, '#fb7185'); triggerScreenShake(Math.min(16, 6 + borrowed * 0.28), 10);
-          pushCallout(p.x, p.y - p.radius * 2, '動能反噬・借力反攻!!', '#fb7185');
+          ball.armorPiercing = Math.min(10, borrowed * 0.22); ball.activeSkillTag = '動能反噬'; ball.kineticSourceIsLeft = p.isLeft; ball.glowColor = '#f8fafc';
+          ball.kineticTrailFrames = 180;
+          const kineticIntensity = Math.max(0.18, Math.min(1, borrowed / 28));
+          ball.kineticIntensity = kineticIntensity;
+          visualEffects.push({type:'kinetic_absorb',x:ball.x,y:ball.y,life:18,maxLife:18,intensity:kineticIntensity,angle:Math.atan2(incomingVy, ball.vx)});
+          visualEffects.push({type:'kinetic_release',x:ball.x,y:ball.y,life:24,maxLife:24,intensity:kineticIntensity});
+          createShockwave(ball.x, ball.y, '#f8fafc'); createImpactSparks(ball.x,ball.y,18+Math.floor(kineticIntensity*24),'#fde68a');
+          triggerScreenShake(Math.min(17, 6 + borrowed * 0.32), 11);
+          pushCallout(p.x, p.y - p.radius * 2, '動能反噬・借力反攻!!', '#fde68a');
           return;
         }
 
@@ -2706,17 +2844,15 @@ const isIronWall = (p.stats.skill.id === 'sk_iron_wall') && p.consumeSkill('BLOC
           playSkillAsset('SFX/skills/soft_wall.wav',1.0);
           ball.vx = (p.isLeft ? -1 : 1) * 3.5; ball.vy = -12.5;
           ball.isSpiked = false; ball.isPerfectSpike = false; ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
+          ball.softWallGlowFrames = 999; ball.softWallGlowSideIsLeft = p.isLeft;
+          visualEffects.push({type:'soft_wall_touch',x:ball.x,y:ball.y,life:14,maxLife:14});
           pushCallout(p.x, p.y - p.radius * 2, '引力柔網!!', '#2dd4bf');
           return;
         }
 
         if (ball.isTacticalThrust) {
-          const rand = Math.random();
-          if (ball.activeSkillTag === '幻影抹手') {
-            if (rand < 0.50) isToolOut = true; else isFingertip = true;
-          } else {
-            if (rand < 0.65) isFingertip = true; else if (rand < 0.85) isToolOut = true;
-          }
+          if (isPhantomWipeContact) { isFingertip = true; }
+          else { const rand = Math.random(); if (rand < 0.65) isFingertip = true; else if (rand < 0.85) isToolOut = true; }
         } else {
           isFingertip = (ball.y <= handTopY + 14);
         }
@@ -2770,7 +2906,7 @@ pushCallout(p.x, p.y - p.radius * 2, 'BROKEN!!', '#ef4444');
           playSound('bump'); pushCallout(p.x, p.y - p.radius * 2 - 15, 'TOOL OUT SUCCESS!!', '#10b981');
         
         } else if (isFingertip) {
-          if (ball.activeSkillTag === '幻影抹手' && ball.lastHitter) ball.lastHitter.refundEnergy(0.5);
+          
           const retainRatio = Math.max(0.25, 0.65 - (p.stats.technique * 0.22) - (p.stats.defense * 0.005));
           // V5：普通 ONE TOUCH 只能卸力／改向，不得替慢球注入最低速度。
           // 水平與垂直都只保留來球的一部分；極慢球會真的變成緩球。
@@ -2781,8 +2917,8 @@ pushCallout(p.x, p.y - p.radius * 2, 'BROKEN!!', '#ef4444');
         } else {
           p.addEnergy(20); proMatchStats[p.slotKey].roofKills++;
           pushCallout(p.x, p.y - 45, 'ROOF +20 能量!', '#facc15');
-          if (ball.activeSkillTag === '幻影抹手' && ball.lastHitter) ball.lastHitter.refundEnergy(0.5);
-          if (ball.isPhantomDrop) { ball.opacity = 1.0; ball.isPhantomDrop = false; }
+          
+          if (ball.isPhantomDrop) { ball.isPhantomDrop = false; ball.phantomRestoreFrames = 20; visualEffects.push({type:'ghost_reform',x:ball.x,y:ball.y,life:24,maxLife:24}); }
 
           const strVal = (p.stats && Number.isFinite(p.stats.str)) ? p.stats.str : 20;
           const reboundRatio = 0.65 + (strVal * 0.006);
@@ -2797,6 +2933,12 @@ pushCallout(p.x, p.y - p.radius * 2, 'BROKEN!!', '#ef4444');
           createImpactSparks(ball.x, ball.y, 16, '#facc15');
 distributeCoins(p, 3, 'MONSTER BLOCK', p.x, p.y - p.radius * 2);
           pushCallout(p.x, p.y - p.radius * 2 - 15, 'ROOF BLOCK!!', '#facc15');
+        }
+        // V74-23 Phantom Wipe: the illusion is born only AFTER a real block-hand contact.
+        // Real/fake balls leave the same contact point at different reflection angles, compressing back-row reaction time.
+        if (isPhantomWipeContact) {
+          spawnPhantomDecoyFromBlock(ball, attackingHitter, p, incomingSpeed);
+          ball.activeSkillTag = ''; ball.phantomWipeSourceIsLeft = null;
         }
       }
     });
@@ -2849,8 +2991,12 @@ p.diveTouched = true;
     if (ball.isPerfectSpike || ball.isSkyComet) { 
       triggerScreenShake(10, 12); createShockwave(ball.x, WORLD.FLOOR_Y, '#ef4444'); 
     }
-    if(ball.activeSkillTag==='泥沼重扣' && ball.mudContaminationAvailable){ball.mudContaminationAvailable=false;playSkillAsset('SFX/skills/泥沼重扣.wav',1.0);}
-    if(ball.activeSkillTag==='天際墜石' && !ball.skillOutcomeSfxPlayed?.sky){ ball.skillOutcomeSfxPlayed=ball.skillOutcomeSfxPlayed||{}; ball.skillOutcomeSfxPlayed.sky=true; playSkillAsset('SFX/skills/sky_2.wav',1.0); }
+    if(ball.isPhantomDrop){ball.isPhantomDrop=false;ball.phantomRestoreFrames=20;visualEffects.push({type:'ghost_reform',x:ball.x,y:_ballFloorY-ball.radius,life:24,maxLife:24});}
+    if(ball.greaseCharges>0 && ball.greaseSourceIsLeft!==null){triggerGreaseBurst(ball.x,_ballFloorY-ball.radius,ball.greaseSourceIsLeft);}
+        if(ball.mudCharges>0){createMudSplash(ball.x,_ballFloorY-ball.radius,36);visualEffects.push({type:'mud_burst',x:ball.x,y:_ballFloorY-ball.radius,life:32,maxLife:32,heavy:true});ball.mudCharges=0;ball.mudContaminationAvailable=false;ball.mudSourceIsLeft=null;playSkillAsset('SFX/skills/mud_hit.wav',1.0);}
+    if(ball.activeSkillTag==='天際墜石' && !ball.skyImpactDone){triggerSkyCometImpact(ball.x,_ballFloorY-ball.radius);}
+    if(ball.activeSkillTag==='動能反噬'){visualEffects.push({type:'kinetic_impact',x:ball.x,y:_ballFloorY-ball.radius,life:28,maxLife:28,intensity:ball.kineticIntensity||.3});createImpactSparks(ball.x,_ballFloorY-ball.radius,16+Math.floor((ball.kineticIntensity||.3)*24),'#fde68a');triggerScreenShake(5+Math.floor((ball.kineticIntensity||.3)*7),9);ball.kineticTrailFrames=0;ball.kineticIntensity=0;ball.kineticSourceIsLeft=null;ball.activeSkillTag='';ball.glowColor=null;}
+    if(ball.activeSkillTag==='幻影抹手'){ball.activeSkillTag='';ball.phantomWipeSourceIsLeft=null;}
     if(ball.activeSkillTag==='深海重砲' && !ball.skillOutcomeSfxPlayed?.deep){ ball.skillOutcomeSfxPlayed=ball.skillOutcomeSfxPlayed||{}; ball.skillOutcomeSfxPlayed.deep=true; ball.deepWaterActive=false; createWaterBurst(ball.x,ball.y); playSkillAsset('SFX/skills/deep_2.wav',1.0,{start:.04}); }
     if(ball.activeSkillTag==='落日正弦' && !ball.skillOutcomeSfxPlayed?.solarResolved){ ball.skillOutcomeSfxPlayed=ball.skillOutcomeSfxPlayed||{}; ball.skillOutcomeSfxPlayed.solarResolved=true; visualEffects.push({type:'solar_burst',x:ball.x,y:_ballFloorY-ball.radius,life:18,maxLife:18}); ball.activeSkillTag=''; ball.glowColor=null; ball.isSineFloat=false; ball.isFloat=false; ball.sineTargetX=null; }
     if(ball.activeSkillTag==='時流差' && !ball.skillOutcomeSfxPlayed?.timeBurst){ball.skillOutcomeSfxPlayed=ball.skillOutcomeSfxPlayed||{};ball.skillOutcomeSfxPlayed.timeBurst=true;createTimeBurst(ball.x,_ballFloorY-ball.radius);triggerScreenShake(7,8);}
@@ -2942,14 +3088,71 @@ function createImpactSparks(x, y, count = 8, color = '#facc15') {
     }
   }
 }
+
+// V74-21 oil membrane burst: one-shot area contamination. Only the original target team can be stained.
+function triggerGreaseBurst(x,y,sourceIsLeft){
+  if(ball.greaseCharges<=0 || sourceIsLeft===null || sourceIsLeft===undefined) return false;
+  const splashRadius=150;
+  const targetIsLeft=!sourceIsLeft;
+  ball.greaseCharges=0;
+  // VFX radius == gameplay radius. The outer amber ring is the actual contamination boundary.
+  visualEffects.push({type:'grease_burst',x,y,life:42,maxLife:42,radius:splashRadius});
+  createImpactSparks(x,y,18,'#d97706');
+  let hitCount=0;
+  for(const p of allPlayers){
+    if(p.isLeft!==targetIsLeft) continue;
+    // Measure from burst center to the player's visible body center, matching what the player sees.
+    const bodyY=p.y-p.radius;
+    const dist=Math.hypot(p.x-x,bodyY-y);
+    if(dist<=splashRadius){
+      p.greaseDebuffRallies=Math.max(p.greaseDebuffRallies||0,3);
+      visualEffects.push({type:'grease_splatter',x:p.x,y:bodyY,life:30,maxLife:30});
+      pushCallout(p.x,p.y-45,'油滑沾染 (DEF-25%)!!','#d97706');
+      hitCount++;
+    }
+  }
+  playSkillAsset('SFX/skills/油滑脫手.wav',1.0);
+  triggerScreenShake(3,5);
+  ball.greaseSourceIsLeft=null;
+  ball.glowColor=null;
+  return hitCount>0;
+}
+
+const phantomDecoys=[];
+function spawnPhantomDecoyFromBlock(src,actor,blocker,incomingSpeed){
+  if(!actor) return;
+  const speed=Math.max(7.5,Math.hypot(src.vx,src.vy));
+  const realAngle=Math.atan2(src.vy,src.vx);
+  // Randomize which side the fake peels toward; never encode a fixed 'high fake / low real' tell.
+  const side=Math.random()<.5?-1:1;
+  const splitAngle=side*(0.20+Math.random()*0.24);
+  const fakeAngle=realAngle+splitAngle;
+  const fakeSpeed=speed*(0.94+Math.random()*0.10);
+  phantomDecoys.push({x:src.x,y:src.y,vx:Math.cos(fakeAngle)*fakeSpeed,vy:Math.sin(fakeAngle)*fakeSpeed,radius:src.radius,rotation:src.rotation,life:240,fade:0,active:true,sourceIsLeft:actor.isLeft,phase:Math.random()*6.28});
+  visualEffects.push({type:'phantom_split',x:src.x,y:src.y,life:18,maxLife:18,angle:realAngle});
+}
+function updatePhantomDecoys(){
+  for(let i=phantomDecoys.length-1;i>=0;i--){const d=phantomDecoys[i];
+    if(d.fade>0){d.fade--;if(d.fade<=0){phantomDecoys.splice(i,1);continue;}}
+    else{
+      d.x+=d.vx;d.y+=d.vy;d.vy+=WORLD.GRAVITY*.72;d.rotation+=d.vx*.06;d.life--;
+      // A player can genuinely commit to the fake ball; it reacts visually but never calls recordTouch or changes rally state.
+      for(const p of allPlayers){if(p.isLeft===d.sourceIsLeft)continue;const dist=Math.hypot(p.x-d.x,(p.y-p.radius)-d.y);if(dist<58 && (p.isDiving||(!p.isBlocking&&Math.abs(p.vx)>0.2))){d.fade=12;visualEffects.push({type:'phantom_dissolve',x:d.x,y:d.y,life:14,maxLife:14});break;}}
+      const fy=(typeof venueFloorYAt==='function')?venueFloorYAt(d.x):WORLD.FLOOR_Y;
+      if(!d.fade && d.y+d.radius>=fy){d.y=fy-d.radius;d.fade=16;visualEffects.push({type:'phantom_dissolve',x:d.x,y:d.y,life:16,maxLife:16});}
+      if(d.life<=0)d.fade=12;
+    }
+  }
+}
+
 function createMudSplash(x, y, count = 10) {
   for (let i = 0; i < count; i++) {
     const angle = -Math.PI * 0.5 + (Math.random() - 0.5) * 1.5;
     const speed = Math.random() * 5 + 2;
     visualEffects.push({
-      type: 'mud_drop', x: x + (Math.random() - 0.5) * 20, y: y,
-      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-      size: Math.random() * 4 + 3, life: 28, maxLife: 28, color: '#78350f'
+      type: 'mud_drop', x: x + (Math.random() - 0.5) * 28, y: y,
+      vx: Math.cos(angle) * (speed * 1.35), vy: Math.sin(angle) * (speed * 1.25),
+      size: Math.random() * 6 + 4, life: 46, maxLife: 46, color: '#78350f'
     });
   }
 }
@@ -3006,7 +3209,7 @@ function applyWorldSync(data) {
     ball.isBungeeGum = !!data.ball.isBungeeGum;
     ball.isGravityDrop = !!data.ball.isGravityDrop;
     ball.gravityDropTargetX = data.ball.gravityDropTargetX ?? null; ball.gravityDropTriggered = !!data.ball.gravityDropTriggered;
-    ball.greaseCharges = data.ball.greaseCharges ?? 0; ball.mudContaminationAvailable = !!data.ball.mudContaminationAvailable; ball.steepexecCutAvailable = !!data.ball.steepexecCutAvailable; ball.skillOutcomeSfxPlayed = ball.skillOutcomeSfxPlayed || {};
+    ball.greaseCharges = data.ball.greaseCharges ?? 0; ball.greaseSourceIsLeft = data.ball.greaseSourceIsLeft ?? null; ball.phantomWipeSourceIsLeft=data.ball.phantomWipeSourceIsLeft??null; ball.kineticTrailFrames=data.ball.kineticTrailFrames??0; ball.kineticIntensity=data.ball.kineticIntensity??0; ball.kineticSourceIsLeft=data.ball.kineticSourceIsLeft??null; ball.mudContaminationAvailable = !!data.ball.mudContaminationAvailable; ball.mudCharges=data.ball.mudCharges??0; ball.mudSourceIsLeft=data.ball.mudSourceIsLeft??null; ball.breakerSourceIsLeft=data.ball.breakerSourceIsLeft??null; ball.breakerImpactDone=!!data.ball.breakerImpactDone; ball.breakerTrailFrames=data.ball.breakerTrailFrames??0; ball.skySourceIsLeft=data.ball.skySourceIsLeft??null; ball.skyImpactDone=!!data.ball.skyImpactDone; ball.skyImpactFadeFrames=data.ball.skyImpactFadeFrames??0; ball.skySonicSpawn=data.ball.skySonicSpawn??0; ball.softWallGlowFrames=data.ball.softWallGlowFrames??0; ball.softWallGlowSideIsLeft=data.ball.softWallGlowSideIsLeft??null; ball.steepexecCutAvailable = !!data.ball.steepexecCutAvailable; ball.skillOutcomeSfxPlayed = ball.skillOutcomeSfxPlayed || {};
     ball.phantomGhostFrames = data.ball.phantomGhostFrames ?? 0; ball.timeLagFrames = data.ball.timeLagFrames ?? 0; ball.timeLagStoredVx = data.ball.timeLagStoredVx ?? 0; ball.timeLagStoredVy = data.ball.timeLagStoredVy ?? 0;
     ball.isIronWallSlam = !!data.ball.isIronWallSlam;
   }
@@ -3165,7 +3368,7 @@ NET.conn.send(makeNetworkSafe({
             isPerfectSpike: ball.isPerfectSpike, isFloat: ball.isFloat, activeSkillTag: ball.activeSkillTag,
             isUltimate: ball.isUltimate, isTopspin: ball.isTopspin, topspinRating: ball.topspinRating, armorPiercing: ball.armorPiercing,
             isSineFloat: ball.isSineFloat, sineTargetX: ball.sineTargetX, isSkyComet: ball.isSkyComet, isPhantomDrop: ball.isPhantomDrop,
-            isBungeeGum: ball.isBungeeGum, isGravityDrop: ball.isGravityDrop, gravityDropTargetX: ball.gravityDropTargetX, gravityDropTriggered: ball.gravityDropTriggered, greaseCharges: ball.greaseCharges, mudContaminationAvailable: ball.mudContaminationAvailable, steepexecCutAvailable: ball.steepexecCutAvailable, phantomGhostFrames: ball.phantomGhostFrames, timeLagFrames: ball.timeLagFrames, timeLagStoredVx: ball.timeLagStoredVx, timeLagStoredVy: ball.timeLagStoredVy,
+            isBungeeGum: ball.isBungeeGum, isGravityDrop: ball.isGravityDrop, gravityDropTargetX: ball.gravityDropTargetX, gravityDropTriggered: ball.gravityDropTriggered, greaseCharges: ball.greaseCharges, greaseSourceIsLeft: ball.greaseSourceIsLeft, phantomWipeSourceIsLeft: ball.phantomWipeSourceIsLeft, kineticTrailFrames: ball.kineticTrailFrames, kineticIntensity: ball.kineticIntensity, kineticSourceIsLeft: ball.kineticSourceIsLeft, mudContaminationAvailable: ball.mudContaminationAvailable, mudCharges: ball.mudCharges, mudSourceIsLeft: ball.mudSourceIsLeft, breakerSourceIsLeft: ball.breakerSourceIsLeft, breakerImpactDone: ball.breakerImpactDone, breakerTrailFrames: ball.breakerTrailFrames, skySourceIsLeft: ball.skySourceIsLeft, skyImpactDone: ball.skyImpactDone, skyImpactFadeFrames: ball.skyImpactFadeFrames, skySonicSpawn: ball.skySonicSpawn, softWallGlowFrames: ball.softWallGlowFrames, softWallGlowSideIsLeft: ball.softWallGlowSideIsLeft, steepexecCutAvailable: ball.steepexecCutAvailable, phantomGhostFrames: ball.phantomGhostFrames, timeLagFrames: ball.timeLagFrames, timeLagStoredVx: ball.timeLagStoredVx, timeLagStoredVy: ball.timeLagStoredVy,
             isIronWallSlam: !!ball.isIronWallSlam, isTacticalThrust: !!ball.isTacticalThrust,
             isBrokenSpike: !!ball.isBrokenSpike, floatPhase: ball.floatPhase, floatDrift: ball.floatDrift,
             hasTossedFromGodspeed: !!ball.hasTossedFromGodspeed,
@@ -3455,7 +3658,7 @@ if (NET.conn && NET.conn.open) {
     } else if (fx.type === 'skin_mote') {
       fx.x += fx.vx; fx.y += fx.vy; fx.life--;
       if (fx.life <= 0) visualEffects.splice(i, 1);
-    } else if (fx.type==='water_drop') {fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=.08;fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (fx.type==='wind_trail') {fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (fx.type==='solar_filament') {fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=.025;fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (['water_burst','storm_burst','roar_wave','time_burst','time_collapse','blade_slash','thunder_arc','gravity_arc','solar_burst','gum_snap'].includes(fx.type)) { fx.life--; if(fx.life<=0) visualEffects.splice(i,1); }
+    } else if (fx.type==='water_drop') {fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=.08;fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (fx.type==='wind_trail') {fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (fx.type==='solar_filament') {fx.x+=fx.vx;fx.y+=fx.vy;fx.vy+=.025;fx.life--;if(fx.life<=0)visualEffects.splice(i,1); } else if (['water_burst','storm_burst','roar_wave','time_burst','time_collapse','blade_slash','thunder_arc','gravity_arc','solar_burst','gum_snap','mud_burst','breaker_wake','breaker_impact','sonic_ring','meteor_trail','meteor_impact','soft_wall_touch','grease_burst','phantom_shell','ghost_reform','phantom_split','phantom_dissolve','kinetic_absorb','kinetic_release','kinetic_impact','kinetic_trail','grease_splatter'].includes(fx.type)) { fx.life--; if(fx.life<=0) visualEffects.splice(i,1); }
   }
 }
 

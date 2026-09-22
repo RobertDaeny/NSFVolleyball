@@ -252,7 +252,7 @@ const SKILL_POOL = [
   { id: 'sk_breaker', name: '破城重槌', cost: 100, type: 'SPIKE', desc: '【扣殺技】空中按J：破甲+9.0，大幅削弱敵方剛性，90%擊碎金盾！', armorPiercing: 9.0, speedMult: 1.08, extraDown: 0, glowColor: '#ef4444' },
   { id: 'sk_deep_impact', name: '深海重砲', cost: 140, type: 'SPIKE', desc: '【扣殺技】空中按J：長線平抽速度+18%，超強下旋咬入底線！', armorPiercing: 4.5, speedMult: 1.18, extraDown: 0.0002, glowColor: '#38bdf8' },
   { id: 'sk_steepexec', name: '斷頭台下釘', cost: 120, type: 'SPIKE', desc: '【扣殺技】空中按J：直插三米線大角度下釘，速度快且角度刁鑽！', armorPiercing: 6.0, speedMult: 0.95, extraDown: 0.00035, glowColor: '#facc15' },
-  { id: 'sk_phantom', name: '幻影抹手', cost: 100, type: 'THRUST', desc: '【進攻技】空中按L：觸碰攔網50%高速打手出界！若未成功返還50%能量！', armorPiercing: 0, speedMult: 1.25, extraDown: 0, glowColor: '#10b981' },
+  { id: 'sk_phantom', name: '幻影抹手', cost: 100, type: 'THRUST', desc: '【進攻技】空中按L：成功抹到攔網手時從接觸點分裂真假雙球；兩球以不同反射角飛出，假球可被誤接但不參與排球規則。', armorPiercing: 0, speedMult: 1.25, extraDown: 0, glowColor: '#10b981' },
   { id: 'sk_solar_sine', name: '落日正弦', cost: 120, type: 'SERVE_FLOAT', desc: '【發球技】K高拋後空中按L：高拋跳飄，空中正弦波劇烈晃動收斂！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#f59e0b' },
   { id: 'sk_sky_comet', name: '天際墜石', cost: 120, type: 'SERVE_SPIKE', desc: '【發球技】K高拋後空中按J：衝向天花板頂部，精確垂直下釘敵方深場！', armorPiercing: 7.5, speedMult: 1.0, extraDown: 0.0004, glowColor: '#facc15' },
   { id: 'sk_phantom_drop', name: '幽靈吊球', cost: 80, type: 'SET_ATTACK', desc: '【二傳/進攻技】第2觸空中按L：幽靈狀態無視攔網手，穿越封網後仍可被後排正常接起！', armorPiercing: 0, speedMult: 0.85, extraDown: 0, glowColor: null },
@@ -264,7 +264,7 @@ const SKILL_POOL = [
   { id: 'sk_soft_wall', name: '引力柔網', cost: 100, type: 'BLOCK_STANCE', desc: '【攔網持續態】網前按Space：持續3回合！碰球100%化為慢速One Touch緩送！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#2dd4bf' },
   { id: 'sk_shock_return', name: '暴風反彈', cost: 95, type: 'DEF_SAVE', desc: '【防守技】接球消耗：即使接噴必定過網，球化為超音速暴風直貫敵場！', armorPiercing: 8.0, speedMult: 1.3, extraDown: 0, glowColor: '#0ea5e9' },
   { id: 'sk_godspeed_toss', name: '神速二傳', cost: 105, type: 'SET_TACTIC', desc: '【二傳持續態】托球觸發：持續3次二傳！隊友進攻初速獲得+4.0絕對加成！', armorPiercing: 4.0, speedMult: 1.2, extraDown: 0, glowColor: '#eab308' },
-  { id: 'sk_greased_ball', name: '油滑脫手', cost: 115, type: 'SPIKE', desc: '【進攻技】空中按J：附帶滑油！防守方耐受值下降8點持續3回合！', armorPiercing: 6.0, speedMult: 1.1, extraDown: 0, glowColor: '#1e293b' },
+  { id: 'sk_greased_ball', name: '油滑脫手', cost: 115, type: 'SPIKE', desc: '【進攻技】空中按J：包覆油膜；攔網不會引爆，僅敵方一傳或觸地時爆裂，150px油濺範圍內敵人防守-25%持續3回合。', armorPiercing: 6.0, speedMult: 1.1, extraDown: 0, glowColor: '#d97706' },
   { id: 'sk_gravity_drop', name: '重力斷崖', cost: 125, type: 'SPIKE', desc: '【扣殺技】空中按J：過網瞬間引力暴增12倍垂直砸地！', armorPiercing: 5.5, speedMult: 1.25, extraDown: 0.0005, glowColor: '#7e22ce' },
   { id: 'sk_savage_roar', name: '野蠻怒吼', cost: 90, type: 'DEF_SAVE', desc: '【戰吼技】按K立即釋放：我軍3回合不可消除亢奮，敵軍全員覆蓋沮喪！', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#dc2626' },
   { id: 'sk_flow_absorb', name: '心流化勁', cost: 100, type: 'DEF_SAVE', desc: '【防守技】接球時啟動，維持本回合＋後續2回合：K必定Perfect Absorb；L有70%機率化為Perfect Absorb。', armorPiercing: 0, speedMult: 1.0, extraDown: 0, glowColor: '#14b8a6' },
@@ -712,7 +712,7 @@ const SKILL_ASSET = {
   sk_chrono_spike:['SFX/skills/flash_1.wav'],
   sk_phantom_drop:['SFX/skills/phantom_drop.wav'],
   sk_rolling_thunder:['SFX/skills/thunderstep_1.wav','SFX/skills/thunderstep_2.wav'],
-  sk_mud_spike:['SFX/skills/mud_hit.wav'],
+  sk_mud_spike:['SFX/skills/mud_launch.wav'],
   sk_bungee_gum:['SFX/skills/bungee_1.wav'],
   sk_iron_wall:['SFX/skills/iron_wall_metal_1.wav','SFX/skills/iron_wall_metal_2.wav'],
   sk_soft_wall:['SFX/skills/soft_wall.wav'],
@@ -759,7 +759,7 @@ function playSkillSound(skillId, fromNetwork=false){
   if(skillId==='sk_shock_return'){playSkillAsset(arr[0],v,{start:.04});playSkillAsset(arr[1],v,{start:.46});return true;}
   if(skillId==='sk_rolling_thunder'){const a=playSkillAsset(arr[0],v);if(a)a.addEventListener('ended',()=>playSkillAsset(arr[1],v),{once:true});return true;}
   if(skillId==='sk_deep_impact'){playSkillAsset(arr[0],v);return true;}
-  if(skillId==='sk_sky_comet'){playSkillAsset(arr[0],v,{start:.03});return true;}
+  if(skillId==='sk_sky_comet'){playSkillAsset(arr[0],v,{start:.03,key:'sky_comet_flight'});return true;}
   if(skillId==='sk_mud_spike'){playSkillAsset(arr[0],v,{start:.03});return true;}
   if(skillId==='sk_greased_ball'){playSkillAsset('SFX/skills/grease_launch.wav',v);return true;}
   playSkillAsset(arr[0],v); return true;
