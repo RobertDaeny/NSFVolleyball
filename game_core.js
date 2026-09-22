@@ -67,7 +67,7 @@ const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, txCount:0, txRate:0, eventRx
 // V75-2.6 MATCH NETWORK DIAGNOSTIC RECORDER
 // Observation only: records render/simulation/transport health without changing gameplay or sync policy.
 const NET_DIAG = {
-  version:'V75-2.6', matchId:'-', startedAt:0, endedAt:0, finalized:false,
+  version:'V75-2.6.1', matchId:'-', startedAt:0, endedAt:0, finalized:false,
   role:'OFFLINE', rafCount:0, renderCount:0, simCount:0, lastRafAt:0, lastStateRxAt:0, lastStateTxAt:0,
   frameSum:0, frameCount:0, frameMax:0, long25:0, long50:0, long100:0,
   simTickMsSum:0, simTickMsCount:0, simTickMsMax:0, catchupFrames:0, catchupTicks:0,
@@ -123,14 +123,37 @@ function netDiagFmtMs(ms){return Number.isFinite(ms)?ms.toFixed(1):'0.0';}
 function netDiagBuildText(){
   const role=(typeof NET!=='undefined'&&NET.isMultiplayer)?(NET.isHost?'HOST':'GUEST'):NET_DIAG.role, dur=Math.max(0,(NET_DIAG.endedAt||performance.now())-NET_DIAG.startedAt), ss=NET_DIAG.samples, avg=k=>ss.length?ss.reduce((a,x)=>a+(Number(x[k])||0),0)/ss.length:0, min=k=>ss.length?Math.min(...ss.map(x=>Number(x[k])||0)):0, max=k=>ss.length?Math.max(...ss.map(x=>Number(x[k])||0)):0;
   const frameAvg=NET_DIAG.frameCount?NET_DIAG.frameSum/NET_DIAG.frameCount:0, rxGap=NET_DIAG.stateRxGapCount?NET_DIAG.stateRxGapSum/NET_DIAG.stateRxGapCount:0, txGap=NET_DIAG.stateTxGapCount?NET_DIAG.stateTxGapSum/NET_DIAG.stateTxGapCount:0;
-  const lines=[`=== NSF VOLLEYBALL NETWORK DIAGNOSTIC ===`,`BUILD: V75-2.6 · MATCH DIAGNOSTIC RECORDER`,`ROLE: ${role}`,`MATCH ID: ${NET_DIAG.matchId||'-'}`,`DURATION: ${(dur/1000).toFixed(1)}s`,`VENUE: ${typeof currentVenueId!=='undefined'?currentVenueId:'?'}`,'',`[PERFORMANCE]`,`FPS AVG ${avg('fps').toFixed(1)} / MIN ${min('fps')} / MAX ${max('fps')}`,`FRAME AVG ${netDiagFmtMs(frameAvg)}ms / MAX ${netDiagFmtMs(NET_DIAG.frameMax)}ms`,`LONG >25ms ${NET_DIAG.long25} / >50ms ${NET_DIAG.long50} / >100ms ${NET_DIAG.long100}`,`VISIBILITY CHANGES ${NET_DIAG.hiddenChanges} / FOCUS CHANGES ${NET_DIAG.focusChanges}`,'',`[SIMULATION]`,`SIM AVG ${avg('sim').toFixed(1)}/s / MIN ${min('sim')} / MAX ${max('sim')}`,`CATCHUP FRAMES ${NET_DIAG.catchupFrames} / EXTRA TICKS ${NET_DIAG.catchupTicks}`,'',`[NETWORK — ${role}]`,`RTT AVG ${avg('rtt').toFixed(1)}ms / MAX ${max('rtt')}ms`,`STATE ${role==='HOST'?'TX':'RX'} AVG ${(role==='HOST'?avg('tx'):avg('rx')).toFixed(1)}/s / MIN ${(role==='HOST'?min('tx'):min('rx'))}`,`${role==='HOST'?'SEND':'ARRIVAL'} GAP AVG ${netDiagFmtMs(role==='HOST'?txGap:rxGap)}ms / MAX ${netDiagFmtMs(role==='HOST'?NET_DIAG.stateTxGapMax:NET_DIAG.stateRxGapMax)}ms`,`STATE AGE AVG ${avg('age').toFixed(1)}ms / MAX ${max('age')}ms`,`ADAPT LAST ${NET_DEBUG.adaptiveReason||'-'} @${NET_DEBUG.adaptiveStateHz||0}Hz`,`CTRL BUF MAX ${Math.round(NET_DIAG.extrema.ctrlBufMax/1024)}KB / STATE BUF MAX ${Math.round(NET_DIAG.extrema.stateBufMax/1024)}KB`,`PACKET GAPS ${NET_DEBUG.packetGaps||0} / STALE ${NET_DEBUG.staleStateDrops||0} / DUP ${NET_DEBUG.duplicateEvents||0} / ERR ${NET_DEBUG.sendErrors||0}`,`CORRECTION MAX ${Math.max(NET_DIAG.extrema.corrMax,NET_DEBUG.correctionMax||0).toFixed(1)}`,'',`[INPUT]`,`INPUT TX AVG ${avg('inputTx').toFixed(1)}/s`,`INPUT RX AVG ${avg('inputRx').toFixed(1)}/s`,'',`[ENVIRONMENT]`,`hidden=${document.hidden} focus=${document.hasFocus()} DPR=${window.devicePixelRatio||1} viewport=${innerWidth}x${innerHeight}`,`canvas=${(typeof canvas!=='undefined'&&canvas)?canvas.width+'x'+canvas.height:'?'}`,'',`[ANOMALIES ${NET_DIAG.anomalies.length}]`];
+  const lines=[`=== NSF VOLLEYBALL NETWORK DIAGNOSTIC ===`,`BUILD: V75-2.6.1 · MATCH DIAGNOSTIC RECORDER`,`ROLE: ${role}`,`MATCH ID: ${NET_DIAG.matchId||'-'}`,`DURATION: ${(dur/1000).toFixed(1)}s`,`VENUE: ${typeof currentVenueId!=='undefined'?currentVenueId:'?'}`,'',`[PERFORMANCE]`,`FPS AVG ${avg('fps').toFixed(1)} / MIN ${min('fps')} / MAX ${max('fps')}`,`FRAME AVG ${netDiagFmtMs(frameAvg)}ms / MAX ${netDiagFmtMs(NET_DIAG.frameMax)}ms`,`LONG >25ms ${NET_DIAG.long25} / >50ms ${NET_DIAG.long50} / >100ms ${NET_DIAG.long100}`,`VISIBILITY CHANGES ${NET_DIAG.hiddenChanges} / FOCUS CHANGES ${NET_DIAG.focusChanges}`,'',`[SIMULATION]`,`SIM AVG ${avg('sim').toFixed(1)}/s / MIN ${min('sim')} / MAX ${max('sim')}`,`CATCHUP FRAMES ${NET_DIAG.catchupFrames} / EXTRA TICKS ${NET_DIAG.catchupTicks}`,'',`[NETWORK — ${role}]`,`RTT AVG ${avg('rtt').toFixed(1)}ms / MAX ${max('rtt')}ms`,`STATE ${role==='HOST'?'TX':'RX'} AVG ${(role==='HOST'?avg('tx'):avg('rx')).toFixed(1)}/s / MIN ${(role==='HOST'?min('tx'):min('rx'))}`,`${role==='HOST'?'SEND':'ARRIVAL'} GAP AVG ${netDiagFmtMs(role==='HOST'?txGap:rxGap)}ms / MAX ${netDiagFmtMs(role==='HOST'?NET_DIAG.stateTxGapMax:NET_DIAG.stateRxGapMax)}ms`,`STATE AGE AVG ${avg('age').toFixed(1)}ms / MAX ${max('age')}ms`,`ADAPT LAST ${NET_DEBUG.adaptiveReason||'-'} @${NET_DEBUG.adaptiveStateHz||0}Hz`,`CTRL BUF MAX ${Math.round(NET_DIAG.extrema.ctrlBufMax/1024)}KB / STATE BUF MAX ${Math.round(NET_DIAG.extrema.stateBufMax/1024)}KB`,`PACKET GAPS ${NET_DEBUG.packetGaps||0} / STALE ${NET_DEBUG.staleStateDrops||0} / DUP ${NET_DEBUG.duplicateEvents||0} / ERR ${NET_DEBUG.sendErrors||0}`,`CORRECTION MAX ${Math.max(NET_DIAG.extrema.corrMax,NET_DEBUG.correctionMax||0).toFixed(1)}`,'',`[INPUT]`,`INPUT TX AVG ${avg('inputTx').toFixed(1)}/s`,`INPUT RX AVG ${avg('inputRx').toFixed(1)}/s`,'',`[ENVIRONMENT]`,`hidden=${document.hidden} focus=${document.hasFocus()} DPR=${window.devicePixelRatio||1} viewport=${innerWidth}x${innerHeight}`,`canvas=${(typeof canvas!=='undefined'&&canvas)?canvas.width+'x'+canvas.height:'?'}`,'',`[ANOMALIES ${NET_DIAG.anomalies.length}]`];
   if(!NET_DIAG.anomalies.length)lines.push('NONE'); else NET_DIAG.anomalies.forEach(a=>lines.push(`${(a.t/1000).toFixed(3)}s ${a.type}${a.detail?' — '+a.detail:''}`));
   lines.push('','[TIMELINE — 1s samples]','t  fps sim tx rx inTX inRX rtt age hz reason ctrlKB stateKB skip corr');
   ss.forEach(x=>lines.push(`${String(x.t).padStart(3)} ${String(x.fps).padStart(3)} ${String(x.sim).padStart(3)} ${String(x.tx).padStart(2)} ${String(x.rx).padStart(2)} ${String(x.inputTx).padStart(4)} ${String(x.inputRx).padStart(4)} ${String(x.rtt).padStart(3)} ${String(x.age).padStart(3)} ${String(x.hz).padStart(2)} ${x.reason} ${x.ctrlKB} ${x.stateKB} ${x.skip} ${x.corr}`));
   return lines.join('\n');
 }
 function finalizeNetDiag(){ if(NET_DIAG.finalized)return; NET_DIAG.endedAt=performance.now(); NET_DIAG.finalized=true; NET_DIAG.role=(typeof NET!=='undefined'&&NET.isMultiplayer?(NET.isHost?'HOST':'GUEST'):NET_DIAG.role); NET_DIAG.finalText=netDiagBuildText(); updateNetDiagSettlementUI(); }
-function updateNetDiagSettlementUI(){ const box=document.getElementById('settle-net-diag'); if(!box)return; const multi=typeof NET!=='undefined'&&NET.isMultiplayer; box.style.display=multi?'block':'none'; if(!multi)return; const role=NET.isHost?'HOST':'GUEST', badge=document.getElementById('settle-net-role'), sum=document.getElementById('settle-net-summary'); if(badge)badge.textContent=role; const ss=NET_DIAG.samples, avg=k=>ss.length?ss.reduce((a,x)=>a+(Number(x[k])||0),0)/ss.length:0; if(sum)sum.textContent=`${NET_DIAG.matchId} · FPS ${avg('fps').toFixed(0)} · SIM ${avg('sim').toFixed(0)}/s · STATE ${role==='HOST'?'TX '+avg('tx').toFixed(0):'RX '+avg('rx').toFixed(0)}/s · 異常 ${NET_DIAG.anomalies.length}`; }
+function ensureNetDiagSettlementUI(){
+  let box=document.getElementById('settle-net-diag');
+  if(box) return box;
+  const modal=document.getElementById('settlement-modal');
+  if(!modal) return null;
+  const panel=modal.firstElementChild;
+  if(!panel) return null;
+  box=document.createElement('div');
+  box.id='settle-net-diag';
+  box.style.cssText='display:none;margin-top:16px;padding:12px 14px;border:1px solid #38bdf8;border-radius:12px;background:#02061799;text-align:left;';
+  box.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><span style="color:#94a3b8;font-size:11px">連線診斷</span> <b id="settle-net-role" style="color:#38bdf8;font-size:13px">HOST</b><div id="settle-net-summary" style="color:#cbd5e1;font:11px monospace;margin-top:4px">等待資料...</div></div><div style="display:flex;gap:8px"><button class="btn-action" style="padding:7px 14px;font-size:12px" onclick="copyNetDiagnostic()">📋 複製本機診斷</button><button class="btn-home" style="padding:7px 14px;font-size:12px" onclick="downloadNetDiagnostic()">💾 下載完整診斷</button></div></div>';
+  const actionRow=panel.lastElementChild;
+  if(actionRow) panel.insertBefore(box,actionRow); else panel.appendChild(box);
+  return box;
+}
+function updateNetDiagSettlementUI(){
+  const box=ensureNetDiagSettlementUI(); if(!box)return;
+  const multi=typeof NET!=='undefined'&&NET.isMultiplayer;
+  box.style.display=multi?'block':'none'; if(!multi)return;
+  const role=NET.isHost?'HOST':'GUEST', badge=document.getElementById('settle-net-role'), sum=document.getElementById('settle-net-summary');
+  if(badge){badge.textContent=role;badge.style.color=role==='HOST'?'#fbbf24':'#38bdf8';}
+  const ss=NET_DIAG.samples, avg=k=>ss.length?ss.reduce((a,x)=>a+(Number(x[k])||0),0)/ss.length:0;
+  if(sum)sum.textContent=`MATCH ${NET_DIAG.matchId} · ${role} · FPS ${avg('fps').toFixed(0)} · SIM ${avg('sim').toFixed(0)}/s · STATE ${role==='HOST'?'TX '+avg('tx').toFixed(0):'RX '+avg('rx').toFixed(0)}/s · 異常 ${NET_DIAG.anomalies.length}`;
+}
 async function copyNetDiagnostic(){ if(!NET_DIAG.finalized)finalizeNetDiag(); const txt=NET_DIAG.finalText||netDiagBuildText(); try{await navigator.clipboard.writeText(txt); alert(`已複製 ${NET_DIAG.role} 診斷資料！`);}catch(e){const ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();alert(`已複製 ${NET_DIAG.role} 診斷資料！`);} }
 function downloadNetDiagnostic(){ if(!NET_DIAG.finalized)finalizeNetDiag(); const txt=NET_DIAG.finalText||netDiagBuildText(), blob=new Blob([txt],{type:'text/plain;charset=utf-8'}), a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`NSF_NET_${NET_DIAG.role}_${NET_DIAG.matchId}.txt`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
 document.addEventListener('visibilitychange',()=>{ if(NET_DIAG.startedAt&&!NET_DIAG.finalized){NET_DIAG.hiddenChanges++;netDiagEvent('VISIBILITY_CHANGE',document.hidden?'HIDDEN':'VISIBLE');} });
@@ -1646,6 +1669,8 @@ function openSettlement(winnerSide = 'LEFT') {
   if(typeof finalizeNetDiag==='function' && typeof NET!=='undefined' && NET.isMultiplayer) finalizeNetDiag();
   isSettlementOpen = true; isPaused = true;
   document.getElementById('settlement-modal').style.display = 'flex';
+  if(typeof updateNetDiagSettlementUI==='function') updateNetDiagSettlementUI();
+  requestAnimationFrame(()=>{ if(typeof updateNetDiagSettlementUI==='function') updateNetDiagSettlementUI(); });
   if (typeof NET !== 'undefined' && NET.isMultiplayer) {
     NET.rematchRequested = false;
     NET.remoteRematchRequested = false;
