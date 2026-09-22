@@ -62,7 +62,7 @@ function resetIronWallCamera(reason='safety') {
 let ironWallWatchdog = 0;
 
 // V62 multiplayer instrumentation: distinguish network latency from prediction divergence.
-const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, lastRateAt:performance.now(), correctionSum:0, correctionCount:0, correctionMax:0, lastPingAt:0 };
+const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, lastRateAt:performance.now(), correctionSum:0, correctionCount:0, correctionMax:0, lastPingAt:0, lastSyncAt:0, syncAge:0, hardReconciles:0, mediumReconciles:0, sanitizeCount:0, packetSeq:0, lastRecvSeq:0, packetGaps:0 };
 function tickNetDebug() {
   if (typeof NET==='undefined' || !NET.isMultiplayer) return;
   const now=performance.now();
@@ -71,11 +71,15 @@ function tickNetDebug() {
   }
   if (now-NET_DEBUG.lastRateAt>=1000) {
     NET_DEBUG.syncRate=NET_DEBUG.syncCount; NET_DEBUG.syncCount=0; NET_DEBUG.lastRateAt=now;
+    // Keep correction telemetry readable: one-second window instead of lifetime average.
+    NET_DEBUG.correctionSum=0; NET_DEBUG.correctionCount=0; NET_DEBUG.correctionMax=0;
+    NET_DEBUG.hardReconciles=0; NET_DEBUG.mediumReconciles=0;
   }
   let el=document.getElementById('net-debug-overlay');
   if (!el) { el=document.createElement('div'); el.id='net-debug-overlay'; el.style.cssText='position:fixed;left:8px;bottom:8px;z-index:99999;background:#020617cc;color:#a7f3d0;border:1px solid #334155;border-radius:6px;padding:5px 7px;font:11px monospace;pointer-events:none;white-space:pre'; document.body.appendChild(el); }
   const avg=NET_DEBUG.correctionCount?NET_DEBUG.correctionSum/NET_DEBUG.correctionCount:0;
-  el.textContent=`NET ${NET.isHost?'HOST':'GUEST'}  RTT ${NET_DEBUG.rtt.toFixed(0)}ms\nSYNC ${NET_DEBUG.syncRate}/s  CORR ${avg.toFixed(1)}px max ${NET_DEBUG.correctionMax.toFixed(1)}px\nVENUE ${(typeof currentVenueId!=='undefined'?currentVenueId:'?')}`;
+  NET_DEBUG.syncAge = (!NET.isHost && NET_DEBUG.lastSyncAt) ? Math.max(0, now-NET_DEBUG.lastSyncAt) : 0;
+  el.textContent=`NET ${NET.isHost?'HOST':'GUEST'}  RTT ${NET_DEBUG.rtt.toFixed(0)}ms\nSYNC ${NET_DEBUG.syncRate}/s  AGE ${NET_DEBUG.syncAge.toFixed(0)}ms\nCORR ${avg.toFixed(1)}px max ${NET_DEBUG.correctionMax.toFixed(1)}px  MED ${NET_DEBUG.mediumReconciles} HARD ${NET_DEBUG.hardReconciles}\nGAPS ${NET_DEBUG.packetGaps}  SAN ${NET_DEBUG.sanitizeCount}  VENUE ${(typeof currentVenueId!=='undefined'?currentVenueId:'?')}`;
 }
 let debugHitbox = false, maxRecordedSpeed = 0, maxRecordedSpin = 0;
 let lastCastSkillName = 'None', lastCastFrame = -999, lastCastSkillCasterSlot = 0;
@@ -3227,7 +3231,14 @@ function buildCanonicalNetworkInput() {
 }
 
 function applyWorldSync(data) {
-  if (typeof NET_DEBUG!=='undefined') NET_DEBUG.syncCount++;
+  if (typeof NET_DEBUG!=='undefined') {
+    NET_DEBUG.syncCount++; NET_DEBUG.lastSyncAt=performance.now();
+    const seq=Number(data.netSeq)||0;
+    if (seq>0) {
+      if (NET_DEBUG.lastRecvSeq>0 && seq>NET_DEBUG.lastRecvSeq+1) NET_DEBUG.packetGaps += (seq-NET_DEBUG.lastRecvSeq-1);
+      NET_DEBUG.lastRecvSeq=Math.max(NET_DEBUG.lastRecvSeq,seq);
+    }
+  }
   // 1. 同步發球狀態與發球員身分
   if (data.serveInfo) {
     serveState.active = data.serveInfo.active;
@@ -3337,16 +3348,21 @@ function applyWorldSync(data) {
           if (typeof NET_DEBUG!=='undefined') { NET_DEBUG.correctionSum += correctionDist; NET_DEBUG.correctionCount++; NET_DEBUG.correctionMax=Math.max(NET_DEBUG.correctionMax,correctionDist); }
           // V64 reconciliation: 小誤差忽略，中誤差柔和收斂，只有真正脫軌才快速校正。
           // 避免 60Hz STATE_SYNC 每包都把 Guest 自己角色拉一下造成「黏」。
-          if (correctionDist > 180) {
-            allPlayers[idx].x += (pData.x - allPlayers[idx].x) * 0.55;
-            allPlayers[idx].y += (pData.y - allPlayers[idx].y) * 0.55;
-          } else if (correctionDist > 28) {
-            allPlayers[idx].x += (pData.x - allPlayers[idx].x) * 0.10;
-            allPlayers[idx].y += (pData.y - allPlayers[idx].y) * 0.10;
+          // V75-2.2: adaptive reconciliation. The old 28px dead-zone + 10% correction
+          // could build a saw-tooth drift until a 180px emergency pull. Keep tiny network
+          // prediction error invisible, but converge medium divergence before it becomes a snap.
+          let reconcileGain=0;
+          if (correctionDist > 120) { reconcileGain=0.65; if (typeof NET_DEBUG!=='undefined') NET_DEBUG.hardReconciles++; }
+          else if (correctionDist > 40) { reconcileGain=0.32; if (typeof NET_DEBUG!=='undefined') NET_DEBUG.mediumReconciles++; }
+          else if (correctionDist > 10) { reconcileGain=0.16; if (typeof NET_DEBUG!=='undefined') NET_DEBUG.mediumReconciles++; }
+          if (reconcileGain>0) {
+            allPlayers[idx].x += (pData.x - allPlayers[idx].x) * reconcileGain;
+            allPlayers[idx].y += (pData.y - allPlayers[idx].y) * reconcileGain;
           }
-          // 速度只在明顯分歧時輕量收斂；冰地 inertia 不能被每包 Host vx 硬蓋。
+          // Velocity convergence follows positional severity; do not hard-overwrite ice inertia.
           const dvx = pData.vx - allPlayers[idx].vx;
-          if (Math.abs(dvx) > 1.5) allPlayers[idx].vx += dvx * 0.12;
+          const velGain = correctionDist>120 ? 0.35 : correctionDist>40 ? 0.22 : 0.12;
+          if (Math.abs(dvx) > 1.0) allPlayers[idx].vx += dvx * velGain;
         }
       } else {
         Object.assign(allPlayers[idx], pData);
@@ -3375,7 +3391,9 @@ function makeNetworkSafe(value, path='root') {
   if (value === undefined) return null;
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
-      console.warn(`[NET SANITIZE] ${path}:`, value, '-> null');
+      if (typeof NET_DEBUG!=='undefined') NET_DEBUG.sanitizeCount++;
+      // Log only the first few occurrences; repeated 60Hz warnings can stall DevTools itself.
+      if (typeof NET_DEBUG==='undefined' || NET_DEBUG.sanitizeCount<=5) console.warn(`[NET SANITIZE] ${path}:`, value, '-> null');
       return null;
     }
     return value;
@@ -3411,6 +3429,8 @@ function fixedUpdate() {
       if (NET.conn && NET.conn.open) {
 NET.conn.send(makeNetworkSafe({
           type: 'STATE_SYNC',
+          netSeq: (typeof NET_DEBUG!=='undefined' ? ++NET_DEBUG.packetSeq : gameFrame),
+          hostFrame: gameFrame,
           serveInfo: {
             active: serveState.active,
             serverSlot: serveState.currentServer ? serveState.currentServer.slotIndex : 0,
@@ -3799,11 +3819,11 @@ const VENUE_INCIDENTS = {
   OVERHEAT:{name:'爐心過熱',dur:660,color:'#fb7185'}, CROWD_THROW:{name:'觀眾投擲',dur:840,color:'#f472b6'}
 };
 const WAREHOUSE_STEAM_PIPE_XS=[760,900,1040,1190,1350,1510,1670,1830,1990,2160,2320];
-let venueIncidentState={active:null,timer:0,total:0,nextDraw:900,draws:0,maxDraws:Number.POSITIVE_INFINITY,wind:0,windTarget:0,windChange:0,flash:0,flashSeq:[],targetSlot:-1,strikeCooldown:0,strikeWarn:0,strikePending:-1,birds:[],hole:null,beachBall:null,crowdObjects:[],crowdProjectile:null,crowdThrows:0,ufoPhase:0,ufoX:1500,ufoHold:false,shipTilt:0,shipTargetTilt:0,heatPulse:0,pipeX:0,pipeXs:[],lastIncident:null,overheatAlpha:0,beachBallCooldown:30,seenUfo:false,seenGravity:false,ufoResponsibleSlot:-1};
+let venueIncidentState={active:null,timer:0,total:0,nextDraw:900,draws:0,maxDraws:Number.MAX_SAFE_INTEGER,wind:0,windTarget:0,windChange:0,flash:0,flashSeq:[],targetSlot:-1,strikeCooldown:0,strikeWarn:0,strikePending:-1,birds:[],hole:null,beachBall:null,crowdObjects:[],crowdProjectile:null,crowdThrows:0,ufoPhase:0,ufoX:1500,ufoHold:false,shipTilt:0,shipTargetTilt:0,heatPulse:0,pipeX:0,pipeXs:[],lastIncident:null,overheatAlpha:0,beachBallCooldown:30,seenUfo:false,seenGravity:false,ufoResponsibleSlot:-1};
 function resetVenueIncidents(){
   // V55: 無盡模式不是『最多抽兩次』的有限比賽。事件結束後持續冷卻→再抽，直到玩家離場。
   const endlessIncidentLoop = (typeof isPracticeMode !== 'undefined' && isPracticeMode);
-  venueIncidentState={active:null,timer:0,total:0,nextDraw:360+Math.floor(Math.random()*300),draws:0,maxDraws:Number.POSITIVE_INFINITY,wind:0,windTarget:0,windChange:0,flash:0,flashSeq:[],targetSlot:-1,strikeCooldown:0,strikeWarn:0,strikePending:-1,birds:[],hole:null,beachBall:null,crowdObjects:[],crowdProjectile:null,crowdThrows:0,ufoPhase:0,ufoX:1500,ufoHold:false,shipTilt:0,shipTargetTilt:0,heatPulse:0,pipeX:0,pipeXs:[],lastIncident:null,overheatAlpha:0,beachBallCooldown:30,seenUfo:false,seenGravity:false,ufoResponsibleSlot:-1};
+  venueIncidentState={active:null,timer:0,total:0,nextDraw:360+Math.floor(Math.random()*300),draws:0,maxDraws:Number.MAX_SAFE_INTEGER,wind:0,windTarget:0,windChange:0,flash:0,flashSeq:[],targetSlot:-1,strikeCooldown:0,strikeWarn:0,strikePending:-1,birds:[],hole:null,beachBall:null,crowdObjects:[],crowdProjectile:null,crowdThrows:0,ufoPhase:0,ufoX:1500,ufoHold:false,shipTilt:0,shipTargetTilt:0,heatPulse:0,pipeX:0,pipeXs:[],lastIncident:null,overheatAlpha:0,beachBallCooldown:30,seenUfo:false,seenGravity:false,ufoResponsibleSlot:-1};
 }
 // V71 HYBRID AUDIO ASSET PASS：真實素材負責質感，Web Audio/程式層負責底床、音量與事件控制。
 const VENUE_AUDIO_ASSETS={
