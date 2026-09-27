@@ -539,10 +539,77 @@ function generateEquipmentInstance(itemId) {
     refineLevel: 0,
     rank: 0, // 0~3 階
     reforgeCount: 0,
+    locked: false,
     mainStatType: dbItem.mainStat,
     baseRoll: baseRoll,
     subStats: chosenSubs
   };
+}
+
+// ========================================================
+// V75-3 STAT ARCHITECTURE / BALANCE LAB shared formula helpers
+// Internal save keys remain str/agi/jump/dex/int for backward compatibility.
+// UI/design language uses TEC for dex from this build forward.
+// ========================================================
+const STAT_MARGINAL = Object.freeze({
+  str:  { knee: 40, highSlope: 0.85, over60Slope: 0.45 },
+  agi:  { knee: 40, highSlope: 0.75, over60Slope: 0.40 },
+  jump: { knee: 40, highSlope: 0.70, over60Slope: 0.38 },
+  dex:  { knee: 40, highSlope: 0.75, over60Slope: 0.40 }, // DEX save-key == TEC design-stat
+  int:  { knee: 40, highSlope: 0.80, over60Slope: 0.45 }
+});
+function effectiveStatValue(statKey, rawValue){
+  const c=STAT_MARGINAL[statKey]||{knee:40,highSlope:.8,over60Slope:.4};
+  const raw=Math.max(0, Number(rawValue)||0);
+  if(raw<=c.knee) return raw;
+  const to60=Math.min(raw,60)-c.knee;
+  const over=Math.max(0,raw-60);
+  return c.knee + to60*c.highSlope + over*c.over60Slope;
+}
+function mergePerkStack(target, source){
+  if(!source) return target;
+  for(const [key,val] of Object.entries(source)){
+    if(key==='desc') continue;
+    if(typeof val==='number') target[key]=(Number(target[key])||0)+val;
+    else if(typeof val==='boolean') target[key]=!!target[key]||val;
+    else if(target[key]===undefined) target[key]=val;
+  }
+  return target;
+}
+function computeSpikeFormula(stats, runMomentum=0){
+  const ratio=Math.max(0,Math.min(1,(Number(runMomentum)||0)/25));
+  const bonusPower=ratio*4.2;
+  const techFactor=0.85+(stats.technique*0.25);
+  return {momentumRatio:ratio,bonusPower,techFactor,effectivePower:(stats.power+bonusPower)*techFactor};
+}
+function computeReceivePressureFormula(stats, ballSpeed, floatBonus=0, defenseOverride=null){
+  const effectiveDef=defenseOverride==null?stats.defense:defenseOverride;
+  // V75-3: TEC still owns receive execution through Defense/Sweet/Reach, but it no longer
+  // multiplies the same receive pressure a second time through Technique.
+  return Math.max(0,(ballSpeed+floatBonus)*0.95-effectiveDef);
+}
+function computeSetFormula(stats,{incomingSpeed=15,contactDist=0,lowBallSeverity=0,specialPressure=0}={}){
+  const setSweet=stats.sweetWindow||34;
+  const speedExcess=Math.max(0,incomingSpeed-15);
+  const distanceExcess=Math.max(0,contactDist-setSweet);
+  const rawPressure=(speedExcess*.12)+(distanceExcess*.025)+(Math.max(0,lowBallSeverity)*1.15)+(specialPressure||0);
+  const controlMitigation=Math.max(.45,1-(stats.intellect*.005)-(stats.technique*.12));
+  const contactSeverity=rawPressure*controlMitigation;
+  const errorMultiplier=Math.min(4.5,1+contactSeverity);
+  const errorAmplitude=Math.max(20,(55-stats.intellect)*2.8+(1-stats.technique)*55);
+  const maxTravel=Math.max(250,Math.min(410,250+Math.max(0,(stats.power||18.5)-18.5)*10));
+  return {setSweet,speedExcess,distanceExcess,rawPressure,controlMitigation,contactSeverity,errorMultiplier,errorAmplitude,maxTravel};
+}
+function computeJumpFormula(stats, gravity=(typeof WORLD!=='undefined'?WORLD.GRAVITY:0.38)){
+  const launch=Math.abs(stats.jump||0), g=Math.max(.001,gravity);
+  return {launchSpeed:launch,apexFrames:launch/g,apexHeight:(launch*launch)/(2*g),airFrames:(2*launch)/g};
+}
+function computeAITestFormula(stats,{distance=300,reach=null}={}){
+  const r=reach==null?(stats.reach||64):reach;
+  const gap=Math.max(0,distance-r);
+  const eta=gap/Math.max(1,stats.speed||1);
+  const iq=Math.max(0,Math.min(60,stats.intellect||0))/60;
+  return {etaFrames:eta,landingUncertainty:24+(1-iq)*86,reactionDelay:stats.reactionDelay,outballThreshold:stats.outballThreshold};
 }
 
 // 核心數值衍生: 角色五維累加裝備主屬性 + 二級詞條與特權解鎖
@@ -588,31 +655,45 @@ function deriveStats(card) {
 
     // 突破特權階梯解鎖
     if (dbItem && dbItem.perks) {
-      if (eq.rank >= 1 && dbItem.perks.rank1) perks = Object.assign(perks, dbItem.perks.rank1);
-      if (eq.rank >= 2 && dbItem.perks.rank2) perks = Object.assign(perks, dbItem.perks.rank2);
-      if (eq.rank >= 3 && dbItem.perks.rank3) perks = Object.assign(perks, dbItem.perks.rank3);
+      if (eq.rank >= 1 && dbItem.perks.rank1) mergePerkStack(perks, dbItem.perks.rank1);
+      if (eq.rank >= 2 && dbItem.perks.rank2) mergePerkStack(perks, dbItem.perks.rank2);
+      if (eq.rank >= 3 && dbItem.perks.rank3) mergePerkStack(perks, dbItem.perks.rank3);
     }
   });
 
-  const baseSpeed = 5.2 + (s.agi * 0.12) + (perks.runSpeedBonus || 0);
-  const power = 18.5 + (s.str * 0.25) + bonusSpikeSpeed;
-  const defense = 10.0 + (s.dex * 0.25) + (s.agi * 0.15) + (perks.defRawBonus || 0);
-  const blockRigidity = (defense * 1.05) + (s.str * 0.12) + (s.jump * 0.15);
-  const oneTouchAbsorb = Math.min(75, Math.floor(35 + (s.dex * 0.8)));
-  const sweetWindow = Math.floor(34 + (s.dex * 0.4) + bonusSweet);
-// 🌟 素體 56 點起算，依公式累加 DEX 與 INT，再加上裝備副詞條與特權，不設上限
-  const reach = 56 + (s.dex * 0.25) + (s.int * 0.15) + bonusReach + (perks.reachBonus || 0);
-  const reactionDelay = Math.max(3, Math.round(16 - (s.int * 0.25) - (s.agi * 0.15) - (perks.reactionReduce || 0)));
+  // V75-3: raw points remain visible/upgradeable; derived gameplay uses a mild high-end marginal curve.
+  // Values <=40 are unchanged, protecting the current feel of normal/N/R/SR builds.
+  const eStr=effectiveStatValue('str',s.str), eAgi=effectiveStatValue('agi',s.agi), eJump=effectiveStatValue('jump',s.jump);
+  const eTec=effectiveStatValue('dex',s.dex), eInt=effectiveStatValue('int',s.int);
+
+  const baseSpeed = 5.2 + (eAgi * 0.12) + (perks.runSpeedBonus || 0);
+  const power = 18.5 + (eStr * 0.25) + bonusSpikeSpeed;
+  // AGI no longer directly buffs contact quality. It helps defense by arriving sooner, not by making the arms steadier.
+  const defense = 10.0 + (eTec * 0.25) + (perks.defRawBonus || 0);
+  const blockRigidity = (defense * 1.05) + (eStr * 0.12) + (eJump * 0.15);
+  const oneTouchAbsorb = Math.min(75, Math.floor(35 + (eTec * 0.8)));
+  const sweetWindow = Math.floor(34 + (eTec * 0.4) + bonusSweet);
+  // TEC = body/ball control tolerance; INT = earlier read/positioning tolerance. Kept intentionally as two distinct reach sources.
+  const reach = 56 + (eTec * 0.25) + (eInt * 0.15) + bonusReach + (perks.reachBonus || 0);
+  // Reaction preserves the legacy line until it reaches the old 3f floor, then continues with a soft 3→2f tail.
+  // This keeps current low/mid-stat hand feel while ensuring high INT/AGI points are not completely dead.
+  const reactionLegacyRaw = 16 - (eInt * 0.25) - (eAgi * 0.15);
+  let reactionDelay = reactionLegacyRaw >= 3
+    ? reactionLegacyRaw
+    : 2 + 1 / (1 + Math.max(0, 3 - reactionLegacyRaw) * 0.25);
+  reactionDelay = Math.max(2, reactionDelay - (perks.reactionReduce || 0));
+  const outballThreshold = eInt <= 30 ? Math.max(8,60-eInt*1.5) : (8 + 7/(1+(eInt-30)*0.15));
   const skillObj = SKILL_POOL.find(sk => sk.id === card.equippedSkill) || SKILL_POOL[0];
 
   return {
-    // Final five attributes (base card + equipment). Runtime gameplay may read these; UI may still read card.stats for base display.
-    str: s.str, agi: s.agi, jumpStat: s.jump, dex: s.dex, int: s.int,
-    speed: baseSpeed, jump: -9.8 - (s.jump * 0.10) - (perks.jumpRawBonus || 0), diveSpeed: baseSpeed * 1.25,
+    // Raw final five attributes stay intact for UI/save. effective* values expose the marginal layer to diagnostics.
+    str: s.str, agi: s.agi, jumpStat: s.jump, dex: s.dex, tec: s.dex, int: s.int,
+    effectiveStr:eStr,effectiveAgi:eAgi,effectiveJump:eJump,effectiveTec:eTec,effectiveInt:eInt,
+    speed: baseSpeed, jump: -9.8 - (eJump * 0.10) - (perks.jumpRawBonus || 0), diveSpeed: baseSpeed * 2.0,
     power: power, defense: defense, blockRigidity: blockRigidity,
     oneTouchAbsorb: oneTouchAbsorb, sweetWindow: sweetWindow, reach: reach, reactionDelay: reactionDelay,
-    technique: 0.45 + (s.dex * 0.02), intellect: s.int,
-    outballThreshold: Math.max(8, 60 - s.int * 1.5), skill: skillObj,
+    technique: 0.45 + (eTec * 0.02), intellect: eInt,
+    outballThreshold: outballThreshold, skill: skillObj,
     // 專屬裝備加成導出
     bonusAP: bonusAP, bonusStaminaRec: bonusStaminaRec, bonusEnergyGain: bonusEnergyGain,
     perks: perks
@@ -945,7 +1026,10 @@ function loadGameData() {
       if (Array.isArray(data.unlockedAchievements)) UNLOCKED_ACHIEVEMENTS = data.unlockedAchievements;
       // V28 migration: 舊存檔也必須真的能在更衣室/角色技能欄選到新增三招。
       V28_GRANTED_SKILLS.forEach(id => { if (!UNLOCKED_SKILLS.includes(id)) UNLOCKED_SKILLS.push(id); });
-      if (Array.isArray(data.inventoryEquips)) INVENTORY_EQUIPS = data.inventoryEquips;
+      if (Array.isArray(data.inventoryEquips)) {
+        INVENTORY_EQUIPS = data.inventoryEquips;
+        INVENTORY_EQUIPS.forEach(eq => { if (eq.locked === undefined) eq.locked = false; });
+      }
       if (Array.isArray(data.inventory) && data.inventory.length >= 4) {
         INVENTORY = data.inventory;
         INVENTORY.forEach(card => {

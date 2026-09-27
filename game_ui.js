@@ -4,6 +4,47 @@
 let currentSlot = 'user', stagedCard = null;
 let currentReforgeInstId = null;
 let currentBreakthroughTargetId = null;
+let lockerReturnContext = 'MENU'; // MENU | PAUSE — UI 來源不可再用 isGameStarted 猜
+let isEquipBagOpen = false;
+
+const EQUIP_SLOT_LABEL = { wrist: '護腕', knee: '護膝', shoe: '球鞋' };
+const EQUIP_STAT_LABEL = { str: 'STR', agi: 'AGI', jump: 'JUMP', dex: 'DEX', int: 'INT' };
+function getEquipMainValue(eq) {
+  const db = EQUIP_DB.find(e => e.id === eq.itemId);
+  return eq.baseRoll + (eq.refineLevel || 0) * (db ? db.refineGain : 0.5);
+}
+function getEquipArchetype(eq) {
+  return `${eq.slot}_${eq.mainStatType}`;
+}
+function getEquipIconSvg(eq, size = 66) {
+  const evolved = (eq.rank || 0) >= 3;
+  const stat = eq.mainStatType;
+  const statColor = { str:'#ef4444', dex:'#a78bfa', agi:'#38bdf8', jump:'#facc15' }[stat] || '#94a3b8';
+  const metal = evolved ? '#f8fafc' : '#cbd5e1';
+  const dark = evolved ? '#312e81' : '#334155';
+  let art='';
+  if (eq.slot === 'wrist') {
+    art = evolved
+      ? `<path d="M15 25 L26 14 L50 19 L54 42 L43 54 L20 48 Z" fill="${dark}" stroke="${metal}" stroke-width="3"/><path d="M24 22 L45 25 L43 42 L24 39 Z" fill="${statColor}" opacity=".9"/><circle cx="47" cy="19" r="5" fill="${statColor}"/>`
+      : `<rect x="16" y="22" width="39" height="25" rx="8" fill="${dark}" stroke="${metal}" stroke-width="3"/><rect x="27" y="20" width="16" height="29" rx="5" fill="${statColor}" opacity=".85"/>`;
+  } else if (eq.slot === 'knee') {
+    art = evolved
+      ? `<path d="M20 14 L49 14 L57 30 L49 54 L20 54 L12 30 Z" fill="${dark}" stroke="${metal}" stroke-width="3"/><path d="M23 21 L46 21 L50 31 L44 46 L25 46 L19 31 Z" fill="${statColor}" opacity=".88"/><path d="M12 30 L5 35 M57 30 L64 35" stroke="${statColor}" stroke-width="4"/>`
+      : `<rect x="17" y="14" width="36" height="40" rx="12" fill="${dark}" stroke="${metal}" stroke-width="3"/><ellipse cx="35" cy="34" rx="13" ry="15" fill="${statColor}" opacity=".82"/>`;
+  } else {
+    art = evolved
+      ? `<path d="M8 39 L22 22 L39 28 L47 16 L57 20 L54 36 L64 43 L59 53 L15 53 Z" fill="${dark}" stroke="${metal}" stroke-width="3"/><path d="M18 40 L39 34 L54 39 L48 47 L20 47 Z" fill="${statColor}" opacity=".9"/><path d="M48 18 L60 10 L58 28" fill="none" stroke="${statColor}" stroke-width="4"/>`
+      : `<path d="M9 40 L22 25 L38 31 L48 25 L57 31 L54 43 L63 47 L58 54 L16 54 Z" fill="${dark}" stroke="${metal}" stroke-width="3"/><path d="M18 42 L47 36 L54 44 L48 49 L20 49 Z" fill="${statColor}" opacity=".82"/>`;
+  }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 70 70" aria-hidden="true"><defs><filter id="g"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g filter="${evolved?'url(#g)':''}">${art}</g></svg>`;
+}
+function findEquipOwner(instId) {
+  for (const c of INVENTORY) {
+    if (c.equipSlotA === instId) return `${c.name} [A]`;
+    if (c.equipSlotB === instId) return `${c.name} [B]`;
+  }
+  return null;
+}
 
 // V27: 共用下拉排序規則。角色：稀有度→等級降冪；技能：標籤分組→Cost→名稱。
 const UI_TIER_WEIGHT = { SSR: 4, SR: 3, R: 2, N: 1 };
@@ -103,11 +144,11 @@ function renderLocker() {
   if (mount) {
     mount.innerHTML = '';
     const statMeta = {
-      str: { label: '力量 (STR)', desc: '驅動扣球與跳發初速、穿透攔網剛性。' },
-      agi: { label: '敏捷 (AGI)', desc: '驅動橫移奔跑速度、魚躍救球滑行距離。' },
-      jump: { label: '彈跳 (JUMP)', desc: '決定摸高打擊點、起跳滯空與前排攔網高度。' },
-      dex: { label: '技巧 (DEX)', desc: '驅動扣殺下旋加速度；每點提供 0.25px 接球半徑。' },
-      int: { label: '球商 (INT)', desc: '提供 0.15px 接球預判卡位範圍，降低沮喪機率。' }
+      str: { label: '力量 (STR)', desc: '力量輸出：扣球／跳發球威、二傳最遠推送與攔網剛性。' },
+      agi: { label: '敏捷 (AGI)', desc: '動作速度：橫移、魚躍位移、回位與反應速度；不再直接增加接球卸力。' },
+      jump: { label: '彈跳 (JUMP)', desc: '垂直能力：摸高、攻擊打點、滯空與前排攔網高度；高值需要更精準的時機。' },
+      dex: { label: '技巧 (TEC)', desc: '動作細膩度：接觸品質、甜蜜點、容錯範圍、旋轉、二傳與球路控制。' },
+      int: { label: '球商 (INT)', desc: '判讀與球商：落點／OUT／假動作判斷、AI戰術、二傳判斷與狀態抗性。' }
     };
 
     for (let k in stagedCard.stats) {
@@ -178,159 +219,255 @@ function renderEquippedPreview(origin) {
   ['A', 'B'].forEach(slotKey => {
     const prop = `equipSlot${slotKey}`;
     const instId = origin[prop];
-    const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e => e.instanceId === instId) : null;
+    const eq = INVENTORY_EQUIPS.find(e => e.instanceId === instId);
     const row = document.createElement('div');
-    row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; background: #18153d; border-radius: 6px; margin-bottom: 4px; font-size: 11px;';
-
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px;background:#18153d;border-radius:8px;margin-bottom:6px;border:1px solid #334155;';
     if (eq) {
       const tierColor = eq.tier === 'SSR' ? '#facc15' : (eq.tier === 'SR' ? '#c084fc' : '#38bdf8');
       row.innerHTML = `
-        <span style="color: ${tierColor}; font-weight: bold;">[${slotKey}] ${eq.name} +${eq.refineLevel} (${eq.rank}階)</span>
-        <button class="btn-sound" style="padding: 2px 6px; font-size: 10px;" onclick="window.unequipSlot('${prop}')">卸下</button>
-      `;
+        <div style="width:38px;height:38px;display:grid;place-items:center;background:#0f172a;border:1px solid ${tierColor};border-radius:8px">${getEquipIconSvg(eq,34)}</div>
+        <div style="min-width:0;flex:1"><div style="font-size:10px;color:#94a3b8">Slot ${slotKey}</div><div style="font-size:11px;color:${tierColor};font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${eq.name} +${eq.refineLevel}</div><div style="font-size:10px;color:#34d399">${EQUIP_STAT_LABEL[eq.mainStatType]||eq.mainStatType.toUpperCase()} +${getEquipMainValue(eq).toFixed(1)}</div></div>
+        <button class="btn-sound" style="padding:3px 7px;font-size:9px" onclick="event.stopPropagation();window.unequipSlot('${prop}')">卸下</button>`;
     } else {
-      row.innerHTML = `
-        <span style="color: #64748b;">[${slotKey}] (未穿戴裝備)</span>
-        <span style="font-size: 10px; color: #94a3b8;">從下方背包點選穿戴</span>
-      `;
+      row.innerHTML = `<div style="width:38px;height:38px;border:1px dashed #475569;border-radius:8px;display:grid;place-items:center;color:#64748b">＋</div><div style="flex:1"><div style="font-size:10px;color:#94a3b8">Slot ${slotKey}</div><div style="font-size:11px;color:#64748b">未穿戴裝備</div></div>`;
     }
+    row.onclick = () => openEquipBag();
     mount.appendChild(row);
   });
+
+  const btn = document.createElement('button');
+  btn.className = 'btn-action';
+  btn.style.cssText = 'width:100%;padding:6px 8px;font-size:10px;margin-top:2px;background:#1d4ed8;border-color:#38bdf8';
+  btn.textContent = '🎒 開啟裝備背包';
+  btn.onclick = openEquipBag;
+  mount.appendChild(btn);
 }
 
+function hideEquipHoverTooltip(){
+  const tip=document.getElementById('equip-hover-tooltip');
+  if(tip){ tip.style.display='none'; tip.innerHTML=''; tip.setAttribute('aria-hidden','true'); }
+}
+function buildEquipHoverHtml(eq){
+  const dbItem=EQUIP_DB.find(e=>e.id===eq.itemId);
+  const tierColor=eq.tier==='SSR'?'#facc15':(eq.tier==='SR'?'#c084fc':'#38bdf8');
+  const owner=findEquipOwner(eq.instanceId);
+  let perk='尚未突破';
+  if(dbItem?.perks && (eq.rank||0)>0){
+    const k=`rank${Math.max(1,Math.min(3,eq.rank||0))}`;
+    perk=dbItem.perks[k]?.desc||perk;
+  }
+  return `<div style="color:${tierColor};font-size:13px;font-weight:900">[${eq.tier}] ${eq.name} +${eq.refineLevel||0}</div>
+    <div style="color:#94a3b8">${EQUIP_SLOT_LABEL[eq.slot]||eq.slot} · Rank ${eq.rank||0}/3 ${eq.locked?'· 🔒 已鎖定':''}</div>
+    <div style="color:#34d399;margin-top:5px">主屬性：${EQUIP_STAT_LABEL[eq.mainStatType]||String(eq.mainStatType).toUpperCase()} +${getEquipMainValue(eq).toFixed(1)}</div>
+    <div style="color:#a5b4fc;margin-top:4px">${(eq.subStats||[]).map(x=>`${x.type} +${x.val}`).join(' · ')||'無副詞條'}</div>
+    <div style="color:#facc15;margin-top:5px">目前特權：${perk}</div>
+    <div style="color:#38bdf8;margin-top:5px">${owner?`裝備者：${owner}`:'目前未裝備'}</div>
+    <div style="color:#94a3b8;margin-top:6px">點擊：查看詳情 / 穿戴；鎖定後不會出現在突破素材中。</div>`;
+}
+function placeEquipHoverTooltip(anchor){
+  const tip=document.getElementById('equip-hover-tooltip');
+  if(!tip||!anchor||tip.style.display==='none') return;
+  const r=anchor.getBoundingClientRect();
+  const pad=12, gap=10;
+  const tw=tip.offsetWidth||305, th=tip.offsetHeight||190;
+  let left=r.right+gap;
+  if(left+tw>window.innerWidth-pad) left=r.left-tw-gap;
+  left=Math.max(pad,Math.min(left,window.innerWidth-tw-pad));
+  let top=r.top+(r.height-th)/2;
+  top=Math.max(pad,Math.min(top,window.innerHeight-th-pad));
+  tip.style.left=`${Math.round(left)}px`; tip.style.top=`${Math.round(top)}px`;
+}
+function showEquipHoverTooltip(eq,anchor){
+  const tip=document.getElementById('equip-hover-tooltip');
+  if(!tip) return;
+  tip.innerHTML=buildEquipHoverHtml(eq);
+  tip.style.display='block'; tip.setAttribute('aria-hidden','false');
+  placeEquipHoverTooltip(anchor);
+}
+window.hideEquipHoverTooltip=hideEquipHoverTooltip;
+
+function openEquipBag(){
+  isEquipBagOpen = true;
+  const bag=document.getElementById('equip-bag-drawer');
+  if(bag) bag.style.display='flex';
+  renderInventoryEquipsGrid(ACTIVE_ROSTER[currentSlot]);
+}
+function closeEquipBag(){
+  hideEquipHoverTooltip();
+  isEquipBagOpen = false;
+  const bag=document.getElementById('equip-bag-drawer');
+  if(bag) bag.style.display='none';
+}
+window.openEquipBag=openEquipBag; window.closeEquipBag=closeEquipBag;
+
 function renderInventoryEquipsGrid(currentCard) {
+  hideEquipHoverTooltip();
   const grid = document.getElementById('inventory-equips-grid');
   if (!grid) return;
+  grid.onscroll = hideEquipHoverTooltip;
   grid.innerHTML = '';
-const countEl = document.getElementById('equip-count-display');
-  const equipList = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS : [];
-  if (countEl) countEl.innerText = `持有裝備: ${equipList.length} 件`;
-
-  if (equipList.length === 0) {
-    grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #64748b; padding: 20px; font-size: 12px;">背包空空如也，請至轉蛋大街抽取裝備！</div>`;
+  const countEl = document.getElementById('equip-count-display');
+  const equipList = Array.isArray(INVENTORY_EQUIPS) ? INVENTORY_EQUIPS : [];
+  if (countEl) countEl.innerText = `持有 ${equipList.length} 件`;
+  if (!equipList.length) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:#64748b;padding:24px;font-size:12px">背包空空如也，去轉蛋專區抽裝備吧。</div>`;
     return;
   }
 
-  // 🌟 裝備排序：稀有度優先 (SSR > SR > R) ➔ 強化等級降冪 (+10 > +0) ➔ 突破階級 (3階 > 0階)
-  const eqTierWeight = { SSR: 3, SR: 2, R: 1 };
-  const sortedEquips = [...equipList].sort((a, b) => {
-    const twA = eqTierWeight[a.tier] || 0, twB = eqTierWeight[b.tier] || 0;
-    if (twB !== twA) return twB - twA;
-    if ((b.refineLevel || 0) !== (a.refineLevel || 0)) return (b.refineLevel || 0) - (a.refineLevel || 0);
-    return (b.rank || 0) - (a.rank || 0);
-  });
+  // 固定預設：稀有度 ↓ → Rank ↓ → 強化 ↓ → 主屬性 ↓ → 名稱 ↑
+  const eqTierWeight = { SSR:3, SR:2, R:1 };
+  const sortedEquips=[...equipList].sort((a,b)=>(eqTierWeight[b.tier]||0)-(eqTierWeight[a.tier]||0)
+    ||(b.rank||0)-(a.rank||0)
+    ||(b.refineLevel||0)-(a.refineLevel||0)
+    ||getEquipMainValue(b)-getEquipMainValue(a)
+    ||String(a.name||'').localeCompare(String(b.name||''),'zh-Hant'));
 
-  const findEquipOwner = (instId) => {
-    for (let c of INVENTORY) {
-      if (c.equipSlotA === instId) return `${c.name} [Slot A]`;
-      if (c.equipSlotB === instId) return `${c.name} [Slot B]`;
-    }
-    return null;
-  };
-
-  sortedEquips.forEach(eq => {
-
-    const dbItem = EQUIP_DB.find(e => e.id === eq.itemId);
-    const tierColor = eq.tier === 'SSR' ? '#facc15' : (eq.tier === 'SR' ? '#c084fc' : '#38bdf8');
-    const ownerText = findEquipOwner(eq.instanceId);
-    const isEquippedByCurrent = (currentCard.equipSlotA === eq.instanceId || currentCard.equipSlotB === eq.instanceId);
-    const refineCost = getEquipRefineCost(eq.refineLevel);
-    const reforgeCost = getEquipReforgeCost(eq.reforgeCount);
-
-    const cardEl = document.createElement('div');
-    cardEl.style.cssText = `
-      position: relative; background: #110d24; border: 1.5px solid ${isEquippedByCurrent ? '#facc15' : '#4338ca'};
-      border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between;
-      cursor: pointer; box-shadow: ${isEquippedByCurrent ? '0 0 12px rgba(250,204,21,0.35)' : 'none'};
-    `;
-
-    let perkText = '無特權';
-    if (dbItem && dbItem.perks) {
-      if (eq.rank === 1) perkText = dbItem.perks.rank1 ? dbItem.perks.rank1.desc : '';
-      else if (eq.rank === 2) perkText = dbItem.perks.rank2 ? dbItem.perks.rank2.desc : '';
-      else if (eq.rank >= 3) perkText = dbItem.perks.rank3 ? dbItem.perks.rank3.desc : '';
-    }
-
-    cardEl.innerHTML = `
-      <div>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <strong style="color: ${tierColor}; font-size: 12px;">[${eq.tier}] ${eq.name} +${eq.refineLevel}</strong>
-          <span style="font-size: 10px; font-weight: bold; color: #facc15;">${eq.rank} 階 ${eq.rank >= 3 ? '✨' : ''}</span>
-        </div>
-        <div style="font-size: 11px; color: #cbd5e1; margin-top: 3px;">
-          主屬: <strong style="color: #34d399;">${eq.mainStatType.toUpperCase()} +${(eq.baseRoll + eq.refineLevel * (dbItem ? dbItem.refineGain : 0.5)).toFixed(1)}</strong>
-        </div>
-        <div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">
-          副詞: ${eq.subStats.map(s => `${s.type}+${s.val}`).join(' | ')}
-        </div>
-        ${ownerText ? `<div style="font-size: 9px; color: #38bdf8; margin-top: 2px;">● 穿戴者: ${ownerText}</div>` : `<div style="font-size: 9px; color: #10b981; margin-top: 2px;">○ 空閒中 (可穿戴)</div>`}
-      </div>
-
-      <div style="display: flex; gap: 4px; margin-top: 8px;" onclick="event.stopPropagation();">
-        <button class="btn-action" style="flex: 1; padding: 2px 0; font-size: 9px;" ${refineCost === null || userCoins < refineCost ? 'disabled' : ''} onclick="window.refineEquip('${eq.instanceId}')">
-          ${refineCost !== null ? `+1(${refineCost}幣)` : '滿級'}
-        </button>
-        <button class="btn-action" style="flex: 1; padding: 2px 0; font-size: 9px; background: #9333ea;" onclick="window.openBreakthroughModal('${eq.instanceId}')">
-          突破
-        </button>
-        <button class="btn-sound" style="flex: 1; padding: 2px 0; font-size: 9px;" onclick="window.openReforgeModal('${eq.instanceId}')">
-          重鑄
-        </button>
-      </div>
-
-      <div class="stat-tooltip" style="width: 280px; font-size: 11px; line-height: 1.4;">
-        <div style="color: ${tierColor}; font-weight: bold; font-size: 12px; margin-bottom: 4px;">${eq.name} +${eq.refineLevel} (${eq.rank}階)</div>
-        <div style="color: #cbd5e1;">部位：${eq.slot.toUpperCase()} | 稀有度：${eq.tier}</div>
-        <hr style="border: 0.5px solid #334155; margin: 4px 0;">
-        <div style="color: #34d399;">★ 主屬性：${eq.mainStatType.toUpperCase()} +${(eq.baseRoll + eq.refineLevel * (dbItem ? dbItem.refineGain : 0.5)).toFixed(1)} (初始Roll: ${eq.baseRoll})</div>
-        <div style="color: #facc15; margin-top: 2px;">★ 突破特權 (${eq.rank}/3階)：${perkText}</div>
-        <div style="color: #38bdf8; margin-top: 2px;">★ 隨機副詞條：</div>
-        ${eq.subStats.map(s => `<div style="padding-left: 8px; color: #a5b4fc;">• ${s.type}: +${s.val} (區間 ${s.min} ~ ${s.max})</div>`).join('')}
-        <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">重鑄次數：${eq.reforgeCount} 次 (下次需 ${reforgeCost} 幣)</div>
-      </div>
-    `;
-
-    cardEl.onclick = () => {
-      window.promptEquipToCurrentPlayer(eq.instanceId);
-    };
-
-    grid.appendChild(cardEl);
+  sortedEquips.forEach(eq=>{
+    const dbItem=EQUIP_DB.find(e=>e.id===eq.itemId);
+    const tierColor=eq.tier==='SSR'?'#facc15':(eq.tier==='SR'?'#c084fc':'#38bdf8');
+    const owner=findEquipOwner(eq.instanceId);
+    const isCurrent=currentCard && (currentCard.equipSlotA===eq.instanceId||currentCard.equipSlotB===eq.instanceId);
+    const card=document.createElement('div');
+    card.className='equip-bag-card';
+    card.style.cssText=`position:relative;min-height:142px;padding:9px 8px;background:#0b1022;border:2px solid ${tierColor};border-radius:12px;display:flex;flex-direction:column;align-items:center;text-align:center;cursor:pointer;box-shadow:${isCurrent?'0 0 14px rgba(250,204,21,.35)':'none'};`;
+    let perk='無';
+    if(dbItem?.perks){ const k=`rank${Math.max(1,Math.min(3,eq.rank||0))}`; perk=dbItem.perks[k]?.desc||'尚未突破'; }
+    card.innerHTML=`
+      <button title="${eq.locked?'解除鎖定':'鎖定，避免作為突破素材'}" onclick="event.stopPropagation();window.toggleEquipLock('${eq.instanceId}')" style="position:absolute;right:5px;top:5px;border:0;background:#020617bb;color:${eq.locked?'#facc15':'#64748b'};border-radius:6px;width:25px;height:25px;cursor:pointer">${eq.locked?'🔒':'🔓'}</button>
+      ${owner?`<div title="${owner}" style="position:absolute;left:5px;top:5px;font-size:10px;background:#0f766e;color:#d1fae5;border-radius:5px;padding:2px 5px">E</div>`:''}
+      <div style="width:72px;height:67px;display:grid;place-items:center;margin-top:2px">${getEquipIconSvg(eq,66)}</div>
+      <div style="font-size:10px;color:${tierColor};font-weight:900;margin-top:2px">[${eq.tier}] ${eq.rank>=3?'◆ R3':''}</div>
+      <div style="width:100%;font-size:11px;color:#f8fafc;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${eq.name}">${eq.name}${eq.refineLevel?` +${eq.refineLevel}`:''}</div>
+      <div style="font-size:10px;color:#34d399;margin-top:2px">${EQUIP_STAT_LABEL[eq.mainStatType]||eq.mainStatType.toUpperCase()} +${getEquipMainValue(eq).toFixed(1)}</div>`;
+    card.addEventListener('mouseenter',()=>showEquipHoverTooltip(eq,card));
+    card.addEventListener('mousemove',()=>placeEquipHoverTooltip(card));
+    card.addEventListener('mouseleave',hideEquipHoverTooltip);
+    card.onclick=()=>window.openEquipDetail(eq.instanceId);
+    grid.appendChild(card);
   });
 }
+window.toggleEquipLock=function(instId){
+  hideEquipHoverTooltip();
+  const eq=INVENTORY_EQUIPS.find(e=>e.instanceId===instId); if(!eq)return;
+  eq.locked=!eq.locked; saveGameData(); renderInventoryEquipsGrid(ACTIVE_ROSTER[currentSlot]);
+};
+
+function openEquipDetail(instId){
+  hideEquipHoverTooltip();
+  const eq=INVENTORY_EQUIPS.find(e=>e.instanceId===instId); if(!eq)return;
+  const db=EQUIP_DB.find(e=>e.id===eq.itemId); const owner=findEquipOwner(eq.instanceId);
+  const tierColor=eq.tier==='SSR'?'#facc15':(eq.tier==='SR'?'#c084fc':'#38bdf8');
+  const perk1=db?.perks?.rank1?.desc||'-', perk2=db?.perks?.rank2?.desc||'-', perk3=db?.perks?.rank3?.desc||'-';
+  const modal=document.getElementById('equip-detail-modal'), body=document.getElementById('equip-detail-body'); if(!modal||!body)return;
+  body.innerHTML=`
+    <div style="display:flex;gap:16px;align-items:flex-start">
+      <div style="width:116px;height:116px;border:2px solid ${tierColor};border-radius:16px;background:#0b1022;display:grid;place-items:center;flex:0 0 auto">${getEquipIconSvg(eq,104)}</div>
+      <div style="flex:1;text-align:left">
+        <div style="color:${tierColor};font-weight:900;font-size:16px">[${eq.tier}] ${eq.name} +${eq.refineLevel}</div>
+        <div style="color:#94a3b8;font-size:10px;margin-top:3px">${EQUIP_SLOT_LABEL[eq.slot]||eq.slot} · Rank ${eq.rank}/3 ${owner?`· ${owner}`:''}</div>
+        <div style="color:#34d399;font-size:13px;margin-top:8px">${EQUIP_STAT_LABEL[eq.mainStatType]||eq.mainStatType.toUpperCase()} +${getEquipMainValue(eq).toFixed(1)}</div>
+        <div style="color:#a5b4fc;font-size:11px;margin-top:5px">${eq.subStats.map(x=>`${x.type} +${x.val}`).join(' · ')||'無副詞條'}</div>
+        <div style="font-size:10px;color:#cbd5e1;margin-top:9px;line-height:1.45">R1：${perk1}<br>R2：${perk2}<br><span style="color:#facc15">R3：${perk3}</span></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px">
+      <button class="btn-action" onclick="window.openEquipSlotPicker('${eq.instanceId}')">${owner?'卸下':'穿戴'}</button>
+      <button class="btn-sound" onclick="window.toggleEquipLock('${eq.instanceId}');openEquipDetail('${eq.instanceId}')">${eq.locked?'🔓 解除鎖定':'🔒 鎖定'}</button>
+      <button class="btn-action" ${eq.refineLevel>=10?'disabled':''} onclick="window.refineEquip('${eq.instanceId}');openEquipDetail('${eq.instanceId}')">強化 ${eq.refineLevel>=10?'(滿級)':'(+1)'}</button>
+      <button class="btn-action" style="background:#9333ea" ${eq.rank>=3?'disabled':''} onclick="closeEquipDetail();window.openBreakthroughModal('${eq.instanceId}')">突破</button>
+      <button class="btn-sound" style="grid-column:1/-1" onclick="closeEquipDetail();window.openReforgeModal('${eq.instanceId}')">重鑄副詞條</button>
+    </div>`;
+  modal.style.display='flex';
+}
+function closeEquipDetail(){const m=document.getElementById('equip-detail-modal');if(m)m.style.display='none';}
+window.openEquipDetail=openEquipDetail; window.closeEquipDetail=closeEquipDetail;
 
 // ========================================================
 // 🌟 全域操作函式 (掛載於 window，徹底杜絕 ReferenceError)
 // ========================================================
-window.promptEquipToCurrentPlayer = function(instId) {
+let pendingEquipInstanceId = null;
+let pendingEquipReturnDetailId = null;
+
+function equipInstanceToSlot(instId, targetSlot) {
   const currentCard = ACTIVE_ROSTER[currentSlot];
-  if (currentCard.equipSlotA === instId) {
-    if (confirm('是否將此裝備從 [Slot A] 卸下？')) {
-      currentCard.equipSlotA = null;
-      saveGameData(); renderLocker();
-    }
-    return;
-  }
-  if (currentCard.equipSlotB === instId) {
-    if (confirm('是否將此裝備從 [Slot B] 卸下？')) {
-      currentCard.equipSlotB = null;
-      saveGameData(); renderLocker();
-    }
-    return;
-  }
-
-  let targetSlot = 'equipSlotA';
-  if (!currentCard.equipSlotA) targetSlot = 'equipSlotA';
-  else if (!currentCard.equipSlotB) targetSlot = 'equipSlotB';
-  else {
-    const choice = prompt('請選擇要替換的槽位 (輸入 A 或 B)：', 'A');
-    if (choice && choice.toUpperCase() === 'B') targetSlot = 'equipSlotB';
-  }
-
+  if (!currentCard || !instId || !['equipSlotA', 'equipSlotB'].includes(targetSlot)) return false;
   currentCard[targetSlot] = instId;
   playSound('set');
   saveGameData();
   renderLocker();
+  return true;
+}
+
+window.openEquipSlotPicker = function(instId) {
+  const currentCard = ACTIVE_ROSTER[currentSlot];
+  if (!currentCard) return;
+
+  // V76-4.1：卸裝是可逆操作，不再叫瀏覽器 confirm；直接卸下並刷新。
+  if (currentCard.equipSlotA === instId) {
+    currentCard.equipSlotA = null;
+    playSound('set'); saveGameData(); renderLocker(); closeEquipDetail();
+    return;
+  }
+  if (currentCard.equipSlotB === instId) {
+    currentCard.equipSlotB = null;
+    playSound('set'); saveGameData(); renderLocker(); closeEquipDetail();
+    return;
+  }
+
+  // 有空槽就直接穿上，不需要再問。
+  if (!currentCard.equipSlotA) {
+    equipInstanceToSlot(instId, 'equipSlotA');
+    closeEquipDetail();
+    return;
+  }
+  if (!currentCard.equipSlotB) {
+    equipInstanceToSlot(instId, 'equipSlotB');
+    closeEquipDetail();
+    return;
+  }
+
+  // A/B 都有裝備時，改用遊戲內槽位選擇視窗，不再呼叫 browser prompt。
+  pendingEquipInstanceId = instId;
+  pendingEquipReturnDetailId = instId;
+  const modal = document.getElementById('equip-slot-picker-modal');
+  if (!modal) return;
+
+  const getLabel = (slotInstId, fallback) => {
+    const eq = INVENTORY_EQUIPS.find(e => e.instanceId === slotInstId);
+    return eq ? `[${eq.tier}] ${eq.name} +${eq.refineLevel || 0}` : fallback;
+  };
+  const a = document.getElementById('equip-slot-picker-a-current');
+  const b = document.getElementById('equip-slot-picker-b-current');
+  if (a) a.textContent = getLabel(currentCard.equipSlotA, '空');
+  if (b) b.textContent = getLabel(currentCard.equipSlotB, '空');
+
+  closeEquipDetail();
+  modal.style.display = 'flex';
 };
+
+window.confirmEquipSlotPick = function(slotKey) {
+  if (!pendingEquipInstanceId) return;
+  const targetSlot = slotKey === 'B' ? 'equipSlotB' : 'equipSlotA';
+  const instId = pendingEquipInstanceId;
+  pendingEquipInstanceId = null;
+  pendingEquipReturnDetailId = null;
+  const modal = document.getElementById('equip-slot-picker-modal');
+  if (modal) modal.style.display = 'none';
+  equipInstanceToSlot(instId, targetSlot);
+};
+
+window.cancelEquipSlotPick = function() {
+  const returnDetailId = pendingEquipReturnDetailId;
+  pendingEquipInstanceId = null;
+  pendingEquipReturnDetailId = null;
+  const modal = document.getElementById('equip-slot-picker-modal');
+  if (modal) modal.style.display = 'none';
+  // 取消就是純取消：不修改任何槽位，並回到剛才的裝備詳情。
+  if (returnDetailId) openEquipDetail(returnDetailId);
+};
+
+// 保留舊函式名稱給其他入口使用，但實際統一走遊戲內槽位選擇器。
+window.promptEquipToCurrentPlayer = window.openEquipSlotPicker;
 
 window.unequipSlot = function(propName) {
   ACTIVE_ROSTER[currentSlot][propName] = null;
@@ -368,10 +505,11 @@ window.openBreakthroughModal = function(instId) {
 
   const mount = document.getElementById('breakthrough-materials-list');
   mount.innerHTML = '';
-  const materials = INVENTORY_EQUIPS.filter(e => e.itemId === target.itemId && e.instanceId !== instId);
+  const materials = INVENTORY_EQUIPS.filter(e => e.itemId === target.itemId && e.instanceId !== instId && !e.locked)
+    .sort((a,b)=>(a.rank||0)-(b.rank||0)||(a.refineLevel||0)-(b.refineLevel||0)||getEquipMainValue(a)-getEquipMainValue(b));
 
   if (materials.length === 0) {
-    mount.innerHTML = `<div style="color: #ef4444; font-size: 12px; padding: 10px;">背包中無多餘的同名【${target.name}】可作為材料！請至轉蛋機抽取。</div>`;
+    mount.innerHTML = `<div style="color: #ef4444; font-size: 12px; padding: 10px;">背包中沒有可消耗的同名【${target.name}】。已鎖定裝備不會列為突破素材。</div>`;
     return;
   }
 
@@ -401,6 +539,7 @@ window.confirmBreakthrough = function(materialInstId) {
   const target = INVENTORY_EQUIPS.find(e => e.instanceId === currentBreakthroughTargetId);
   const matIdx = INVENTORY_EQUIPS.findIndex(e => e.instanceId === materialInstId);
   if (!target || matIdx === -1) return;
+  if (INVENTORY_EQUIPS[matIdx]?.locked) { alert('此裝備已鎖定，無法作為突破素材。'); return; }
 
   if (confirm(`確定要將這件材料裝備吃掉嗎？此操作無法還原！`)) {
     INVENTORY.forEach(c => {
@@ -499,11 +638,11 @@ function renderStagedStatsOnly() {
   });
 
   const statMeta = {
-    str: { label: '力量 (STR)', desc: '驅動扣球與跳發初速、穿透攔網剛性。' },
-    agi: { label: '敏捷 (AGI)', desc: '驅動橫移奔跑速度、魚躍救球滑行距離。' },
-    jump: { label: '彈跳 (JUMP)', desc: '決定摸高打擊點、起跳滯空與前排攔網高度。' },
-    dex: { label: '技巧 (DEX)', desc: '驅動扣殺下旋加速度；每點提供 0.25px 接球半徑。' },
-    int: { label: '球商 (INT)', desc: '提供 0.15px 接球預判卡位範圍，降低沮喪機率。' }
+    str: { label: '力量 (STR)', desc: '力量輸出：扣球／跳發球威、二傳最遠推送與攔網剛性。' },
+    agi: { label: '敏捷 (AGI)', desc: '動作速度：橫移、魚躍位移、回位與反應速度；不再直接增加接球卸力。' },
+    jump: { label: '彈跳 (JUMP)', desc: '垂直能力：摸高、攻擊打點、滯空與前排攔網高度；高值需要更精準的時機。' },
+    dex: { label: '技巧 (TEC)', desc: '動作細膩度：接觸品質、甜蜜點、容錯範圍、旋轉、二傳與球路控制。' },
+    int: { label: '球商 (INT)', desc: '判讀與球商：落點／OUT／假動作判斷、AI戰術、二傳判斷與狀態抗性。' }
   };
   const mount = document.getElementById('stats-mount');
   if (mount) {
@@ -576,46 +715,54 @@ let isPauseMenuOpen = false;
 let isPracticeMode = false;
 
 function openLockerFromMenu() {
+  lockerReturnContext = 'MENU';
   document.getElementById('start-menu-modal').style.display = 'none';
-  isGameStarted = false;
   if(typeof _stopVenueAmbience==='function')_stopVenueAmbience();
   isLockerOpen = true;
   document.getElementById('locker-modal').style.display = 'flex';
-  initStagedCard();
-  renderLocker();
+  initStagedCard(); renderLocker();
 }
 
 function closeLockerToMenu() {
-  isLockerOpen = false;
+  lockerReturnContext = 'MENU';
+  isLockerOpen = false; closeEquipBag();
   document.getElementById('locker-modal').style.display = 'none';
-  if (!isGameStarted) {
-    document.getElementById('start-menu-modal').style.display = 'flex';
-  }
+  document.getElementById('start-menu-modal').style.display = 'flex';
 }
 
+function closeLockerByContext(){
+  isLockerOpen=false; closeEquipBag();
+  document.getElementById('locker-modal').style.display='none';
+  if(lockerReturnContext==='PAUSE'){
+    isPaused=true; isPauseMenuOpen=true;
+    document.getElementById('pause-menu-modal').style.display='flex';
+  }else{
+    document.getElementById('start-menu-modal').style.display='flex';
+  }
+}
+window.closeLockerByContext=closeLockerByContext;
+
 function openLockerFromPause() {
+  // V75-3.3 Balance sessions use runtime-locked test profiles. Rebinding from the
+  // locker would silently destroy the controlled variables, so the locker is disabled.
+  if (typeof BALANCE_TEST_ACTIVE !== 'undefined' && BALANCE_TEST_ACTIVE) return;
   if (NET.isMultiplayer || isCareerMode) return;
+  lockerReturnContext = 'PAUSE';
   isPauseMenuOpen = false;
   document.getElementById('pause-menu-modal').style.display = 'none';
-  toggleLocker();
+  isLockerOpen = true; isPaused = true;
+  document.getElementById('locker-modal').style.display = 'flex';
+  initStagedCard(); renderLocker();
 }
 
 function toggleLocker() {
+  if (typeof BALANCE_TEST_ACTIVE !== 'undefined' && BALANCE_TEST_ACTIVE) return;
   if (isSettlementOpen) return;
-  if (!isGameStarted) {
-    closeLockerToMenu();
-    return;
-  }
-  isLockerOpen = !isLockerOpen;
-  isPaused = isLockerOpen;
-  document.getElementById('locker-modal').style.display = isLockerOpen ? 'flex' : 'none';
-
-  if (isLockerOpen) {
-    initStagedCard();
-    renderLocker();
-  } else {
-    allPlayers.forEach(p => p.rebind(true));
-  }
+  if (isLockerOpen) { closeLockerByContext(); return; }
+  lockerReturnContext = isGameStarted ? 'PAUSE' : 'MENU';
+  isLockerOpen = true; isPaused = isGameStarted;
+  document.getElementById('locker-modal').style.display = 'flex';
+  initStagedCard(); renderLocker();
 }
 
 function togglePauseMenu() {
@@ -626,7 +773,13 @@ function togglePauseMenu() {
   const lockerBtn = document.getElementById('pause-btn-locker');
   const modeStatus = document.getElementById('pause-mode-status');
 
-if (NET.isMultiplayer) {
+if (typeof BALANCE_TEST_ACTIVE !== 'undefined' && BALANCE_TEST_ACTIVE) {
+    isPaused = isPauseMenuOpen;
+    lockerBtn.disabled = true;
+    lockerBtn.innerText = '🔒 更衣室 (Balance Test 鎖定)';
+    modeStatus.innerText = '🧪 Balance Test · Runtime 數值已鎖定，避免更衣室污染控制變因';
+    modeStatus.style.color = '#22d3ee';
+  } else if (NET.isMultiplayer) {
     isPaused = false;
     lockerBtn.disabled = true;
     lockerBtn.innerText = '🔒 更衣室 (連線中禁用)';
@@ -1197,7 +1350,7 @@ function setupDataConnection(conn = NET.conn) {
     } else if (data.type === 'STATE_SYNC') {
       applyWorldSync(data);
     } else if (data.type === 'CALLOUT_SYNC') {
-      if(typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)){ if(typeof pushCallout==='function') pushCallout(data.x,data.y,data.text,data.color,data.eventId); else calloutPopups.push({ x: data.x, y: data.y - 28, text: data.text, color: data.color, timer: 45, maxTimer: 45 }); }
+      if(typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)){ if(typeof pushCallout==='function') pushCallout(data.x,data.y,data.text,data.color,data.eventId,data.calloutMeta||null); else calloutPopups.push({ x: data.x, anchorX:data.x, baseY:data.y-28, y: data.y - 28, text: data.text, color: data.color, timer: 45, maxTimer: 45 }); }
     } else if (data.type === 'SFX_SYNC') {
       if ((typeof consumeNetEvent!=='function' || consumeNetEvent(data.eventId)) && typeof playSound === 'function') playSound(data.sfx, true);
     } else if (data.type === 'VENUE_SFX_SYNC') {
@@ -1456,11 +1609,27 @@ function renderWardrobeUI() {
 
     box.innerHTML = `
       <div style="font-size: 13px; font-weight: bold; color: ${isEquipped ? '#facc15' : '#fff'};">${item.name}</div>
-      <p style="font-size: 10px; color: #a5b4fc; margin: 4px 0; line-height: 1.2;">${(!isUnlocked && item.source === 'achievement' && item.hint) ? item.hint : item.desc}</p>
+      <div class="wardrobe-icon-mount"></div>
+      <p style="font-size: 10px; color: #a5b4fc; margin: 2px 0 4px; line-height: 1.2; min-height:24px;">${(!isUnlocked && item.source === 'achievement' && item.hint) ? item.hint : item.desc}</p>
       <span style="font-size: 10px; font-weight: 800; color: ${isUnlocked ? (isEquipped ? '#10b981' : '#38bdf8') : '#ef4444'};">
         ${isUnlocked ? (isEquipped ? '✓ 已穿戴' : '點擊換裝') : (item.source === 'achievement' ? '🏆 成就取得' : '🔒 未獲得')}
       </span>
     `;
+    const iconMount=box.querySelector('.wardrobe-icon-mount');
+    if(iconMount){
+      if(wbCategory==='hats' || wbCategory==='faces'){
+        const iconItem={...item,category:wbCategory};
+        if(isNone){
+          iconMount.innerHTML='<div style="width:56px;height:56px;border:2px dashed #475569;border-radius:50%;display:grid;place-items:center;color:#64748b;font-size:11px">NONE</div>';
+        }else{
+          iconMount.appendChild(createCosmeticIconCanvas(iconItem,58));
+        }
+      }else{
+        const glow=item.glow||'#818cf8';
+        iconMount.innerHTML=`<div style="width:56px;height:56px;border-radius:50%;border:2px solid ${glow};box-shadow:0 0 18px ${glow}66;background:radial-gradient(circle,${glow}66 0%,#0f172a 70%);display:grid;place-items:center;color:#e2e8f0;font-size:10px;font-weight:900">FX</div>`;
+      }
+      if(!isUnlocked) iconMount.style.filter='grayscale(1) brightness(.55)';
+    }
 
     if (isUnlocked) {
       box.onclick = () => {
@@ -1518,9 +1687,54 @@ window.openGachaArcadeFromWardrobe = function() {
   window.openGachaArcade();
 };
 
+window.showGachaNotice = function(title, message, tone = 'info') {
+  const modal = document.getElementById('gacha-notice-modal');
+  const titleEl = document.getElementById('gacha-notice-title');
+  const textEl = document.getElementById('gacha-notice-text');
+  if (!modal || !titleEl || !textEl) return;
+  const palette = {
+    warning: { border: '#f59e0b', title: '#facc15' },
+    success: { border: '#34d399', title: '#6ee7b7' },
+    info: { border: '#38bdf8', title: '#7dd3fc' }
+  };
+  const c = palette[tone] || palette.info;
+  const box = modal.firstElementChild;
+  if (box) box.style.borderColor = c.border;
+  titleEl.style.color = c.title;
+  titleEl.textContent = title || '📣 轉蛋提示';
+  textEl.textContent = message || '';
+  modal.style.display = 'flex';
+};
+window.closeGachaNotice = function() {
+  const modal = document.getElementById('gacha-notice-modal');
+  if (modal) modal.style.display = 'none';
+};
+
+function getGachaAvailability(type) {
+  if (type === 'skill') {
+    const available = SKILL_POOL.filter(sk => !UNLOCKED_SKILLS.includes(sk.id));
+    return { count: available.length, emptyMessage: '⚡ 所有戰術技能皆已領悟研習完畢！' };
+  }
+  if (type === 'cosmetic') {
+    let count = 0;
+    ['hats', 'faces'].forEach(cat => {
+      COSMETICS_DB[cat].forEach(item => {
+        if (!item.id.endsWith('_none') && item.source !== 'achievement' && !UNLOCKED_COSMETICS[cat].includes(item.id)) count++;
+      });
+    });
+    return { count, emptyMessage: '🎉 恭喜！服裝獎池已全數抽空，所有可抽帽子與臉飾皆已解鎖！' };
+  }
+  return { count: Infinity, emptyMessage: '' };
+}
+
 window.promptConfirmGacha = function(type, isTen, cost) {
   if (userCoins < cost) {
-    alert(`排球金幣不足！本次抽取需要 ${cost} 幣，目前持有 ${userCoins} 幣。`);
+    window.showGachaNotice('🪙 金幣不足', `本次抽取需要 ${cost} 排球金幣。\n目前持有 ${userCoins} 金幣。`, 'warning');
+    return;
+  }
+  const availability = getGachaAvailability(type);
+  if (availability.count <= 0) {
+    window.showGachaNotice('✅ 獎池已完成', availability.emptyMessage, 'success');
     return;
   }
   const typeLabels = { cosmetic: '時尚轉蛋', player: '角色轉蛋', skill: '技能轉蛋', equip: '裝備轉蛋' };
@@ -1598,7 +1812,7 @@ function rollSingleCard() {
 
 function triggerGacha(isTen = false) {
   const cost = isTen ? 900 : 100;
-  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { window.showGachaNotice('🪙 金幣不足', `本次抽取需要 ${cost} 排球金幣。\n目前持有 ${userCoins} 金幣。`, 'warning'); return; }
   userCoins -= cost;
   updateCoinHUD();
 
@@ -1654,7 +1868,7 @@ function triggerGacha(isTen = false) {
 
       const animModal = document.getElementById('gacha-anim-modal');
       if (animModal) animModal.style.display = 'flex';
-      else alert(`🎉 成功抽得：[${result.template.tier}] ${result.template.name}！已收入名冊更衣室。`);
+      else window.showGachaNotice('🎉 招募完成', `成功抽得：[${result.template.tier}] ${result.template.name}！已收入名冊更衣室。`, 'success');
     } else {
       const results = [];
       for (let i = 0; i < 10; i++) results.push(rollSingleCard());
@@ -1690,7 +1904,7 @@ function triggerGacha(isTen = false) {
 
       const tenModal = document.getElementById('gacha-ten-modal');
       if (tenModal) tenModal.style.display = 'flex';
-      else alert('🎉 十連抽完成！新角色與突破 EXP 已全數存入更衣室名冊。');
+      else window.showGachaNotice('🎉 十連完成', '新角色與突破 EXP 已全數存入更衣室名冊。', 'success');
     }
   }, 400);
 }
@@ -1711,7 +1925,7 @@ function rollSingleEquipment() {
 
 function triggerEquipGacha(isTen = false) {
   const cost = isTen ? 1350 : 150;
-  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { window.showGachaNotice('🪙 金幣不足', `本次抽取需要 ${cost} 排球金幣。\n目前持有 ${userCoins} 金幣。`, 'warning'); return; }
   userCoins -= cost;
   updateCoinHUD();
 
@@ -1723,11 +1937,7 @@ function triggerEquipGacha(isTen = false) {
   }
   saveGameData();
 
-  let msg = isTen ? '🎉 十連抽取完成！\n' : '🎉 恭喜抽得裝備！\n';
-  results.forEach(r => {
-    msg += `• [${r.tier}] ${r.name} (主屬性 +${r.baseRoll})\n`;
-  });
-  alert(msg);
+  showItemGachaResults('equip', results, isTen ? '裝備十連成果' : '裝備抽取成果');
   renderLocker();
 }
 
@@ -1865,7 +2075,7 @@ function awardBirdScoreCosmetic(lastTouchPlayer) {
 
 function triggerCosmeticGacha(isTen = false) {
   const cost = isTen ? 450 : 50;
-  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { window.showGachaNotice('🪙 金幣不足', `本次抽取需要 ${cost} 排球金幣。\n目前持有 ${userCoins} 金幣。`, 'warning'); return; }
 
   const availablePool = [];
   ['hats', 'faces'].forEach(cat => {
@@ -1877,7 +2087,7 @@ function triggerCosmeticGacha(isTen = false) {
   });
 
   if (availablePool.length === 0) {
-    alert('🎉 恭喜！服裝獎池已全數抽空，所有帽子與臉飾皆已解鎖！');
+    window.showGachaNotice('✅ 時裝獎池已完成', '🎉 恭喜！服裝獎池已全數抽空，所有可抽帽子與臉飾皆已解鎖！', 'success');
     return;
   }
 
@@ -1896,16 +2106,16 @@ function triggerCosmeticGacha(isTen = false) {
 
   saveGameData();
   playSound('coin');
-  alert(`🎉 成功抽得 ${pulledItems.length} 件全新服裝飾品：\n` + pulledItems.map(p => `• [${p.category === 'hats' ? '帽子' : '臉飾'}] ${p.name}`).join('\n'));
+  showItemGachaResults('cosmetic', pulledItems, isTen ? '時裝十連成果' : '時裝抽取成果');
 }
 
 function triggerSkillGacha(isTen = false) {
   const cost = isTen ? 2350 : 250;
-  if (userCoins < cost) { alert(`排球金幣不足 ${cost}！`); return; }
+  if (userCoins < cost) { window.showGachaNotice('🪙 金幣不足', `本次抽取需要 ${cost} 排球金幣。\n目前持有 ${userCoins} 金幣。`, 'warning'); return; }
 
   const availableSkills = SKILL_POOL.filter(sk => !UNLOCKED_SKILLS.includes(sk.id));
   if (availableSkills.length === 0) {
-    alert('⚡ 所有戰術技能皆已領悟研習完畢！');
+    window.showGachaNotice('✅ 技能研習完成', '⚡ 所有戰術技能皆已領悟研習完畢！', 'success');
     return;
   }
 
@@ -1924,74 +2134,212 @@ function triggerSkillGacha(isTen = false) {
 
   saveGameData();
   playSound('perfect_spike');
-  alert(`⚡ 成功領悟 ${results.length} 個全新戰術技能：\n` + results.map(s => `• ${s.name} (${s.type})`).join('\n'));
+  showItemGachaResults('skill', results, isTen ? '技能十連成果' : '技能抽取成果');
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  const menuCanvas = document.getElementById('menu-bg-canvas');
-  if (!menuCanvas) return;
-  const mCtx = menuCanvas.getContext('2d');
-  let menuBalls = [];
 
-  function resizeMenuCanvas() {
-    menuCanvas.width = window.innerWidth;
-    menuCanvas.height = window.innerHeight;
-  }
-  window.addEventListener('resize', resizeMenuCanvas);
-  resizeMenuCanvas();
+function createCosmeticIconCanvas(item, size=78){
+  // V76-4.0.3: render the exact CURRENT on-character vector cosmetic, not an emoji copy.
+  // Hats/faces therefore cannot visually drift between Wardrobe/gameplay and gacha results.
+  const dpr = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = size * dpr; canvas.height = size * dpr;
+  canvas.style.cssText = `width:${size}px;height:${size}px;background:transparent;border:0;border-radius:0;box-shadow:none;display:block;`;
+  const c = canvas.getContext('2d');
+  c.scale(dpr, dpr);
 
-  for (let i = 0; i < 4; i++) {
-    menuBalls.push({
-      x: Math.random() * window.innerWidth, y: Math.random() * (window.innerHeight * 0.5),
-      vx: (Math.random() - 0.5) * 8 + 3, vy: Math.random() * 4 - 2,
-      radius: 18 + Math.random() * 8, rotation: 0
-    });
-  }
+  const accent = item.category === 'hats' ? '#f59e0b' : '#38bdf8';
+  const bg = c.createRadialGradient(size*0.5,size*0.45,2,size*0.5,size*0.5,size*0.48);
+  bg.addColorStop(0, accent + '30'); bg.addColorStop(1, 'rgba(15,23,42,0)');
+  c.fillStyle = bg; c.beginPath(); c.arc(size*0.5,size*0.5,size*0.47,0,Math.PI*2); c.fill();
 
-  function updateAndDrawMenuBackground() {
-    if (typeof isGameStarted !== 'undefined' && isGameStarted) return;
-    mCtx.clearRect(0, 0, menuCanvas.width, menuCanvas.height);
-    menuBalls.forEach(mb => {
-      mb.x += mb.vx; mb.y += mb.vy; mb.vy += 0.25; mb.rotation += mb.vx * 0.04;
-      if (mb.x - mb.radius < 0) { mb.x = mb.radius; mb.vx *= -0.85; }
-      if (mb.x + mb.radius > menuCanvas.width) { mb.x = menuCanvas.width - mb.radius; mb.vx *= -0.85; }
-      if (mb.y + mb.radius > menuCanvas.height) {
-        mb.y = menuCanvas.height - mb.radius;
-        mb.vy = -Math.abs(mb.vy) * 0.85;
-        if (Math.abs(mb.vy) < 2) mb.vy = -12 - Math.random() * 6; 
-      }
-      mCtx.save(); mCtx.translate(mb.x, mb.y); mCtx.rotate(mb.rotation);
-      mCtx.globalAlpha = 0.35; mCtx.beginPath(); mCtx.arc(0, 0, mb.radius, 0, Math.PI * 2);
-      mCtx.fillStyle = '#fff'; mCtx.fill(); mCtx.lineWidth = 2; mCtx.strokeStyle = '#38bdf8'; mCtx.stroke();
-      mCtx.fillStyle = '#facc15'; mCtx.beginPath(); mCtx.arc(0, 0, mb.radius, -0.6, 0.8); mCtx.lineTo(0, 0); mCtx.fill();
-      mCtx.fillStyle = '#38bdf8'; mCtx.beginPath(); mCtx.arc(0, 0, mb.radius, 1.8, 3.2); mCtx.lineTo(0, 0); mCtx.fill();
-      mCtx.restore();
-    });
-    requestAnimationFrame(updateAndDrawMenuBackground);
-  }
-  requestAnimationFrame(updateAndDrawMenuBackground);
-
-  let heroIdx = 0;
-  const heroPool = GACHA_POOL.slice(0, 5);
-  setInterval(() => {
-    if (typeof isGameStarted !== 'undefined' && isGameStarted) return;
-    heroIdx = (heroIdx + 1) % heroPool.length;
-    const h = heroPool[heroIdx];
-    const ava = document.getElementById('menu-card-avatar');
-    const tier = document.getElementById('menu-card-tier');
-    const name = document.getElementById('menu-card-name');
-    const desc = document.getElementById('menu-card-desc');
-    const sil = document.getElementById('hero-sil-1');
-
-    if (ava) ava.style.backgroundColor = h.color;
-    if (tier) {
-      tier.innerText = h.tier;
-      tier.style.color = h.tier === 'SSR' ? '#facc15' : '#c084fc';
+  const isFace = item.category === 'faces';
+  const dummy = {
+    x: size * 0.5 - (isFace ? 8 : 0),
+    y: size * 0.78,
+    radius: Math.max(17, size * 0.22),
+    facing: 1, isLeft: true, isUser: false, isDiving: false,
+    squashX: 1, squashY: 1, color: 'transparent',
+    ghostTrail: [], energyReadyFlash: 0, flowAbsorbRallies: 0,
+    venueSpinTimer: 0, venueSpinTotal: 48, highestRank3Tier: null,
+    cosmeticOnly: true,
+    card: { cosmetics: {
+      hat: item.category === 'hats' ? item.id : 'hat_none',
+      face: item.category === 'faces' ? item.id : 'face_none',
+      effect: 'fx_none'
+    }}
+  };
+  if (typeof drawPlayerEntity === 'function') drawPlayerEntity(dummy, c);
+  return canvas;
+}
+function skillIconSvg(item,size=78){
+  const color=item.glowColor||'#a78bfa';
+  const id=String(item.id||'');
+  const glyphs={
+    sk_breaker:'<path d="M28 70 L45 34 L55 48 L72 24 L64 59 L78 57 L50 78 Z" fill="none" stroke="white" stroke-width="6" stroke-linejoin="round"/>',
+    sk_deep_impact:'<path d="M18 56 Q34 38 50 56 T82 56 M22 68 Q38 50 54 68 T86 68" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>',
+    sk_steepexec:'<path d="M50 18 L66 43 H57 V78 H43 V43 H34 Z" fill="white"/><path d="M31 78 H69" stroke="white" stroke-width="5"/>',
+    sk_phantom:'<circle cx="40" cy="50" r="18" fill="none" stroke="white" stroke-width="5"/><circle cx="60" cy="50" r="18" fill="none" stroke="white" stroke-width="5" opacity=".48"/>',
+    sk_solar_sine:'<path d="M16 52 C28 24 40 80 52 52 S76 24 84 52" fill="none" stroke="white" stroke-width="6" stroke-linecap="round"/>',
+    sk_sky_comet:'<circle cx="60" cy="38" r="12" fill="white"/><path d="M18 76 L48 46 M24 82 L54 52 M34 84 L60 58" stroke="white" stroke-width="5" stroke-linecap="round"/>',
+    sk_phantom_drop:'<path d="M50 20 C63 40 72 50 72 62 A22 22 0 1 1 28 62 C28 50 37 40 50 20Z" fill="none" stroke="white" stroke-width="5"/><circle cx="43" cy="61" r="3" fill="white"/><circle cx="57" cy="61" r="3" fill="white"/>',
+    sk_chrono_spike:'<circle cx="50" cy="50" r="27" fill="none" stroke="white" stroke-width="5"/><path d="M50 32 V51 L64 60" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>',
+    sk_rolling_thunder:'<path d="M58 15 L30 55 H47 L40 84 L72 43 H55 Z" fill="white"/>',
+    sk_mud_spike:'<path d="M20 66 Q35 48 50 66 T80 66" fill="none" stroke="white" stroke-width="6"/><circle cx="34" cy="42" r="7" fill="white"/><circle cx="57" cy="35" r="5" fill="white"/><circle cx="70" cy="48" r="4" fill="white"/>',
+    sk_bungee_gum:'<path d="M20 62 C28 24 72 24 80 62 C68 46 32 46 20 62Z" fill="none" stroke="white" stroke-width="6"/>',
+    sk_iron_wall:'<path d="M20 28 H80 V72 H20 Z M20 44 H80 M20 58 H80 M40 28 V44 M60 44 V58 M40 58 V72" fill="none" stroke="white" stroke-width="5"/>',
+    sk_soft_wall:'<path d="M20 30 Q50 45 80 30 M20 45 Q50 60 80 45 M20 60 Q50 75 80 60" fill="none" stroke="white" stroke-width="4"/><path d="M28 25 V72 M50 32 V78 M72 25 V72" stroke="white" stroke-width="3" opacity=".75"/>',
+    sk_shock_return:'<path d="M24 34 H70 L58 22 M70 34 L58 46 M76 66 H30 L42 54 M30 66 L42 78" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>',
+    sk_godspeed_toss:'<path d="M28 68 Q34 42 45 35 M72 68 Q66 42 55 35" fill="none" stroke="white" stroke-width="6" stroke-linecap="round"/><circle cx="50" cy="28" r="10" fill="none" stroke="white" stroke-width="5"/>',
+    sk_greased_ball:'<path d="M50 18 C64 38 72 48 72 62 A22 22 0 1 1 28 62 C28 48 36 38 50 18Z" fill="white" opacity=".9"/>',
+    sk_gravity_drop:'<circle cx="50" cy="34" r="11" fill="none" stroke="white" stroke-width="5"/><path d="M50 48 V78 M38 66 L50 79 L62 66" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>',
+    sk_savage_roar:'<path d="M28 56 Q40 44 50 50 Q60 44 72 56 Q64 74 50 74 Q36 74 28 56Z" fill="none" stroke="white" stroke-width="5"/><path d="M18 38 Q28 28 38 32 M82 38 Q72 28 62 32" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>'
+  };
+  const glyph=glyphs[id]||'<path d="M50 18 L61 40 L84 43 L67 60 L71 83 L50 72 L29 83 L33 60 L16 43 L39 40 Z" fill="none" stroke="white" stroke-width="5"/>';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true"><defs><radialGradient id="sg_${id.replace(/[^a-z0-9]/gi,'')}"><stop stop-color="${color}" stop-opacity=".95"/><stop offset="1" stop-color="#0f172a"/></radialGradient></defs><circle cx="50" cy="50" r="44" fill="url(#sg_${id.replace(/[^a-z0-9]/gi,'')})" stroke="${color}" stroke-width="3"/><circle cx="50" cy="50" r="36" fill="none" stroke="rgba(255,255,255,.20)" stroke-width="1.5"/>${glyph}</svg>`;
+}
+function showItemGachaResults(type, results, title){
+  const modal=document.getElementById('item-gacha-result-modal'); const grid=document.getElementById('item-gacha-result-grid');
+  const titleEl=document.getElementById('item-gacha-result-title'); if(!modal||!grid)return;
+  titleEl.textContent=`🎉 ${title}`; grid.innerHTML='';
+  grid.style.gridTemplateColumns = results.length>1 ? 'repeat(5,minmax(0,1fr))' : 'minmax(240px,320px)';
+  results.forEach((item,index)=>{
+    const card=document.createElement('div'); let border='#38bdf8', meta=''; let icon=''; let rarity='';
+    if(type==='equip'){
+      rarity=item.tier||''; border=item.tier==='SSR'?'#facc15':(item.tier==='SR'?'#c084fc':'#38bdf8');
+      icon=getEquipIconSvg(item,82); meta=`${EQUIP_STAT_LABEL[item.mainStatType]||item.mainStatType.toUpperCase()} +${getEquipMainValue(item).toFixed(1)}`;
+    }else if(type==='cosmetic'){
+      border=item.category==='hats'?'#f59e0b':'#38bdf8'; meta=item.category==='hats'?'頭飾':'臉飾';
+    }else{
+      border=item.glowColor||'#a78bfa'; icon=skillIconSvg(item,82); meta=item.type||'SKILL';
     }
-    if (name) name.innerText = h.name;
-    if (desc) desc.innerText = h.desc;
-    if (sil) sil.style.backgroundColor = h.color;
-  }, 6000);
+    card.className='gacha-result-card'; card.dataset.rarity=rarity; card.style.animationDelay=`${Math.min(index,9)*55}ms`;
+    card.style.cssText+=`min-height:154px;background:linear-gradient(180deg,#11163b 0%,#0b1022 100%);border:2px solid ${border};border-radius:14px;padding:12px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 0 15px ${border}33`;
+    card.innerHTML=`<div class="gacha-item-icon-mount" style="height:86px;display:grid;place-items:center"></div><div style="font-size:12px;color:${border};font-weight:900;line-height:1.25;margin-top:5px">${type==='equip'?`[${item.tier}] `:''}${item.name}</div><div style="font-size:10px;color:#cbd5e1;margin-top:4px">${meta}</div>`;
+    const iconMount = card.querySelector('.gacha-item-icon-mount');
+    if (type === 'cosmetic') iconMount.appendChild(createCosmeticIconCanvas(item,82));
+    else iconMount.innerHTML = icon;
+    grid.appendChild(card);
+  });
+  modal.style.display='flex';
+}
+function closeItemGachaResults(){ const m=document.getElementById('item-gacha-result-modal'); if(m)m.style.display='none'; }
+window.showItemGachaResults=showItemGachaResults; window.closeItemGachaResults=closeItemGachaResults;
+
+// ========================================================
+// V76-4.1 FRONTEND VISUAL SYSTEM
+// 主頁與所有非比賽管理頁使用同一個「球館 + 現役球員特寫」背景；不再透出上一場最後一幀。
+// ========================================================
+window.addEventListener('DOMContentLoaded', () => {
+  const menuCanvas=document.getElementById('menu-bg-canvas');
+  const frontendLayer=document.getElementById('frontend-bg-layer');
+  const frontendCanvas=document.getElementById('frontend-bg-canvas');
+  if(!menuCanvas||!frontendCanvas||!frontendLayer) return;
+  const menuCtx=menuCanvas.getContext('2d'), frontCtx=frontendCanvas.getContext('2d');
+  const scene={heroA:0,heroB:1,prevA:0,prevB:1,lastRotate:0,initialized:false};
+
+  function resizeCanvasToViewport(canvas){
+    const dpr=Math.min(2,window.devicePixelRatio||1), w=window.innerWidth, h=window.innerHeight;
+    const rw=Math.max(1,Math.floor(w*dpr)), rh=Math.max(1,Math.floor(h*dpr));
+    if(canvas.width!==rw||canvas.height!==rh){ canvas.width=rw; canvas.height=rh; }
+    canvas.style.width=`${w}px`; canvas.style.height=`${h}px`;
+    const c=canvas.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0);
+    return {w,h,dpr};
+  }
+  function getHeroPool(){
+    const inv=(typeof INVENTORY!=='undefined'&&Array.isArray(INVENTORY))?INVENTORY.filter(Boolean):[];
+    if(inv.length>=2) return inv;
+    return (typeof GACHA_POOL!=='undefined'&&Array.isArray(GACHA_POOL))?GACHA_POOL.filter(Boolean):inv;
+  }
+  function rotateHeroes(now){
+    const pool=getHeroPool();
+    if(!pool.length) return {pool,mix:1};
+    if(!scene.initialized){
+      scene.initialized=true; scene.heroA=0; scene.heroB=pool.length>1?Math.max(1,Math.floor(pool.length/2)):0;
+      scene.prevA=scene.heroA; scene.prevB=scene.heroB; scene.lastRotate=now-1400;
+    }else if(pool.length>1 && now-scene.lastRotate>7600){
+      scene.prevA=scene.heroA; scene.prevB=scene.heroB;
+      scene.heroA=(scene.heroA+1)%pool.length;
+      scene.heroB=(scene.heroA+Math.max(1,Math.floor(pool.length/2)))%pool.length;
+      scene.lastRotate=now;
+    }
+    return {pool,mix:Math.max(0,Math.min(1,(now-scene.lastRotate)/1300))};
+  }
+  function drawCourtAmbient(ctx,w,h,t,opacity){
+    ctx.clearRect(0,0,w,h);
+    let g=ctx.createRadialGradient(w*.5,h*.40,20,w*.5,h*.45,Math.max(w,h)*.72);
+    g.addColorStop(0,'#2b3b80'); g.addColorStop(.42,'#17204d'); g.addColorStop(1,'#080b18');
+    ctx.globalAlpha=opacity; ctx.fillStyle=g; ctx.fillRect(0,0,w,h); ctx.globalAlpha=1;
+    const floorY=h*.73;
+    ctx.fillStyle='rgba(15,23,42,.58)'; ctx.fillRect(0,floorY,w,h-floorY);
+    ctx.strokeStyle='rgba(99,102,241,.26)'; ctx.lineWidth=2;
+    for(let i=0;i<7;i++){ const yy=floorY+i*34; ctx.beginPath();ctx.moveTo(0,yy);ctx.lineTo(w,yy);ctx.stroke(); }
+    ctx.strokeStyle='rgba(56,189,248,.18)'; ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(w*.12,floorY);ctx.lineTo(w*.88,floorY);ctx.stroke();
+    // Net silhouette
+    ctx.strokeStyle='rgba(203,213,225,.16)'; ctx.lineWidth=2;
+    const nx=w*.5, nt=h*.39; ctx.beginPath();ctx.moveTo(nx,nt);ctx.lineTo(nx,floorY);ctx.stroke();
+    for(let yy=nt;yy<floorY;yy+=14){ctx.beginPath();ctx.moveTo(nx-32,yy);ctx.lineTo(nx+32,yy);ctx.stroke();}
+    // slow spotlights
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    for(let i=0;i<3;i++){
+      const cx=w*(.18+i*.32)+Math.sin(t*.00022+i)*40;
+      const sg=ctx.createRadialGradient(cx,h*.28,5,cx,h*.28,w*.16);
+      sg.addColorStop(0,i===1?'rgba(250,204,21,.08)':'rgba(56,189,248,.10)');sg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=sg;ctx.fillRect(cx-w*.2,0,w*.4,h*.72);
+    }
+    ctx.restore();
+  }
+  function drawHero(ctx,card,x,y,r,facing,alpha,t){
+    if(!card||typeof drawPlayerEntity!=='function') return;
+    const cosmeticCard={...card,equipSlotA:null,equipSlotB:null,cosmetics:card.cosmetics||{hat:'hat_none',face:'face_none',effect:'fx_none'}};
+    const dummy={x,y:y+Math.sin(t*.001+(facing>0?0:2))*5,radius:r,color:card.color||'#64748b',facing,
+      squashX:1,squashY:1,isDiving:false,isBlocking:false,isGrounded:true,ghostTrail:[],energyReadyFlash:0,
+      flowAbsorbRallies:0,venueSpinTimer:0,venueSpinTotal:48,highestRank3Tier:null,card:cosmeticCard,
+      isLeft:facing>0,isUser:false,slotIndex:-99,playerName:'',presentationOnly:true,swingTimer:0,thrustTimer:0,thrustTargetX:x,thrustTargetY:y};
+    ctx.save();ctx.globalAlpha=alpha;ctx.shadowColor=card.color||'#818cf8';ctx.shadowBlur=38;
+    drawPlayerEntity(dummy,ctx);ctx.restore();
+    // soft identity plate, deliberately behind UI and low contrast
+    ctx.save();ctx.globalAlpha=alpha*.75;ctx.font=`900 ${Math.max(13,r*.18)}px sans-serif`;ctx.textAlign='center';
+    ctx.fillStyle='#e2e8f0';ctx.fillText(card.name||'',x,y+r*.52);ctx.restore();
+  }
+  function drawScene(canvas,ctx,t,menuMode){
+    const {w,h}=resizeCanvasToViewport(canvas); drawCourtAmbient(ctx,w,h,t,1);
+    const heroState=rotateHeroes(t), pool=heroState.pool; if(pool.length){
+      const r=Math.max(72,Math.min(132,Math.min(w,h)*.135));
+      const floor=h*.72, baseAlpha=menuMode?.28:.23, mix=heroState.mix;
+      if(mix<1){
+        drawHero(ctx,pool[scene.prevA%pool.length],w*.18,floor,r,1,baseAlpha*(1-mix),t);
+        if(pool.length>1) drawHero(ctx,pool[scene.prevB%pool.length],w*.82,floor,r,-1,baseAlpha*(1-mix),t);
+      }
+      drawHero(ctx,pool[scene.heroA%pool.length],w*.18,floor,r,1,baseAlpha*mix,t);
+      if(pool.length>1) drawHero(ctx,pool[scene.heroB%pool.length],w*.82,floor,r,-1,baseAlpha*mix,t);
+    }
+    // foreground vignette keeps center readable
+    const vg=ctx.createRadialGradient(w*.5,h*.48,Math.min(w,h)*.16,w*.5,h*.48,Math.max(w,h)*.66);
+    vg.addColorStop(0,'rgba(2,6,23,.01)');vg.addColorStop(.58,'rgba(2,6,23,.10)');vg.addColorStop(1,'rgba(2,6,23,.52)');
+    ctx.fillStyle=vg;ctx.fillRect(0,0,w,h);
+  }
+  function syncFrontendBackdrop(){
+    const ids=['multiplayer-modal','net-prep-modal','locker-modal','career-modal','wardrobe-modal','gacha-arcade-modal','practice-venue-modal','ladder-prep-modal','settings-modal','cloud-auth-modal'];
+    const active=ids.some(id=>{const el=document.getElementById(id);return el&&getComputedStyle(el).display!=='none';});
+    frontendLayer.style.display=active?'block':'none';
+    document.body.classList.toggle('frontend-layer-active',active);
+    if(!active) hideEquipHoverTooltip();
+  }
+  const watchIds=['multiplayer-modal','net-prep-modal','locker-modal','career-modal','wardrobe-modal','gacha-arcade-modal','practice-venue-modal','ladder-prep-modal','settings-modal','cloud-auth-modal'];
+  const observer=new MutationObserver(syncFrontendBackdrop);
+  watchIds.forEach(id=>{const el=document.getElementById(id);if(el)observer.observe(el,{attributes:true,attributeFilter:['style','class']});});
+  window.addEventListener('resize',()=>{resizeCanvasToViewport(menuCanvas);resizeCanvasToViewport(frontendCanvas);});
+  syncFrontendBackdrop();
+
+  function loop(t){
+    const start=document.getElementById('start-menu-modal');
+    if(start&&getComputedStyle(start).display!=='none') drawScene(menuCanvas,menuCtx,t,true);
+    if(frontendLayer.style.display==='block') drawScene(frontendCanvas,frontCtx,t,false);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
 });
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -2436,6 +2784,7 @@ function awardWarehouseRoofBreakAchievement(lastTouchPlayer) {
 // V35：無盡模式也走正式場地選擇，不再永遠被鎖在體育館。
 let practiceVenueIndex = 0;
 let practiceEventsEnabled = true;
+let practiceBlockCoachEnabled = true;
 const PRACTICE_VENUE_IDS = ['stadium','warehouse','moon','rooftop','rain','ice','ship','beach','factory','underground','random'];
 function openPracticeVenueModal(){
   // V36：這裡只負責選場地，絕不能先偷偷開一場。也清掉連線殘留，避免抽完連線場地後才冒出無盡視窗。
@@ -2444,7 +2793,7 @@ function openPracticeVenueModal(){
   isGameStarted=false; isPaused=true; if(typeof _stopVenueAmbience==='function')_stopVenueAmbience(); isPracticeMode=false; isCareerMode=false; isLadderMode=false;
   const m=document.getElementById('practice-venue-modal'); if(!m){ startPracticeMode('stadium','stadium'); return; }
   const start=document.getElementById('start-menu-modal'); if(start) start.style.display='none';
-  practiceVenueIndex=0; practiceEventsEnabled=true; renderPracticeVenuePicker(); renderPracticeEventToggle(); m.style.pointerEvents='auto'; m.style.display='flex';
+  practiceVenueIndex=0; practiceEventsEnabled=true; practiceBlockCoachEnabled=true; renderPracticeVenuePicker(); renderPracticeEventToggle(); renderPracticeBlockCoachToggle(); m.style.pointerEvents='auto'; m.style.display='flex';
 }
 function renderPracticeVenuePicker(){
   const id=PRACTICE_VENUE_IDS[practiceVenueIndex];
@@ -2456,6 +2805,8 @@ function renderPracticeVenuePicker(){
 function cyclePracticeVenue(dir){ practiceVenueIndex=(practiceVenueIndex+dir+PRACTICE_VENUE_IDS.length)%PRACTICE_VENUE_IDS.length; renderPracticeVenuePicker(); }
 function renderPracticeEventToggle(){const b=document.getElementById('practice-events-toggle');if(!b)return;b.textContent=`特殊事件：${practiceEventsEnabled?'ON':'OFF'}`;b.style.borderColor=practiceEventsEnabled?'#22c55e':'#64748b';b.style.color=practiceEventsEnabled?'#bbf7d0':'#cbd5e1';}
 function togglePracticeEvents(){practiceEventsEnabled=!practiceEventsEnabled;renderPracticeEventToggle();}
+function renderPracticeBlockCoachToggle(){const b=document.getElementById('practice-block-coach-toggle');if(!b)return;b.textContent=`攔網 Timing 教練：${practiceBlockCoachEnabled?'ON':'OFF'}`;b.style.borderColor=practiceBlockCoachEnabled?'#facc15':'#64748b';b.style.color=practiceBlockCoachEnabled?'#fde68a':'#cbd5e1';}
+function togglePracticeBlockCoach(){practiceBlockCoachEnabled=!practiceBlockCoachEnabled;renderPracticeBlockCoachToggle();}
 function closePracticeVenueModal(){
   const m=document.getElementById('practice-venue-modal');
   if(m){ m.style.display='none'; m.style.pointerEvents='auto'; }

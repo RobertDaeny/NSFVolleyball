@@ -67,7 +67,7 @@ const NET_DEBUG = { rtt:0, syncCount:0, syncRate:0, txCount:0, txRate:0, eventRx
 // V75-2.6 MATCH NETWORK DIAGNOSTIC RECORDER
 // Observation only: records render/simulation/transport health without changing gameplay or sync policy.
 const NET_DIAG = {
-  version:'V75-2.6.2', matchId:'-', startedAt:0, endedAt:0, finalized:false,
+  version:'V76-3.4.2', matchId:'-', startedAt:0, endedAt:0, finalized:false,
   role:'OFFLINE', rafCount:0, renderCount:0, simCount:0, lastRafAt:0, lastStateRxAt:0, lastStateTxAt:0,
   frameSum:0, frameCount:0, frameMax:0, long25:0, long50:0, long100:0,
   simTickMsSum:0, simTickMsCount:0, simTickMsMax:0, catchupFrames:0, catchupTicks:0,
@@ -84,8 +84,8 @@ function netDiagSnapshotRecord(status='INCOMPLETE'){
   if(!NET_DIAG.startedAt) return null;
   const role=(typeof NET!=='undefined'&&NET.isMultiplayer)?(NET.isHost?'HOST':'GUEST'):NET_DIAG.role;
   let text='';
-  try{text=NET_DIAG.finalText||netDiagBuildText();}catch(e){text=`=== NSF VOLLEYBALL NETWORK DIAGNOSTIC ===\nBUILD: V75-2.6.2 · CRASH-SAFE MATCH DIAGNOSTIC\nROLE: ${role}\nMATCH ID: ${NET_DIAG.matchId||'-'}\nTERMINATION: ${status}\nRECOVERY NOTE: partial checkpoint; full text build failed: ${e?.message||e}`;}
-  return {schema:1,build:'V75-2.6.2',status,role,matchId:NET_DIAG.matchId||'-',venue:(typeof currentVenueId!=='undefined'?currentVenueId:'?'),savedAt:Date.now(),durationMs:Math.max(0,(NET_DIAG.endedAt||performance.now())-NET_DIAG.startedAt),text};
+  try{text=NET_DIAG.finalText||netDiagBuildText();}catch(e){text=`=== NSF VOLLEYBALL NETWORK DIAGNOSTIC ===\nBUILD: V76-3.4.2 · CRASH-SAFE MATCH DIAGNOSTIC\nROLE: ${role}\nMATCH ID: ${NET_DIAG.matchId||'-'}\nTERMINATION: ${status}\nRECOVERY NOTE: partial checkpoint; full text build failed: ${e?.message||e}`;}
+  return {schema:1,build:'V76-3.4.2',status,role,matchId:NET_DIAG.matchId||'-',venue:(typeof currentVenueId!=='undefined'?currentVenueId:'?'),savedAt:Date.now(),durationMs:Math.max(0,(NET_DIAG.endedAt||performance.now())-NET_DIAG.startedAt),text};
 }
 function persistNetDiagCheckpoint(status='INCOMPLETE'){
   if(!NET_DIAG.startedAt) return;
@@ -155,7 +155,7 @@ function netDiagFmtMs(ms){return Number.isFinite(ms)?ms.toFixed(1):'0.0';}
 function netDiagBuildText(){
   const role=(typeof NET!=='undefined'&&NET.isMultiplayer)?(NET.isHost?'HOST':'GUEST'):NET_DIAG.role, dur=Math.max(0,(NET_DIAG.endedAt||performance.now())-NET_DIAG.startedAt), ss=NET_DIAG.samples, avg=k=>ss.length?ss.reduce((a,x)=>a+(Number(x[k])||0),0)/ss.length:0, min=k=>ss.length?Math.min(...ss.map(x=>Number(x[k])||0)):0, max=k=>ss.length?Math.max(...ss.map(x=>Number(x[k])||0)):0;
   const frameAvg=NET_DIAG.frameCount?NET_DIAG.frameSum/NET_DIAG.frameCount:0, rxGap=NET_DIAG.stateRxGapCount?NET_DIAG.stateRxGapSum/NET_DIAG.stateRxGapCount:0, txGap=NET_DIAG.stateTxGapCount?NET_DIAG.stateTxGapSum/NET_DIAG.stateTxGapCount:0;
-  const lines=[`=== NSF VOLLEYBALL NETWORK DIAGNOSTIC ===`,`BUILD: V75-2.6.2 · CRASH-SAFE MATCH DIAGNOSTIC`,`ROLE: ${role}`,`MATCH ID: ${NET_DIAG.matchId||'-'}`,`DURATION: ${(dur/1000).toFixed(1)}s`,`VENUE: ${typeof currentVenueId!=='undefined'?currentVenueId:'?'}`,`TERMINATION: ${NET_DIAG.finalized?'COMPLETE':'INCOMPLETE / LAST CHECKPOINT'}`,'',`[PERFORMANCE]`,`FPS AVG ${avg('fps').toFixed(1)} / MIN ${min('fps')} / MAX ${max('fps')}`,`FRAME AVG ${netDiagFmtMs(frameAvg)}ms / MAX ${netDiagFmtMs(NET_DIAG.frameMax)}ms`,`LONG >25ms ${NET_DIAG.long25} / >50ms ${NET_DIAG.long50} / >100ms ${NET_DIAG.long100}`,`VISIBILITY CHANGES ${NET_DIAG.hiddenChanges} / FOCUS CHANGES ${NET_DIAG.focusChanges}`,'',`[SIMULATION]`,`SIM AVG ${avg('sim').toFixed(1)}/s / MIN ${min('sim')} / MAX ${max('sim')}`,`CATCHUP FRAMES ${NET_DIAG.catchupFrames} / EXTRA TICKS ${NET_DIAG.catchupTicks}`,'',`[NETWORK — ${role}]`,`RTT AVG ${avg('rtt').toFixed(1)}ms / MAX ${max('rtt')}ms`,`STATE ${role==='HOST'?'TX':'RX'} AVG ${(role==='HOST'?avg('tx'):avg('rx')).toFixed(1)}/s / MIN ${(role==='HOST'?min('tx'):min('rx'))}`,`${role==='HOST'?'SEND':'ARRIVAL'} GAP AVG ${netDiagFmtMs(role==='HOST'?txGap:rxGap)}ms / MAX ${netDiagFmtMs(role==='HOST'?NET_DIAG.stateTxGapMax:NET_DIAG.stateRxGapMax)}ms`,`STATE AGE AVG ${avg('age').toFixed(1)}ms / MAX ${max('age')}ms`,`ADAPT LAST ${NET_DEBUG.adaptiveReason||'-'} @${NET_DEBUG.adaptiveStateHz||0}Hz`,`CTRL BUF MAX ${Math.round(NET_DIAG.extrema.ctrlBufMax/1024)}KB / STATE BUF MAX ${Math.round(NET_DIAG.extrema.stateBufMax/1024)}KB`,`PACKET GAPS ${NET_DEBUG.packetGaps||0} / STALE ${NET_DEBUG.staleStateDrops||0} / DUP ${NET_DEBUG.duplicateEvents||0} / ERR ${NET_DEBUG.sendErrors||0}`,`CORRECTION MAX ${Math.max(NET_DIAG.extrema.corrMax,NET_DEBUG.correctionMax||0).toFixed(1)}`,'',`[INPUT]`,`INPUT TX AVG ${avg('inputTx').toFixed(1)}/s`,`INPUT RX AVG ${avg('inputRx').toFixed(1)}/s`,'',`[ENVIRONMENT]`,`hidden=${document.hidden} focus=${document.hasFocus()} DPR=${window.devicePixelRatio||1} viewport=${innerWidth}x${innerHeight}`,`canvas=${(typeof canvas!=='undefined'&&canvas)?canvas.width+'x'+canvas.height:'?'}`,'',`[ANOMALIES ${NET_DIAG.anomalies.length}]`];
+  const lines=[`=== NSF VOLLEYBALL NETWORK DIAGNOSTIC ===`,`BUILD: V76-3.4.2 · CRASH-SAFE MATCH DIAGNOSTIC`,`ROLE: ${role}`,`MATCH ID: ${NET_DIAG.matchId||'-'}`,`DURATION: ${(dur/1000).toFixed(1)}s`,`VENUE: ${typeof currentVenueId!=='undefined'?currentVenueId:'?'}`,`TERMINATION: ${NET_DIAG.finalized?'COMPLETE':'INCOMPLETE / LAST CHECKPOINT'}`,'',`[PERFORMANCE]`,`FPS AVG ${avg('fps').toFixed(1)} / MIN ${min('fps')} / MAX ${max('fps')}`,`FRAME AVG ${netDiagFmtMs(frameAvg)}ms / MAX ${netDiagFmtMs(NET_DIAG.frameMax)}ms`,`LONG >25ms ${NET_DIAG.long25} / >50ms ${NET_DIAG.long50} / >100ms ${NET_DIAG.long100}`,`VISIBILITY CHANGES ${NET_DIAG.hiddenChanges} / FOCUS CHANGES ${NET_DIAG.focusChanges}`,'',`[SIMULATION]`,`SIM AVG ${avg('sim').toFixed(1)}/s / MIN ${min('sim')} / MAX ${max('sim')}`,`CATCHUP FRAMES ${NET_DIAG.catchupFrames} / EXTRA TICKS ${NET_DIAG.catchupTicks}`,'',`[NETWORK — ${role}]`,`RTT AVG ${avg('rtt').toFixed(1)}ms / MAX ${max('rtt')}ms`,`STATE ${role==='HOST'?'TX':'RX'} AVG ${(role==='HOST'?avg('tx'):avg('rx')).toFixed(1)}/s / MIN ${(role==='HOST'?min('tx'):min('rx'))}`,`${role==='HOST'?'SEND':'ARRIVAL'} GAP AVG ${netDiagFmtMs(role==='HOST'?txGap:rxGap)}ms / MAX ${netDiagFmtMs(role==='HOST'?NET_DIAG.stateTxGapMax:NET_DIAG.stateRxGapMax)}ms`,`STATE AGE AVG ${avg('age').toFixed(1)}ms / MAX ${max('age')}ms`,`ADAPT LAST ${NET_DEBUG.adaptiveReason||'-'} @${NET_DEBUG.adaptiveStateHz||0}Hz`,`CTRL BUF MAX ${Math.round(NET_DIAG.extrema.ctrlBufMax/1024)}KB / STATE BUF MAX ${Math.round(NET_DIAG.extrema.stateBufMax/1024)}KB`,`PACKET GAPS ${NET_DEBUG.packetGaps||0} / STALE ${NET_DEBUG.staleStateDrops||0} / DUP ${NET_DEBUG.duplicateEvents||0} / ERR ${NET_DEBUG.sendErrors||0}`,`CORRECTION MAX ${Math.max(NET_DIAG.extrema.corrMax,NET_DEBUG.correctionMax||0).toFixed(1)}`,'',`[INPUT]`,`INPUT TX AVG ${avg('inputTx').toFixed(1)}/s`,`INPUT RX AVG ${avg('inputRx').toFixed(1)}/s`,'',`[ENVIRONMENT]`,`hidden=${document.hidden} focus=${document.hasFocus()} DPR=${window.devicePixelRatio||1} viewport=${innerWidth}x${innerHeight}`,`canvas=${(typeof canvas!=='undefined'&&canvas)?canvas.width+'x'+canvas.height:'?'}`,'',`[ANOMALIES ${NET_DIAG.anomalies.length}]`];
   if(!NET_DIAG.anomalies.length)lines.push('NONE'); else NET_DIAG.anomalies.forEach(a=>lines.push(`${(a.t/1000).toFixed(3)}s ${a.type}${a.detail?' — '+a.detail:''}`));
   lines.push('','[TIMELINE — 1s samples]','t  fps sim tx rx inTX inRX rtt age hz reason ctrlKB stateKB skip corr');
   ss.forEach(x=>lines.push(`${String(x.t).padStart(3)} ${String(x.fps).padStart(3)} ${String(x.sim).padStart(3)} ${String(x.tx).padStart(2)} ${String(x.rx).padStart(2)} ${String(x.inputTx).padStart(4)} ${String(x.inputRx).padStart(4)} ${String(x.rtt).padStart(3)} ${String(x.age).padStart(3)} ${String(x.hz).padStart(2)} ${x.reason} ${x.ctrlKB} ${x.stateKB} ${x.skip} ${x.corr}`));
@@ -252,6 +252,8 @@ let aiDebugState = {};
 // V75-0 AI FOUNDATION: persistent team intent + anomaly trace. Observation only; it does not alter ball physics.
 let aiBrainTrace = [];
 let aiBugFlags = [];
+// V75-3.7 structured decision audit. Observation only; never feeds back into gameplay.
+let aiIntentAudit = [];
 let aiTeamIntentState = {
   LEFT:  { phase:'IDLE', ownerKey:null, ownerName:'-', secondaryKey:null, secondaryName:'-', secondaryTask:'-', targetX:null, reason:'-', frame:-1, touchFrame:-1, hits:0 },
   RIGHT: { phase:'IDLE', ownerKey:null, ownerName:'-', secondaryKey:null, secondaryName:'-', secondaryTask:'-', targetX:null, reason:'-', frame:-1, touchFrame:-1, hits:0 }
@@ -267,6 +269,22 @@ function flagAIBug(side, code, detail='') {
   aiBugFlags.unshift({ side, code, detail, frame:gameFrame });
   if (aiBugFlags.length > 12) aiBugFlags.length = 12;
   pushAIBrainTrace(side, `BUG? ${code}`, detail);
+}
+function pushAIIntentAudit(player, phase, payload={}) {
+  if (!player) return null;
+  const side = player.isLeft ? 'LEFT' : 'RIGHT';
+  const rec = {
+    side,
+    slot: aiSlotKey(player),
+    name: player.name || '-',
+    phase: phase || 'UNKNOWN',
+    frame: gameFrame,
+    touchFrame: (typeof match!=='undefined' ? match.lastTouchFrame : -1),
+    ...payload
+  };
+  aiIntentAudit.unshift(rec);
+  if (aiIntentAudit.length > 60) aiIntentAudit.length = 60;
+  return rec;
 }
 function setAITeamIntent(side, phase, owner, secondary, targetX, reason, hits, secondaryTask='-') {
   const state = aiTeamIntentState[side];
@@ -372,10 +390,12 @@ class Player {
     this.radius = 24; this.isLeft = isLeft; this.isGrounded = true;
     this.isDiving = false; this.diveTimer = 0; this.diveTouched = false;
     this.isBlocking = false; this.wantsToBlock = false; this.blockTimer = 0;
+    this.blockPressFrame = -99999; this.blockPressDistance = 999; this.blockPressApproaching = false;
+    this.blockPressSideGap = 999; this.blockTimingTier = 'NONE'; this.blockTimingFactor = 1.0;
     this.facing = isLeft ? 1 : -1; this.squashX = 1; this.squashY = 1;
     this.jumpStartX = x; this.swingTimer = 0; this.thrustTimer = 0;
     this.thrustTargetX = 0; this.thrustTargetY = 0;
-    this.hasBlockSelfHitPrivilege = false; this.runMomentum = 0;
+    this.hasBlockSelfHitPrivilege = false; this.runMomentum = 0; this.runMomentumDir = 0;
     this.reactionTimer = 0; this.despairTimer = 0; this.recheckDelay = 0;
     this.jumpExhaustion = 1.0; this.energy = 0; this.hasPlayedFullSound = false; this.energyReadyFlash = 0;
     this.depressedRallies = 0; this.excitedRallies = 0; this.roarMoodRallies = 0;
@@ -419,6 +439,8 @@ this.stunTimer = 0; // 🌟 接收重扣後的地面僵直時間 (幀)
   }
 
   consumeSkill(requiredType = null) {
+    // V75-3 Balance Lab can disable skills so five-stat tests are not contaminated by ultimates.
+    if (typeof BALANCE_DISABLE_SKILLS !== 'undefined' && BALANCE_DISABLE_SKILLS) return false;
     const sk = this.stats.skill;
     if (requiredType && sk.type !== requiredType) return false;
     if (this.energy >= sk.cost) {
@@ -446,8 +468,11 @@ this.stunTimer = 0; // 🌟 接收重扣後的地面僵直時間 (幀)
     this.y = WORLD.FLOOR_Y; this.vx = 0; this.vy = 0;
     this.isGrounded = true; this.isDiving = false; this.diveTimer = 0; this.diveTouched = false;
     this.isBlocking = false; this.wantsToBlock = false; this.blockTimer = 0;
+    this.blockPressFrame = -99999; this.blockPressDistance = 999; this.blockPressApproaching = false;
+    this.blockPressSideGap = 999; this.blockTimingTier = 'NONE'; this.blockTimingFactor = 1.0;
+    this._aiBlockPlan = null; this._thirdAttackPlan = null;
     this.swingTimer = 0; this.thrustTimer = 0; this.jumpStartX = this.x;
-    this.runMomentum = 0; this.reactionTimer = 0; this.despairTimer = 0; this.recheckDelay = 0;
+    this.runMomentum = 0; this.runMomentumDir = 0; this.reactionTimer = 0; this.despairTimer = 0; this.recheckDelay = 0;
     this.ghostTrail = [];
   }
 
@@ -488,9 +513,11 @@ dive() {
     if (this.isGrounded && !this.isDiving) {
       this.isDiving = true; this.diveTimer = 35 ; this.diveTouched = false;
       // 🌟 強化撲跳感：蹬地大幅向前噴射，垂直拋起離地
-      this.vx = this.facing * (this.effectiveSpeed * 2);
+      const diveBase = (this.stats && Number.isFinite(this.stats.diveSpeed)) ? this.stats.diveSpeed : (this.effectiveSpeed * 2);
+      const liveSpeedRatio = (this.stats && this.stats.speed > 0) ? (this.effectiveSpeed / this.stats.speed) : 1.0;
+      this.vx = this.facing * diveBase * liveSpeedRatio;
       this.vy = -3.8;
-      this.isGrounded = false; this.runMomentum = 0; if(typeof playFoley==='function')playFoley('dive',Math.hypot(this.vx,this.vy));
+      this.isGrounded = false; this.runMomentum = 0; this.runMomentumDir = 0; if(typeof playFoley==='function')playFoley('dive',Math.hypot(this.vx,this.vy));
     }
   }
 
@@ -501,7 +528,42 @@ dive() {
         this.softWallRallies = 3;
         pushCallout(this.x, this.y - 45, '引力柔網 (SOFT WALL)!!', '#2dd4bf');
       }
-      this.wantsToBlock = true; this.blockTimer = 30; return true;
+
+      // V75-3.11 BLOCK PRESS：Jump 與 Block 完全分離。
+      // 記錄「按下/壓手」當下球與手的幾何，真正碰球時才判 SAFE / PERFECT / LATE。
+      const handX = this.x;
+      const handY = this.y - this.radius * 2 - 20;
+      const bx = (typeof ball !== 'undefined' && ball) ? ball.x : handX;
+      const by = (typeof ball !== 'undefined' && ball) ? ball.y : handY;
+      const incomingTowardMe = (typeof ball !== 'undefined' && ball)
+        ? ((this.isLeft && ball.vx < 0) || (!this.isLeft && ball.vx > 0))
+        : false;
+      // sideGap > 0：球還在網對側/手前；sideGap < 0：球已穿過手面，屬晚壓風險。
+      const sideGap = this.isLeft ? (bx - handX) : (handX - bx);
+
+      this.blockPressFrame = (typeof gameFrame !== 'undefined') ? gameFrame : 0;
+      this.blockPressDistance = Math.hypot(bx - handX, by - handY);
+      this.blockPressApproaching = !!incomingTowardMe;
+      this.blockPressSideGap = sideGap;
+
+      // V76-3.7 practice-only block timing coach. It reads the exact same press geometry as the real block judge; no physics/stat bonus.
+      if (typeof isPracticeMode!=='undefined' && isPracticeMode && this.isLocallyControlled &&
+          typeof practiceBlockCoachEnabled!=='undefined' && practiceBlockCoachEnabled && !match.inServeRally) {
+        let coachTier = 'EARLY';
+        let coachColor = '#93c5fd';
+        if (sideGap < -6) { coachTier='LATE'; coachColor='#fb7185'; }
+        else if (incomingTowardMe && this.blockPressDistance <= 105 && sideGap >= -6) { coachTier='PERFECT'; coachColor='#fde68a'; }
+        if (!Number.isFinite(this._lastBlockCoachFrame) || this.blockPressFrame - this._lastBlockCoachFrame > 5) {
+          this._lastBlockCoachFrame = this.blockPressFrame;
+          pushCallout(this.x, this.y - this.radius * 2 - 8, coachTier, coachColor, null, {type:'trainer'});
+          if (coachTier==='PERFECT' && typeof triggerHalo==='function') triggerHalo(this, '#fde68a', true);
+        }
+      }
+      this.blockTimingTier = 'PENDING';
+      this.blockTimingFactor = 1.0;
+      this.wantsToBlock = true;
+      this.blockTimer = 30;
+      return true;
     }
     return false;
   }
@@ -554,10 +616,21 @@ dive() {
         const idleBonus = (this.stats && this.stats.perks && Number.isFinite(this.stats.perks.staminaIdleRate)) ? this.stats.perks.staminaIdleRate : 0;
         this.jumpExhaustion = Math.min(1.0, this.jumpExhaustion + 0.0035 * recMult * (1 + idleBonus) * (typeof venueExhaustionRecoveryFactor==='function'?venueExhaustionRecoveryFactor():1));
       }
-      if ((this.facing === 1 && this.vx > 0.5) || (this.facing === -1 && this.vx < -0.5)) {
-        this.runMomentum = Math.min(25, this.runMomentum + 1.4);
+      // V76-1 Momentum Direction Integrity: momentum belongs to actual ground travel, not facing.
+      // Reversing real vx clears stored approach momentum; stopping decays normally. Airborne
+      // frames freeze both magnitude and direction, preserving physical inertia without magic reversal.
+      const momentumMoveDir = this.vx > 0.5 ? 1 : (this.vx < -0.5 ? -1 : 0);
+      if (momentumMoveDir) {
+        if (this.runMomentum > 0 && this.runMomentumDir && momentumMoveDir !== this.runMomentumDir) {
+          this.runMomentum = 0;
+          this.runMomentumDir = momentumMoveDir;
+        } else {
+          if (!this.runMomentumDir) this.runMomentumDir = momentumMoveDir;
+          this.runMomentum = Math.min(25, this.runMomentum + 1.4);
+        }
       } else {
         this.runMomentum = Math.max(0, this.runMomentum - 2.0);
+        if (this.runMomentum <= 0.001) { this.runMomentum = 0; this.runMomentumDir = 0; }
       }
       // V74 footsteps: cadence and timbre change by discrete speed band, not a single gain curve.
       const stepSpeed=Math.abs(this.vx);
@@ -578,20 +651,20 @@ dive() {
     if (this.swingTimer > 0) this.swingTimer--;
     if (this.thrustTimer > 0) this.thrustTimer--;
 
-    // 🌟 欄位攔網判定：真人操控者只看 wantsToBlock，絕不吃 AI 起跳自動亮盾
-    const isHuman = (typeof isSlotHumanControlled === 'function') ? isSlotHumanControlled(this) : this.isLocallyControlled;
-    if (isHuman) {
-      if (this.wantsToBlock) {
-        this.blockTimer--;
-        this.isBlocking = (!this.isGrounded && this.y < WORLD.NET_TOP_Y + 50);
-        if (this.blockTimer <= 0 || this.isGrounded) { this.wantsToBlock = false; this.isBlocking = false; }
-      } else {
+    // V75-3.11：所有角色共用同一套 Block Stance。Jump 本身不再自動生成攔網碰撞。
+    // 真人按 Space、AI 做 BLOCK_PRESS 都只會打開 wantsToBlock；人在空中且手高於網後才形成 isBlocking。
+    if (this.wantsToBlock) {
+      this.blockTimer--;
+      const isAttacking = this.swingTimer > 0 || this.thrustTimer > 0;
+      this.isBlocking = (!this.isGrounded && this.y < WORLD.NET_TOP_Y + 50 && !isAttacking);
+      if (this.blockTimer <= 0 || this.isGrounded) {
+        this.wantsToBlock = false;
         this.isBlocking = false;
+        this.blockTimingTier = 'NONE';
+        this.blockTimingFactor = 1.0;
       }
     } else {
-      const isNetJump = Math.abs(this.jumpStartX - WORLD.NET_X) < 95;
-      const isAttacking = this.swingTimer > 0 || this.thrustTimer > 0;
-      this.isBlocking = (!this.isGrounded && isNetJump && !isAttacking);
+      this.isBlocking = false;
     }
 
     if (this.isDiving) {
@@ -768,7 +841,7 @@ function updateSideUltHUD() {
 
 const ball = {
   x: WORLD.LEFT - 100, y: WORLD.FLOOR_Y - 40, vx: 0, vy: 0, radius: 13, rotation: 0,
-  isSpiked: false, isPerfectSpike: false, isFloat: false, isTacticalThrust: false,
+  isSpiked: false, isPerfectSpike: false, isFloat: false, isTacticalThrust: false, attackStyle: null,
   isBrokenSpike: false, isUltimate: false, isTopspin: false, topspinRating: 0.5, armorPiercing: 0, lastHitter: null,
   // V19: rally responsibility context. Physics contacts may change lastHitter; scoring attribution must not guess from it.
   lastAttackHitter: null, serveOriginServer: null, pointContext: null,
@@ -779,14 +852,18 @@ const ball = {
 
   resetForServe(winnerSide) {
     serveState.active = true; serveState.tossed = false; serveState.charging = false; serveState.chargePower = 0; resetServeRuleClock();
-    this.isSpiked = false; this.isPerfectSpike = false; this.isFloat = false; this.isTacticalThrust = false;
+    this.isSpiked = false; this.isPerfectSpike = false; this.isFloat = false; this.isTacticalThrust = false; this.attackStyle = null;
     this.isBrokenSpike = false; this.isUltimate = false; this.isTopspin = false; this.topspinRating = 0.5;
     this.armorPiercing = 0; this.lastHitter = null; this.lastAttackHitter = null; this.venueNeutralLive = false; this.serveOriginServer = null; this.pointContext = null;
+    // V75-3.7: attack-audit identity belongs to one rally only. A fresh serve must never inherit the previous attack chain.
+    this._aiAttackIntentId = null; this._aiAttackIntentFrame = null; this._aiAttackIntentStyle = null; this._aiAttackSourceSlot = null;
     this.opacity = 1.0; this.activeSkillTag = ''; this.isSineFloat = false; this.sineTargetX = null; this.sineStartX = null; this.sineElapsed = 0; this.sineDuration = 0; this.sineAmplitude = 0; this.sineCycles = 0; this.isSkyComet = false; this.isPhantomDrop = false; this.glowColor = null;
     this.isBungeeGum = false; this.bungeeTetherFrames = 0; this.bungeeTetherSlot = null; this.isGravityDrop = false; this.gravityDropTargetX = null; this.gravityDropTriggered = false; this.greaseCharges = 0; this.greaseSourceIsLeft = null; this.phantomRestoreFrames = 0; this.phantomWipeSourceIsLeft = null; this.kineticTrailFrames = 0; this.kineticIntensity = 0; this.kineticSourceIsLeft = null; this.mudContaminationAvailable = false; this.mudCharges = 0; this.mudSourceIsLeft = null; this.breakerSourceIsLeft = null; this.breakerImpactDone = false; this.breakerTrailFrames = 0; this.skySourceIsLeft = null; this.skyImpactDone = false; this.skyImpactFadeFrames = 0; this.skySonicSpawn = 0; this.softWallGlowFrames = 0; this.softWallGlowSideIsLeft = null; this.steepexecCutAvailable = false; this.hasTossedFromGodspeed = false; this.skillOutcomeSfxPlayed = {};
     this.phantomGhostFrames = 0; this.timeLagFrames = 0; this.timeLagStoredVx = 0; this.timeLagStoredVy = 0; this.ironWallBounceFrames = 0; this.deepWaterActive=false; this.stormTrailFrames=0;
     this.floatPhase = 0; this.floatDrift = 0; this.ufoNeutralRelease = false;
     this.vx = 0; this.vy = 0; match.leftHits = 0; match.rightHits = 0; match.isBlockedBack = false;
+    // V75-3.7: clear stale second-attack plans at rally boundary. Serve legality is defined by serve state, not by hit count.
+    allPlayers.forEach(p => { p._secondAttackEpoch = null; p._secondAttackCommit = false; p._secondAttackPlan = null; p._thirdAttackPlan = null; p._aiBlockPlan = null; p._lastTouchPossessionOrigin = null; });
     match.inServeRally = true;
     match.serveAceEligible = true;
     match.serveReceiverTouches = 0;
@@ -861,16 +938,71 @@ function updateServeRuleClock(){
 }
 const match = { currentServingTeam: 'player', playerServerIdx: 0, enemyServerIdx: 0, leftHits: 0, rightHits: 0, lastTouchFrame: -100, isBlockedBack: false, inServeRally: true, serveAceEligible: true, serveReceiverTouches: 0, assistCandidate: null, assistAttackActor: null };
 
-// 🌟 pushCallout：若為房主，廣播給訪客同步繪製
-function pushCallout(x, y, text, color = '#facc15', netEventId = null) {
-  // V75-2.3: identical skill callouts in the same tiny window are presentation duplicates, not extra gameplay events.
-  const dup = calloutPopups.some(p => p.timer > 38 && p.text===text && Math.abs(p.x-x)<80 && Math.abs(p.baseY-(y-28))<90);
+// V76-3.7 CALLOUT HIERARCHY: the game can stay expressive without every message shouting at 24px/900.
+const CALLOUT_STYLE_PRESETS = {
+  speech_court:   { priority:34, lane:'speech',   font:'850 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', alpha:.92, stroke:3.0, life:78, rise:.24, xOffset:28, yOffset:2 },
+  speech_emotion: { priority:30, lane:'speech',   font:'800 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', alpha:.88, stroke:2.8, life:82, rise:.22, xOffset:28, yOffset:6 },
+  feedback:       { priority:55, lane:'primary',  font:'850 19px -apple-system, sans-serif',        alpha:.90, stroke:3.0, life:38, rise:.48, xOffset:0,  yOffset:0 },
+  reward:         { priority:22, lane:'reward',   font:'750 14px -apple-system, sans-serif',        alpha:.66, stroke:2.0, life:44, rise:.28, xOffset:24, yOffset:16 },
+  skill:          { priority:78, lane:'primary',  font:'900 22px -apple-system, sans-serif',        alpha:.96, stroke:3.8, life:48, rise:.50, xOffset:0,  yOffset:0 },
+  major:          { priority:90, lane:'primary',  font:'950 26px -apple-system, sans-serif',        alpha:1.00, stroke:4.5, life:42, rise:.54, xOffset:0,  yOffset:-3 },
+  fault:          { priority:84, lane:'primary',  font:'900 21px -apple-system, sans-serif',        alpha:.96, stroke:3.8, life:46, rise:.44, xOffset:0,  yOffset:0 },
+  trainer:        { priority:96, lane:'trainer',  font:'900 16px -apple-system, sans-serif',        alpha:.92, stroke:2.7, life:34, rise:.24, xOffset:40, yOffset:0 },
+  ambient:        { priority:18, lane:'ambient',  font:'800 17px -apple-system, sans-serif',        alpha:.72, stroke:2.5, life:50, rise:.34, xOffset:0,  yOffset:0 }
+};
+
+function inferCalloutType(text='') {
+  const t=String(text).trim();
+  if (/^(ONE TOUCH!?|OUT!|Inside!|INSIDE!|CHANCE!|NICE!|COVER!|LINE!|CROSS!|SHORT!|BACK!|MINE!|我來！)$/i.test(t)) return 'speech_court';
+  if (/^(接不到！|來不及了！|啊！|糟了！|太遠了！|X！)$/.test(t)) return 'speech_emotion';
+  if (/能量|ENERGY/i.test(t)) return 'reward';
+  if (/FAULT|OUT BALL/i.test(t)) return 'fault';
+  if (/MONSTER BLOCK|ROOF BLOCK|PERFECT JUMP SERVE|MAX MOMENTUM SERVE|SUPER DIVE SAVE/i.test(t)) return 'major';
+  if (/CHRONO|GODSPEED|IRON WALL|SKY COMET|SOLAR SINE|ROLLING THUNDER|SAVAGE ROAR|SOFT WALL|PHANTOM|MUD |幽靈吊球|伸縮自在|銅牆鐵壁|動能反噬|引力柔網|暴風反彈|心流化勁|野蠻怒吼|天際墜石|落日正弦|油滑沾染|神速二傳/.test(t)) return 'skill';
+  if (/DEEP SPIKE|PERFECT SPIKE|STEEP CUT|SAFE PUSH|PUSH DEEP|TOOL OUT|SOFT ROLL|DEFLECT|BROKEN|THROUGH BLOCK|FLOAT SERVE|STANDING SERVE/i.test(t)) return 'feedback';
+  return 'feedback';
+}
+
+// 🌟 pushCallout：若為房主，廣播給訪客同步繪製。meta 僅控制呈現，不碰任何 gameplay。
+function pushCallout(x, y, text, color = '#facc15', netEventId = null, meta = null) {
+  const inferredType = (meta && meta.type) || inferCalloutType(text);
+  const preset = CALLOUT_STYLE_PRESETS[inferredType] || CALLOUT_STYLE_PRESETS.feedback;
+  const style = Object.assign({}, preset, meta || {});
+  const priority = Number.isFinite(style.priority) ? style.priority : preset.priority;
+  const lane = style.lane || preset.lane || 'primary';
+  const outward = (typeof WORLD!=='undefined' && Number.isFinite(WORLD.NET_X)) ? (x < WORLD.NET_X ? -1 : 1) : 1;
+  const baseY = y - 28 + (style.yOffset || 0);
+  const drawX = x + outward * (style.xOffset || 0);
+
+  // Identical callouts in the same tiny window are presentation duplicates, not extra gameplay events.
+  const dup = calloutPopups.some(p => p.timer > Math.max(16,(p.maxTimer||45)*.72) && p.text===text && Math.abs(p.anchorX-x)<80 && Math.abs(p.baseY-baseY)<90);
   if (dup) return;
-  const nearby = calloutPopups.filter(p => p.timer > 20 && Math.abs(p.x-x) < 120 && Math.abs(p.y-(y-28)) < 150).length;
-  calloutPopups.push({ x, baseY:y-28, y: y - 28 - Math.min(nearby,3)*30, text, color, timer: 45, maxTimer: 45 }); 
+
+  // One voice at a time. Primary feedback may replace a lower-priority primary instead of stacking another billboard.
+  const sameLane = calloutPopups.filter(p => p.timer > 10 && p.lane===lane && Math.abs(p.anchorX-x)<105 && Math.abs(p.baseY-baseY)<125);
+  if (lane==='speech') {
+    // V76-3.7.1: speech must stay readable. Cross-fade the previous line instead of deleting it almost instantly.
+    sameLane.forEach(p => { p.timer = Math.min(p.timer, 18); p.maxAlpha = Math.min(Number(p.maxAlpha||1), .58); });
+  } else if (lane==='trainer') {
+    sameLane.forEach(p => { p.timer = Math.min(p.timer, 9); });
+  } else if (lane==='primary') {
+    sameLane.forEach(p => { if(priority >= (p.priority||0)) p.timer=Math.min(p.timer,10); });
+  }
+
+  // Keep secondary/reward information, but make it occupy a quieter lane instead of climbing into a 4-line stack.
+  const lanePeers = calloutPopups.filter(p => p.timer > 16 && p.lane===lane && Math.abs(p.anchorX-x)<120).length;
+  const laneStep = lane==='reward' ? 16 : (lane==='speech' ? 14 : 22);
+  const stack = Math.min(lanePeers, lane==='primary'?1:2);
+  const life = Math.max(18, Number(style.life)||45);
+  calloutPopups.push({
+    x:drawX, anchorX:x, baseY, y:baseY-stack*laneStep, text, color, type:inferredType, lane, priority,
+    timer:life, maxTimer:life, font:style.font||preset.font, maxAlpha:Number(style.alpha ?? preset.alpha ?? 1),
+    strokeWidth:Number(style.stroke ?? preset.stroke ?? 3), rise:Number(style.rise ?? preset.rise ?? .5),
+    pulse:inferredType==='major'
+  });
   if (typeof NET !== 'undefined' && NET.isMultiplayer && NET.isHost && NET.conn && NET.conn.open) {
     const eventId=netEventId||`callout:${gameFrame}:${Math.round(x)}:${text}`;
-    try{NET.conn.send({ type: 'CALLOUT_SYNC', x, y, text, color, eventId });}catch(e){}
+    try{NET.conn.send({ type: 'CALLOUT_SYNC', x, y, text, color, eventId, calloutMeta:{type:inferredType,priority,lane} });}catch(e){}
   }
 }
 // 🌟 漫畫播報同步廣播給訪客
@@ -1126,7 +1258,9 @@ if (!player.isDiving && isOpponentBall) {
     const diveEdgeSeverity = player.isDiving
       ? Math.max(0, (dist - standingReceiveReach) / Math.max(1, receiveReach - standingReceiveReach))
       : 0;
-    let pressure = Math.max(0, (ballSpeed + floatBonus) * 0.95 - effectiveDef) * (1.0 - player.stats.technique * 0.4);
+    let pressure = (typeof computeReceivePressureFormula==='function')
+      ? computeReceivePressureFormula(player.stats, ballSpeed, floatBonus, effectiveDef)
+      : Math.max(0, (ballSpeed + floatBonus) * 0.95 - effectiveDef);
     // 邊緣魚躍代表 Timing 差：增加接球偏差，但不創造固定初速。
     pressure += diveEdgeSeverity * (2.2 + Math.max(0, ballSpeed - 10) * 0.08);
     
@@ -1216,8 +1350,6 @@ function executeSetterPass(setter) {
   const setContactDist = getDist(setter);
   const incomingSetSpeed = Math.hypot(ball.vx, ball.vy);
   const setSweet = setter.stats.sweetWindow || 34;
-  const speedExcess = Math.max(0, incomingSetSpeed - 15.0);
-  const distanceExcess = Math.max(0, setContactDist - setSweet);
   const lowBallSeverity = Math.max(0, (ball.y - (WORLD.FLOOR_Y - 95)) / 55);
   let specialSetPressure = 0;
   if (ball.isBrokenSpike) specialSetPressure += 2.2;
@@ -1225,11 +1357,15 @@ function executeSetterPass(setter) {
   if (ball.isSineFloat) specialSetPressure += 0.8;
   if (ball.isPhantomDrop) specialSetPressure += 1.0;
   if (match.isBlockedBack) specialSetPressure += 1.2;
-
-  const rawSetPressure = (speedExcess * 0.12) + (distanceExcess * 0.025) + (lowBallSeverity * 1.15) + specialSetPressure;
-  const setControlMitigation = Math.max(0.45, 1.0 - (setter.stats.intellect * 0.005) - (setter.stats.technique * 0.12));
-  const setContactSeverity = rawSetPressure * setControlMitigation;
-  const setErrorMultiplier = Math.min(4.5, 1.0 + setContactSeverity);
+  const setFormula = (typeof computeSetFormula==='function')
+    ? computeSetFormula(setter.stats,{incomingSpeed:incomingSetSpeed,contactDist:setContactDist,lowBallSeverity,specialPressure:specialSetPressure})
+    : null;
+  const speedExcess = setFormula ? setFormula.speedExcess : Math.max(0, incomingSetSpeed - 15.0);
+  const distanceExcess = setFormula ? setFormula.distanceExcess : Math.max(0, setContactDist - setSweet);
+  const rawSetPressure = setFormula ? setFormula.rawPressure : (speedExcess*.12)+(distanceExcess*.025)+(lowBallSeverity*1.15)+specialSetPressure;
+  const setControlMitigation = setFormula ? setFormula.controlMitigation : Math.max(.45,1-(setter.stats.intellect*.005)-(setter.stats.technique*.12));
+  const setContactSeverity = setFormula ? setFormula.contactSeverity : rawSetPressure*setControlMitigation;
+  const setErrorMultiplier = setFormula ? setFormula.errorMultiplier : Math.min(4.5,1+setContactSeverity);
 
   let godspeedJustActivated = false;
   if (setter.stats.skill.id === 'sk_godspeed_toss' && setter.consumeSkill('SET_TACTIC')) {
@@ -1253,7 +1389,7 @@ function executeSetterPass(setter) {
   const distToTarget = Math.abs(setter.x - idealTargetX);
   const distFactor = distToTarget / 240;
   const randomSpread = (Math.random() - 0.5) * 2;
-  const errAmplitude = Math.max(20, (55 - setter.stats.intellect) * 2.8 + (1.0 - setter.stats.technique) * 55);
+  const errAmplitude = setFormula ? setFormula.errorAmplitude : Math.max(20, (55 - setter.stats.intellect) * 2.8 + (1.0 - setter.stats.technique) * 55);
   const naturalError = randomSpread * errAmplitude * distFactor * setErrorMultiplier;
   const requestedTargetX = idealTargetX + naturalError;
 
@@ -1261,15 +1397,80 @@ function executeSetterPass(setter) {
   // V5/原 0917 的 executeSetterPass 直接反算任意 vx，因此實際上沒有二傳距離上限；
   // 現在只使用既有 power 限制單次可控制的水平傳球距離，準度仍由 INT/technique 的 naturalError 負責。
   const setPower = setter.stats.power || 18.5;
-  const maxSetTravel = Math.max(250, Math.min(410, 250 + Math.max(0, setPower - 18.5) * 10.0));
-  const requestedDelta = requestedTargetX - ball.x;
-  const limitedDelta = Math.max(-maxSetTravel, Math.min(maxSetTravel, requestedDelta));
-  const finalTargetX = ball.x + limitedDelta;
+  const maxSetTravel = setFormula ? setFormula.maxTravel : Math.max(250, Math.min(410, 250 + Math.max(0, setPower - 18.5) * 10.0));
 
-  // 高壓 O 仍可能把球救起來，但弧度會變扁／不穩；好球則幾乎維持原本手感。
-  const targetVy = -13.8 + Math.min(4.0, setContactSeverity * (0.45 + Math.random() * 0.45));
-  const timeInAir = (2 * Math.abs(targetVy)) / (WORLD.GRAVITY * 0.72);
-  ball.vx = (finalTargetX - ball.x) / timeInAir; ball.vy = targetVy;
+  // V76-3.4 TRUE PRE-SET QUICK:
+  // Only an AI tactical plan may request this branch. The attacker has already committed and
+  // left the floor before release. The setter then aims the real ball at a future airborne
+  // contact envelope. TEC/pressure still inject ordinary set error; if the live precommit is
+  // no longer valid we fall back to the untouched normal-set physics below.
+  const quickPlan=setter._aiQuickSetPlan;
+  const quickAttacker=quickPlan && typeof allPlayers!=='undefined'
+    ? allPlayers.find(p=>p&&(p.slotKey===quickPlan.attackerSlot||`slot${p.slotIndex}`===quickPlan.attackerSlot))
+    : null;
+  const quickLive=!!(quickPlan&&quickAttacker&&!quickAttacker.isGrounded&&!quickAttacker.isDiving&&quickAttacker.isLeft===setter.isLeft&&gameFrame<=quickPlan.expiresFrame);
+  let quickExecuted=false;
+  if(quickLive){
+    // V76-3.4.1 LIVE QUICK FEED ENVELOPE:
+    // Do not force the pre-set prediction to land on one exact frame/point. At release, search
+    // the attacker's live airborne future for any legal AI-quality contact inside a short quick
+    // feed family, then use the easiest feed. TEC/pressure error is applied after that choice.
+    const playerG=WORLD.GRAVITY*((typeof getCurrentVenue==='function')?getCurrentVenue().gravityMult:1.0)*(typeof venueGravityFactor==='function'?venueGravityFactor():1);
+    const gBall=WORLD.GRAVITY*0.72*((typeof getCurrentVenue==='function')?(Number(getCurrentVenue().gravityMult)||1):1)*(typeof venueGravityFactor==='function'?(Number(venueGravityFactor())||1):1);
+    const facing=setter.isLeft?1:-1;
+    let py=quickAttacker.y,pvy=quickAttacker.vy;
+    const futureY=[];
+    for(let f=1;f<=26;f++){py+=pvy;pvy+=playerG;futureY[f]=py;}
+    let bestQuick=null;
+    for(let n=7;n<=26;n++){
+      const shoulderY=futureY[n]-quickAttacker.radius*1.5;
+      for(let dx=16;dx<=58;dx+=7){
+        for(let dy=-28;dy<=42;dy+=10){
+          if(Math.hypot(dx,dy)>68)continue;
+          const cleanTargetX=quickAttacker.x+facing*dx;
+          const cleanTargetY=shoulderY-dy;
+          if(cleanTargetY<=WORLD.NET_TOP_Y-275||cleanTargetY>=WORLD.FLOOR_Y-45)continue;
+          if(Math.abs(cleanTargetX-ball.x)>maxSetTravel)continue;
+          const quickVx=(cleanTargetX-ball.x)/n;
+          const quickVy=(cleanTargetY-ball.y-gBall*n*(n-1)/2)/n;
+          if(Math.abs(quickVx)>16||quickVy<-13.5||quickVy>8.5)continue;
+          const launchEase=Math.abs(quickVx)/16+Math.abs(quickVy+2.5)/16;
+          const contactEase=Math.hypot(dx-35,dy-6)/70;
+          const timingEase=Math.abs(n-14)/24;
+          const score=launchEase*0.50+contactEase*0.30+timingEase*0.20;
+          if(!bestQuick||score<bestQuick.score)bestQuick={score,n,cleanTargetX,cleanTargetY,quickVx,quickVy};
+        }
+      }
+    }
+    if(bestQuick){
+      const quickDistFactor=Math.abs(bestQuick.cleanTargetX-setter.x)/240;
+      const quickErr=randomSpread*errAmplitude*quickDistFactor*setErrorMultiplier;
+      const requestedQuickX=bestQuick.cleanTargetX+quickErr*0.45;
+      const requestedQuickY=bestQuick.cleanTargetY+quickErr*0.12;
+      const finalQuickX=ball.x+Math.max(-maxSetTravel,Math.min(maxSetTravel,requestedQuickX-ball.x));
+      const quickVx=(finalQuickX-ball.x)/bestQuick.n;
+      const quickVy=(requestedQuickY-ball.y-gBall*bestQuick.n*(bestQuick.n-1)/2)/bestQuick.n;
+      const quickPhysicsOK=Math.abs(quickVx)<=16&&quickVy>=-13.5&&quickVy<=8.5;
+      if(quickPhysicsOK){
+        ball.vx=quickVx;ball.vy=quickVy;
+        ball._aiQuickTempo='PRECOMMIT';
+        ball._aiQuickTempoEpoch=quickPlan.epoch;
+        quickExecuted=true;
+      }
+    }
+  }
+  setter._aiQuickSetPlan=null;
+
+  if(!quickExecuted){
+    const requestedDelta = requestedTargetX - ball.x;
+    const limitedDelta = Math.max(-maxSetTravel, Math.min(maxSetTravel, requestedDelta));
+    const finalTargetX = ball.x + limitedDelta;
+    // 高壓 O 仍可能把球救起來，但弧度會變扁／不穩；好球則幾乎維持原本手感。
+    const targetVy = -13.8 + Math.min(4.0, setContactSeverity * (0.45 + Math.random() * 0.45));
+    const timeInAir = (2 * Math.abs(targetVy)) / (WORLD.GRAVITY * 0.72);
+    ball.vx = (finalTargetX - ball.x) / timeInAir; ball.vy = targetVy;
+    ball._aiQuickTempo=null;ball._aiQuickTempoEpoch=null;
+  }
   ball.isSpiked = false; ball.isPerfectSpike = false; ball.isFloat = false; 
   ball.isTacticalThrust = false; ball.isBrokenSpike = false; ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
   ball.opacity = 1.0; ball.glowColor = null;
@@ -1282,6 +1483,8 @@ function executeSetterPass(setter) {
 
 // 🌟 依照觸發者身分，精確給予本機或通知遠端訪客領錢
 function distributeCoins(actor, amount, desc, x, y) {
+  // V75-3 Balance Lab never mutates progression/currency during instrumentation matches.
+  if (typeof BALANCE_TEST_ACTIVE !== 'undefined' && BALANCE_TEST_ACTIVE) return;
   if (!actor) return;
   const targetSlot = (typeof actor === 'number') ? actor : (actor.slotIndex !== undefined ? actor.slotIndex : NET.mySlot);
 
@@ -1432,6 +1635,14 @@ function recordTouch(hitter, isBlockTouch = false) {
   const incomingWasOpponent = !!(ball.lastHitter && ball.lastHitter.isLeft !== hitter.isLeft);
   hitter._receiveIncomingNeutral = incomingWasNeutral;
   hitter._receiveIncomingOpponent = incomingWasOpponent;
+  // V75-3.7 audit-only origin tag for THIS legal touch. This is refreshed on every touch so it cannot leak
+  // from an older possession. Receiving an opponent serve is a normal receive; the forbidden case is the serving
+  // side trying to plan another action before the receiver has legally touched the serve.
+  hitter._lastTouchPossessionOrigin = match.isBlockedBack
+    ? 'FROM_BLOCK_COVER'
+    : (incomingWasOpponent || incomingWasNeutral)
+      ? 'FROM_RECEIVE'
+      : 'FROM_TEAM_TOUCH';
 
   // V54 第一個合法碰到場地中立球的人，正式取得新的球權；此前雙方 AI 都可依落點追球。
   if (ball.venueNeutralLive) ball.venueNeutralLive = false;
@@ -1720,6 +1931,11 @@ function openSettlement(winnerSide = 'LEFT') {
   document.getElementById('settle-title').innerText = playerWon ? 'MATCH VICTORY!!' : 'MATCH DEFEAT...';
   document.getElementById('settle-title').style.color = playerWon ? '#facc15' : '#f43f5e';
   document.getElementById('settle-desc').innerText = playerWon ? '率先拿下 15 分局勝利！' : '惜敗，再接再厲！';
+
+  // V75-3 Balance Lab settlement is telemetry-only: no coins, EXP, ladder/career progress, or save mutation.
+  if (typeof BALANCE_TEST_ACTIVE !== 'undefined' && BALANCE_TEST_ACTIVE && typeof BALANCE_LAB !== 'undefined' && BALANCE_LAB && typeof BALANCE_LAB.onSettlement === 'function') {
+    if (BALANCE_LAB.onSettlement(winnerSide)) return;
+  }
   
 // 🌟 天梯模式專屬數據累加與經驗值結算
   if (isLadderMode && ladderCurrentRun.active) {
@@ -1918,8 +2134,22 @@ function tryStartNetRematch() {
 function closeSettlementAndNextMatch() {
   document.getElementById('settlement-modal').style.display = 'none';
   isSettlementOpen = false; isPaused = false;
+
+  // V76-4.0.2: 無盡練習若選「隨機場地」，每一場 rematch 都重新抽一次。
+  // venueChoice 保留 random，venueId 則更新成這一局實際抽到的場地。
+  let practiceVenueRerolled = false;
+  if (typeof isPracticeMode !== 'undefined' && isPracticeMode &&
+      typeof NET !== 'undefined' && NET.venueChoice === 'random' &&
+      typeof resolveVenueChoice === 'function') {
+    const nextVenueId = resolveVenueChoice('random');
+    NET.venueId = nextVenueId;
+    if (typeof setCurrentVenue === 'function') setCurrentVenue(nextVenueId);
+    practiceVenueRerolled = true;
+  }
+
   resetMatchState();
   ball.resetForServe('LEFT');
+  if (practiceVenueRerolled && typeof showVenueRevealCurtain === 'function') showVenueRevealCurtain();
 }
 
 function returnToStartMenu() {
@@ -1955,17 +2185,17 @@ function returnToStartMenuFromSettle() {
   if(typeof updateRecoveredNetDiagMenu==='function')updateRecoveredNetDiagMenu();
 }
 
+// UI navigation ownership lives in game_ui.js. Keep compatibility wrappers here only.
 function closeLockerToMenu() {
-  isLockerOpen = false; document.getElementById('locker-modal').style.display = 'none';
-  if (!isGameStarted) document.getElementById('start-menu-modal').style.display = 'flex';
+  if (typeof lockerReturnContext !== 'undefined') lockerReturnContext = 'MENU';
+  if (typeof closeLockerByContext === 'function') return closeLockerByContext();
+  isLockerOpen=false; document.getElementById('locker-modal').style.display='none'; document.getElementById('start-menu-modal').style.display='flex';
 }
-
 function toggleLocker() {
   if (isSettlementOpen) return;
-  isLockerOpen = !isLockerOpen; isPaused = isLockerOpen || !isGameStarted;
-  document.getElementById('locker-modal').style.display = isLockerOpen ? 'flex' : 'none';
-  if (isLockerOpen) { initStagedCard(); renderLocker(); }
-  else { allPlayers.forEach(p => p.rebind(true)); }
+  if (typeof closeLockerByContext === 'function' && isLockerOpen) return closeLockerByContext();
+  if (typeof lockerReturnContext !== 'undefined') lockerReturnContext = isGameStarted ? 'PAUSE' : 'MENU';
+  isLockerOpen=true; isPaused=!!isGameStarted; document.getElementById('locker-modal').style.display='flex'; initStagedCard(); renderLocker();
 }
 
 function startGameFromMenu() {
@@ -2014,42 +2244,117 @@ window.addEventListener('keydown', (e) => {
   }
   
 if (e.key === 'Escape') {
-    // 1. 遊戲設置選單
-    if (typeof isSettingsOpen !== 'undefined' && isSettingsOpen) {
-      closeSettingsModal();
+    e.preventDefault();
+
+    // V76-4.0.2 UI NAV STACK: ESC 必須由最上層 modal 往回退，不能跨層關閉。
+    // 裝備流程：Slot Picker -> Detail -> Bag -> Locker -> 原來源(Menu/Pause)。
+    const gachaNoticeModal = document.getElementById('gacha-notice-modal');
+    if (gachaNoticeModal && gachaNoticeModal.style.display === 'flex') {
+      if (typeof window.closeGachaNotice === 'function') window.closeGachaNotice();
       return;
     }
-    // 2. 按鍵自定義彈窗
+    const itemGachaResultModal = document.getElementById('item-gacha-result-modal');
+    if (itemGachaResultModal && itemGachaResultModal.style.display === 'flex') {
+      if (typeof closeItemGachaResults === 'function') closeItemGachaResults();
+      return;
+    }
+    const confirmGachaModal = document.getElementById('confirm-gacha-modal');
+    if (confirmGachaModal && confirmGachaModal.style.display === 'flex') {
+      if (typeof window.closeConfirmGacha === 'function') window.closeConfirmGacha();
+      return;
+    }
+    const tenGachaModal = document.getElementById('gacha-ten-modal');
+    if (tenGachaModal && tenGachaModal.style.display === 'flex') {
+      if (typeof closeTenGachaModal === 'function') closeTenGachaModal();
+      return;
+    }
+    const singleGachaModal = document.getElementById('gacha-anim-modal');
+    if (singleGachaModal && singleGachaModal.style.display === 'flex') {
+      if (typeof closeGachaAnim === 'function') closeGachaAnim();
+      return;
+    }
+    const slotPickerModal = document.getElementById('equip-slot-picker-modal');
+    if (slotPickerModal && slotPickerModal.style.display === 'flex') {
+      if (typeof cancelEquipSlotPick === 'function') cancelEquipSlotPick();
+      return;
+    }
+    const equipDetailModal = document.getElementById('equip-detail-modal');
+    if (equipDetailModal && equipDetailModal.style.display === 'flex') {
+      if (typeof closeEquipDetail === 'function') closeEquipDetail();
+      return;
+    }
+    const reforgeModal = document.getElementById('reforge-modal');
+    if (reforgeModal && reforgeModal.style.display === 'flex') {
+      if (typeof closeReforgeModal === 'function') closeReforgeModal();
+      return;
+    }
+    const breakthroughModal = document.getElementById('breakthrough-modal');
+    if (breakthroughModal && breakthroughModal.style.display === 'flex') {
+      if (typeof closeBreakthroughModal === 'function') closeBreakthroughModal();
+      return;
+    }
+
+    // 設定 / 改鍵。
     if (typeof isKeybindModalOpen !== 'undefined' && isKeybindModalOpen) {
       closeKeybindModal();
       return;
     }
-    // 🌟 3. 試衣化妝間 (Wardrobe Modal)
+    if (typeof isSettingsOpen !== 'undefined' && isSettingsOpen) {
+      closeSettingsModal();
+      return;
+    }
+
+    // 主選單子頁：取消按鈕與 ESC 使用同一條離開路徑。
+    const practiceVenueModal = document.getElementById('practice-venue-modal');
+    if (practiceVenueModal && practiceVenueModal.style.display === 'flex') {
+      if (typeof closePracticeVenueModal === 'function') closePracticeVenueModal();
+      return;
+    }
+    const multiplayerModal = document.getElementById('multiplayer-modal');
+    if (multiplayerModal && multiplayerModal.style.display === 'flex') {
+      if (typeof closeMultiplayerModal === 'function') closeMultiplayerModal();
+      return;
+    }
+    const ladderPrepModal = document.getElementById('ladder-prep-modal');
+    if (ladderPrepModal && ladderPrepModal.style.display === 'flex') {
+      if (typeof closeLadderPrepModal === 'function') closeLadderPrepModal();
+      return;
+    }
+
     const wardrobeModal = document.getElementById('wardrobe-modal');
     if (wardrobeModal && wardrobeModal.style.display === 'flex') {
       closeWardrobeModal();
       return;
     }
-    // 🌟 4. 轉蛋專區 (Gacha Arcade Modal)
     const gachaArcadeModal = document.getElementById('gacha-arcade-modal');
     if (gachaArcadeModal && gachaArcadeModal.style.display === 'flex') {
       closeGachaArcade();
       return;
     }
-    // 🌟 5. 聯賽關卡選擇面板 (Career Modal)
     const careerModal = document.getElementById('career-modal');
     if (careerModal && careerModal.style.display === 'flex') {
       closeCareerMenu();
       return;
     }
-    // 6. 球員更衣室 / 戰術配置室
+
+    // Locker 自身最後才退：先 Bag，再 Locker。
     if (isLockerOpen) {
-      if (!isGameStarted) closeLockerToMenu();
+      if (typeof isEquipBagOpen !== 'undefined' && isEquipBagOpen && typeof closeEquipBag === 'function') {
+        closeEquipBag();
+        return;
+      }
+      if (typeof closeLockerByContext === 'function') closeLockerByContext();
       else toggleLocker();
-    } else if (isSettlementOpen) {
+      return;
+    }
+
+    if (isSettlementOpen) {
       handleSettlementRematch();
-    } else if (isGameStarted) {
+      return;
+    }
+    if (isGameStarted) {
       togglePauseMenu();
+      return;
     }
   }
 
@@ -2071,8 +2376,20 @@ if (e.key === 'Enter') {
     // [disabled] if (k === 'b' && !e.repeat && typeof toggleVenueIncidentDebugPanel === 'function') toggleVenueIncidentDebugPanel();
 
   const myActor = allPlayers[NET.mySlot] || userPlayer;
+  const myActorIsHuman = (typeof isSlotHumanControlled === 'function') ? isSlotHumanControlled(myActor) : myActor.isLocallyControlled;
 
-  if (!isPaused && !isLockerOpen && !banner.active && !isSettlementOpen && isGameStarted && !isPauseMenuOpen) {
+  // V75-3.3: in 4-AI scrimmage the local slot is an AI too. Keyboard input must not
+  // inject actions into that slot while the shared AI brain owns it.
+  if (!myActorIsHuman && typeof BALANCE_FORCE_AI_ALL !== 'undefined' && BALANCE_FORCE_AI_ALL) {
+    if (['a','d','w','j','k','l','o'].includes(k) || code === 'Space') {
+      keys[k] = false;
+      if (code === 'Space') keys['space'] = false;
+      e.preventDefault();
+      return;
+    }
+  }
+
+  if (myActorIsHuman && !isPaused && !isLockerOpen && !banner.active && !isSettlementOpen && isGameStarted && !isPauseMenuOpen) {
     const isReceiveKey = (k === KEY_BINDS.receive);
     const isSpikeKey = (k === KEY_BINDS.spike);
     const isThrustKey = (k === KEY_BINDS.thrust);
@@ -2119,9 +2436,10 @@ window.addEventListener('keyup', (e) => {
   if (e.code === 'Space') keys['space'] = false;
 
   const myActor = allPlayers[NET.mySlot] || userPlayer;
+  const myActorIsHuman = (typeof isSlotHumanControlled === 'function') ? isSlotHumanControlled(myActor) : myActor.isLocallyControlled;
   const isReceiveKey = (k === KEY_BINDS.receive);
   const isRemoteGuestServe = (typeof NET !== 'undefined' && NET.isMultiplayer && !NET.isHost);
-  if (!isRemoteGuestServe && serveState.active && serveState.currentServer === myActor && isReceiveKey && serveState.charging && !serveState.tossed) {
+  if (myActorIsHuman && !isRemoteGuestServe && serveState.active && serveState.currentServer === myActor && isReceiveKey && serveState.charging && !serveState.tossed) {
     serveState.charging = false; serveState.tossed = true;
     const pRatio = Math.max(0.35, serveState.chargePower / 100);
     ball.vx = myActor.isLeft ? 1.0 : -1.0;
@@ -2214,8 +2532,8 @@ function handleServeSpike(actor) {
   actor.swingTimer = 12; serveState.active = false; recordTouch(actor);
 
   const isCometSkill = actor.consumeSkill('SERVE_SPIKE');
-  const serveMomentum = (actor.runMomentum / 25) * 4.5;
-  const rawSpikeSpeed = (actor.stats.power * 0.98 + serveMomentum);
+  // V75-3: runMomentum contributes exactly once to jump serve power (the +4.0 branch below).
+  const rawSpikeSpeed = actor.stats.power * 0.98;
   const facingDir = actor.isLeft ? 1 : -1;
 
   if (isCometSkill) {
@@ -2435,10 +2753,11 @@ function handleUserAttack(actor) {
   if (!actor.isGrounded) {
     isSkillActivated = actor.consumeSkill('SPIKE');
     const angle = Math.atan2(dy, dx);
-    const momentumRatio = actor.runMomentum / 25;
-    const bonusPower = momentumRatio * 4.2;
-    const techFactor = 0.85 + (actor.stats.technique * 0.25);
-    let effectivePower = (actor.stats.power + bonusPower) * techFactor;
+    const spikeFormula = (typeof computeSpikeFormula==='function') ? computeSpikeFormula(actor.stats,actor.runMomentum) : null;
+    const momentumRatio = spikeFormula ? spikeFormula.momentumRatio : (actor.runMomentum / 25);
+    const bonusPower = spikeFormula ? spikeFormula.bonusPower : (momentumRatio * 4.2);
+    const techFactor = spikeFormula ? spikeFormula.techFactor : (0.85 + actor.stats.technique * 0.25);
+    let effectivePower = spikeFormula ? spikeFormula.effectivePower : ((actor.stats.power + bonusPower) * techFactor);
 
     if (ball.hasTossedFromGodspeed) {
       effectivePower += 4.0;
@@ -2450,7 +2769,7 @@ function handleUserAttack(actor) {
     if (isSkillActivated) {
       effectivePower *= (currentSkill.speedMult || 1.10);
       ball.vx = actor.facing * (effectivePower + 4.0); ball.vy = 14.5;
-      ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = true;
+      ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = true; ball.attackStyle = 'SKILL';
       ball.armorPiercing = (currentSkill.armorPiercing || 0) + (actor.stats.bonusAP || 0);
       ball.topspinRating += (currentSkill.extraDown || 0);
       ball.activeSkillTag = currentSkill.name; ball.glowColor = currentSkill.glowColor || '#ef4444';
@@ -2477,12 +2796,12 @@ function handleUserAttack(actor) {
       pendingCoinReward = 2; pendingCoinReason = currentSkill.name;
     } else if (angle > 0.6) {
       ball.vx = actor.facing * (effectivePower * 1.15); ball.vy = 6.8;
-      ball.isSpiked = true; ball.isPerfectSpike = false; ball.isUltimate = false; ball.armorPiercing = (actor.stats.bonusAP || 0); ball.glowColor = null;
+      ball.isSpiked = true; ball.isPerfectSpike = false; ball.isUltimate = false; ball.attackStyle = 'DEEP'; ball.armorPiercing = (actor.stats.bonusAP || 0); ball.glowColor = null;
       playSound('spike'); triggerScreenShake(5, 6); createImpactSparks(ball.x, ball.y, 8, '#38bdf8');
       pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'DEEP SPIKE!', '#38bdf8');
     } else if (angle >= 0.1 && angle <= 0.6) {
       ball.vx = actor.facing * effectivePower; ball.vy = 12.0;
-      ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = false; ball.armorPiercing = (actor.stats.bonusAP || 0); ball.glowColor = null;
+      ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = false; ball.attackStyle = 'POWER'; ball.armorPiercing = (actor.stats.bonusAP || 0); ball.glowColor = null;
       playSound('perfect_spike'); triggerScreenShake(8, 9); createImpactSparks(ball.x, ball.y, 14, '#ef4444');
       pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'PERFECT SPIKE!!', '#ef4444');
       pendingCoinReward = 1; pendingCoinReason = 'PERFECT SPIKE';
@@ -2491,7 +2810,7 @@ function handleUserAttack(actor) {
         triggerMangaShout(actor.playerName, `${actor.playerName} 狂暴下釘暴扣！！`, '勢不可擋的雷霆重槌！防線崩塌！', '#ef4444');
       }    } else {
       ball.vx = actor.facing * (effectivePower * 0.72); ball.vy = 16.5;
-      ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = false; ball.armorPiercing = (actor.stats.bonusAP || 0); ball.glowColor = null;
+      ball.isSpiked = true; ball.isPerfectSpike = true; ball.isUltimate = false; ball.attackStyle = 'STEEP'; ball.armorPiercing = (actor.stats.bonusAP || 0); ball.glowColor = null;
       playSound('perfect_spike'); triggerScreenShake(9, 10); createImpactSparks(ball.x, ball.y, 16, '#facc15');
       pushCallout(actor.x, actor.y - actor.radius * 2 - 15, 'STEEP CUT!', '#facc15');
       pendingCoinReward = 1; pendingCoinReason = 'STEEP CUT';
@@ -2561,6 +2880,7 @@ function handleUserThrust(actor) {
 }
 
 function canExecuteRollingThunder(actor) {
+  if (typeof BALANCE_DISABLE_SKILLS !== 'undefined' && BALANCE_DISABLE_SKILLS) return false;
   if (!actor || !actor.stats || !actor.stats.skill) return false;
   const sk = actor.stats.skill;
   if (sk.id !== 'sk_rolling_thunder' || sk.type !== 'DEF_SAVE' || actor.energy < sk.cost) return false;
@@ -2619,8 +2939,7 @@ function handleUserBump(actor) {
   // V21: 不再用全場 lastTouchFrame 阻擋 K。真正的同動作重複觸球由 recordTouch 的 Touch Authority 處理；
   // 若中間已有對手/隊友合法觸球，新的 K 不應被舊 18f 時間窗誤擋。
 
-  if (sk.id === 'sk_savage_roar' && actor.energy >= sk.cost) {
-    actor.consumeSkill('DEF_SAVE');
+  if (sk.id === 'sk_savage_roar' && actor.energy >= sk.cost && actor.consumeSkill('DEF_SAVE')) {
     triggerScreenShake(12, 18);
     actor.roarVfxTimer = 24;
     createRoarWave(actor.x, actor.y - actor.radius);
@@ -2660,6 +2979,11 @@ function handleUserSet(actor) {
 }
 
 function moveTowards(char, targetX, speed) {
+  // V75-3 controlled scenario: freeze autonomous actors; only the local tester may move.
+  if (typeof BALANCE_SCENARIO_ACTIVE !== 'undefined' && BALANCE_SCENARIO_ACTIVE) {
+    const localBalancePlayer = allPlayers[NET.mySlot] || userPlayer;
+    if (char !== localBalancePlayer) { char.vx = 0; return; }
+  }
   const fr = (typeof venueGroundFriction==='function') ? venueGroundFriction() : 0;
   let desired = 0;
   if (char.x < targetX - 6) { desired = speed; char.facing = 1; char._moveIntentFrame = gameFrame; }
@@ -2963,18 +3287,49 @@ function handlePhysics() {
     ball.vx *= -0.7; ball.x = movingRight ? postLeft : postRight; playSound('bump');
   }
 
+  // V75-3.11：Block Timing 共用判定。幾何決定「碰不碰得到」；Timing 只改變接觸品質。
+  // SAFE = 提早架手（安全牌，1.00）；PERFECT = 球接近手面時精準壓手（最高約 1.18）；
+  // LATE = 球已接近/穿過手面才伸手（0.90，且有效接觸範圍略縮）。
+  function getBlockTimingProfile(p) {
+    if (!p || !p.wantsToBlock || !Number.isFinite(p.blockPressFrame)) {
+      return {tier:'NONE', factor:1.0, reachMult:1.0, pressAge:999, pressDistance:999};
+    }
+    const pressAge = Math.max(0, gameFrame - p.blockPressFrame);
+    const pressDistance = Number.isFinite(p.blockPressDistance) ? p.blockPressDistance : 999;
+    const sideGap = Number.isFinite(p.blockPressSideGap) ? p.blockPressSideGap : 999;
+    const approaching = !!p.blockPressApproaching;
+
+    // 已穿過手面或球已不再朝手面前進：晚壓。保留碰球可能，但品質與有效範圍下降。
+    if (sideGap < -6) {
+      return {tier:'LATE', factor:0.90, reachMult:0.88, pressAge, pressDistance};
+    }
+
+    // 精準壓手：不是「按越晚越好」，而是 Press 當下球就在有效手面附近且仍朝手而來。
+    // 55px 內達最高 1.18；到 105px 緩降至約 1.10。
+    if (approaching && pressDistance <= 105 && sideGap >= -6) {
+      const closeness = Math.max(0, Math.min(1, (105 - pressDistance) / 50));
+      return {tier:'PERFECT', factor:1.10 + closeness * 0.08, reachMult:1.0, pressAge, pressDistance};
+    }
+
+    // 地面/起跳初期就先架手，或任何明顯提早的 Press：維持最寬、最穩的安全牌。
+    return {tier:'SAFE', factor:1.00, reachMult:1.0, pressAge, pressDistance};
+  }
+
   if (!match.inServeRally) {
     allPlayers.forEach(p => {
       const isAttacking = p.swingTimer > 0 || p.thrustTimer > 0;
       const isOpponentBall = (ball.lastHitter && ball.lastHitter.isLeft !== p.isLeft);
-      const isHuman = (typeof isSlotHumanControlled === 'function') ? isSlotHumanControlled(p) : p.isLocallyControlled;
       let isEligibleBlock = false;
 
+      // V75-3.11：AI 與真人完全共用同一個「必須先 Press 才有手」規則。
+      // 單純網前起跳不再自動產生攔網碰撞。
       if (isOpponentBall && !isAttacking && !p.isGrounded && ball.y < WORLD.NET_TOP_Y + 50) {
-        isEligibleBlock = isHuman ? (p.isBlocking && Math.abs(p.x - WORLD.NET_X) < 110) : (Math.abs(p.jumpStartX - WORLD.NET_X) < 95);
+        isEligibleBlock = p.isBlocking && Math.abs(p.x - WORLD.NET_X) < 110;
       }
 
-      const blockContactReach = 70 + ((p.stats && p.stats.perks && p.stats.perks.blockReachBonus) || 0);
+      const timingProfile = getBlockTimingProfile(p);
+      const baseBlockContactReach = 70 + ((p.stats && p.stats.perks && p.stats.perks.blockReachBonus) || 0);
+      const blockContactReach = baseBlockContactReach * timingProfile.reachMult;
       const phantomEarlyGhost = ball.isPhantomDrop && ball.phantomGhostFrames > 0 && p.vy < 0;
       // V30 幽靈吊球：整段幽靈狀態都沒有「攔網手碰撞」。它仍會撞實體球網，落到後場也能被正常接球。
       // 這是技能本體的保證效果，不只騙提早起跳；因此不再讓已成形的 Block 把它蓋回來。
@@ -2988,6 +3343,12 @@ function handlePhysics() {
 
         const incomingSpeed = Math.hypot(ball.vx, ball.vy);
         const incomingVy = ball.vy, handTopY = p.y - p.radius * 2 - 20;
+        // V76-3.6 BLOCK LOAD MODEL: rigidity resists penetration through the net plane.
+        // Gravity/downward velocity still matters for rebound/roof trajectory, but must not be
+        // double-counted as extra "breakthrough power" against a vertical blocking hand plane.
+        // This also makes attack style matter naturally: DEEP/POWER carry more horizontal load,
+        // while STEEP sacrifices horizontal penetration for downward angle.
+        const blockImpactLoad = Math.abs(ball.vx);
 
         if (attackingHitter && attackingHitter.isLeft !== p.isLeft) {
           // 油滑脫手：攔網不消耗污染機會；只在真正 Receive 時觸發。
@@ -3089,14 +3450,39 @@ const isIronWall = (p.stats.skill.id === 'sk_iron_wall') && p.consumeSkill('BLOC
           else { const rand = Math.random(); if (rand < 0.65) isFingertip = true; else if (rand < 0.85) isToolOut = true; }
         } else {
           isFingertip = (ball.y <= handTopY + 14);
+          // V75-3.11 DEEP intent：只有真的擦到高位薄接觸區，才有自然 Touch Out 機會。
+          // 不是「選 DEEP = 必定打手出界」；擦得不夠薄會 One Touch，力量夠仍可能直接打穿。
+          const attackStyle = ball.attackStyle || ball._aiAttackIntentStyle || null;
+          if (attackStyle === 'DEEP' && isFingertip && attackingHitter) {
+            const edgeQuality = Math.max(0, Math.min(1, ((handTopY + 14) - ball.y) / 28));
+            const attackerTec = Number(attackingHitter.stats?.effectiveTec ?? attackingHitter.stats?.dex ?? 30);
+            const tecQuality = Math.max(0, Math.min(1, attackerTec / 60));
+            const timingResistance = Math.max(-0.08, Math.min(0.16, (timingProfile.factor - 1.0) * 0.70));
+            const toolChance = Math.max(0.08, Math.min(0.72, 0.18 + edgeQuality * 0.34 + tecQuality * 0.16 - timingResistance));
+            isToolOut = Math.random() < toolChance;
+          }
         }
 
         const rigidityNoise = (Math.random() - 0.5) * 4.0;
-        let effectiveRigidity = p.stats.blockRigidity + rigidityNoise;
+        // 指尖/高位薄接觸的結構剛性本來就低於完整手掌；Timing 再作乘數，而不是無敵判定。
+        const contactZone = isFingertip ? 'FINGERTIP' : 'PALM';
+        const zoneRigidityFactor = isFingertip ? 0.78 : 1.00;
+        let effectiveRigidity = (p.stats.blockRigidity + rigidityNoise) * zoneRigidityFactor * timingProfile.factor;
         if (ball.armorPiercing) effectiveRigidity = Math.max(0, effectiveRigidity - ball.armorPiercing);
 
-        const isBreakThrough = ball.isSpiked && (incomingSpeed > effectiveRigidity);
-        lastBlockDebug = { effectiveRigidity, incomingSpeed, ap: ball.armorPiercing || 0, isBroken: isBreakThrough };
+        p.blockTimingTier = timingProfile.tier;
+        p.blockTimingFactor = timingProfile.factor;
+        p.blockContactZone = contactZone;
+        p.blockEffectiveRigidity = effectiveRigidity;
+        const isBreakThrough = ball.isSpiked && (blockImpactLoad > effectiveRigidity);
+        p.blockImpactLoad = blockImpactLoad;
+        p.blockLoadMargin = effectiveRigidity - blockImpactLoad;
+        p.blockOutcome = null;
+        lastBlockDebug = {
+          effectiveRigidity, incomingSpeed, blockImpactLoad, loadMargin:p.blockLoadMargin, ap: ball.armorPiercing || 0, isBroken: isBreakThrough,
+          contactZone, timingTier:timingProfile.tier, timingFactor:timingProfile.factor,
+          pressDistance:timingProfile.pressDistance, pressAge:timingProfile.pressAge
+        };
 
         allPlayers.forEach(mate => {
           if (mate.isLeft !== p.isLeft) mate.reactionTimer = Math.max(mate.reactionTimer, mate.stats.reactionDelay);
@@ -3108,7 +3494,8 @@ if (isBreakThrough) {
           const hitterPerks = (ball.lastHitter && ball.lastHitter.stats && ball.lastHitter.stats.perks) ? ball.lastHitter.stats.perks : {};
           const dampBonus = hitterPerks.pierceDampBonus || 0;
           const safeRigidity = Math.max(1.0, effectiveRigidity);
-          const breakRatio = incomingSpeed / safeRigidity;
+          const breakRatio = blockImpactLoad / safeRigidity;
+          p.blockOutcome = 'BREAK_THROUGH';
           // 1.0x 剛突破≈58%，1.5x≈76%，2.0x 以上≈88%；裝備可小幅提高穿網保速。
           const baseRetain = Math.min(0.88, 0.58 + Math.max(0, breakRatio - 1.0) * 0.36);
           const retainRatio = Math.min(0.96, baseRetain * (1.0 + dampBonus));
@@ -3125,6 +3512,7 @@ pushCallout(p.x, p.y - p.radius * 2, 'BROKEN!!', '#ef4444');
             pushCallout(ball.lastHitter.x, ball.lastHitter.y - ball.lastHitter.radius * 2 - 15, 'THROUGH BLOCK!!', '#facc15');
           }
           } else if (isToolOut) {
+          p.blockOutcome = 'TOOL_OUT';
           const hitterPerks = (attackingHitter && attackingHitter.stats && attackingHitter.stats.perks) ? attackingHitter.stats.perks : {};
           const toolAngleBonus = hitterPerks.toolOutAngleBonus || 0;
           const outDir = p.isLeft ? 1 : -1;
@@ -3140,33 +3528,40 @@ pushCallout(p.x, p.y - p.radius * 2, 'BROKEN!!', '#ef4444');
           playSound('bump'); pushCallout(p.x, p.y - p.radius * 2 - 15, 'TOOL OUT SUCCESS!!', '#10b981');
         
         } else if (isFingertip) {
+          p.blockOutcome = 'ONE_TOUCH';
           
-          const retainRatio = Math.max(0.25, 0.65 - (p.stats.technique * 0.22) - (p.stats.defense * 0.005));
+          // V75-3: oneTouchAbsorb is now the single authoritative One Touch damping stat.
+          const absorbPct = Math.max(0, Math.min(75, p.stats.oneTouchAbsorb || 0));
+          const timingDamp = timingProfile.tier === 'PERFECT' ? 0.04 : (timingProfile.tier === 'LATE' ? -0.05 : 0);
+          const retainRatio = Math.max(0.22, Math.min(0.80, 0.70 - absorbPct * 0.006 - timingDamp));
           // V5：普通 ONE TOUCH 只能卸力／改向，不得替慢球注入最低速度。
           // 水平與垂直都只保留來球的一部分；極慢球會真的變成緩球。
           ball.vx *= retainRatio;
           ball.vy = -Math.abs(incomingVy) * Math.min(0.75, retainRatio + 0.12);
           ball.isSpiked = false; ball.isPerfectSpike = false; ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
-          playSound('bump'); pushCallout(p.x, p.y - p.radius * 2 - 15, 'ONE TOUCH!!', '#38bdf8');
+          playSound('bump'); pushCallout(p.x, p.y - p.radius * 2 - 15, 'ONE TOUCH!', '#38bdf8', null, {type:'speech_court'});
         } else {
+          p.blockOutcome = 'ROOF';
           p.addEnergy(20); proMatchStats[p.slotKey].roofKills++;
           pushCallout(p.x, p.y - 45, 'ROOF +20 能量!', '#facc15');
           
           if (ball.isPhantomDrop) { ball.isPhantomDrop = false; ball.phantomRestoreFrames = 20; visualEffects.push({type:'ghost_reform',x:ball.x,y:ball.y,life:24,maxLife:24}); }
 
           const strVal = (p.stats && Number.isFinite(p.stats.str)) ? p.stats.str : 20;
-          const reboundRatio = 0.65 + (strVal * 0.006);
+          const timingPress = timingProfile.tier === 'PERFECT' ? 1.08 : (timingProfile.tier === 'LATE' ? 0.94 : 1.00);
+          const reboundRatio = (0.65 + (strVal * 0.006)) * timingPress;
           const reboundDir = p.isLeft ? 1 : -1;
 
           ball.x = WORLD.NET_X + (reboundDir * (WORLD.NET_W/2 + ball.radius + 24));
-          ball.vx = reboundDir * Math.max(4.0, Math.abs(ball.vx) * 0.55);
+          ball.vx = reboundDir * Math.max(4.0, Math.abs(ball.vx) * (timingProfile.tier === 'PERFECT' ? 0.58 : 0.55));
           ball.vy = Math.max(5.5, incomingSpeed * reboundRatio);
           ball.isSpiked = true; ball.isPerfectSpike = (incomingSpeed > 20); ball.isUltimate = false; ball.isTopspin = false; ball.armorPiercing = 0;
           ball.pointContext = { type: 'ROOF', actor: p, victim: attackingHitter };
           playSound('block_roof'); triggerScreenShake(9, 10);
           createImpactSparks(ball.x, ball.y, 16, '#facc15');
-distributeCoins(p, 3, 'MONSTER BLOCK', p.x, p.y - p.radius * 2);
-          pushCallout(p.x, p.y - p.radius * 2 - 15, 'ROOF BLOCK!!', '#facc15');
+          const perfectPress = timingProfile.tier === 'PERFECT';
+          distributeCoins(p, 3, perfectPress ? 'MONSTER BLOCK' : 'ROOF BLOCK', p.x, p.y - p.radius * 2);
+          pushCallout(p.x, p.y - p.radius * 2 - 15, perfectPress ? 'MONSTER BLOCK!!' : (timingProfile.tier === 'LATE' ? 'LATE ROOF!!' : 'ROOF BLOCK!!'), perfectPress ? '#fde68a' : '#facc15');
         }
         // V74-23 Phantom Wipe: the illusion is born only AFTER a real block-hand contact.
         // Real/fake balls leave the same contact point at different reflection angles, compressing back-row reaction time.
@@ -3663,6 +4058,8 @@ function sendGuestInputSmart(){
 function fixedUpdate() {
   if(typeof NET_DIAG!=='undefined' && NET_DIAG.startedAt && !NET_DIAG.finalized) NET_DIAG.simCount++;
   gameFrame++;
+  // V75-3 controlled scenario feed: setup happens inside the real 60 Hz game loop.
+  if (typeof BALANCE_LAB !== 'undefined' && BALANCE_LAB && typeof BALANCE_LAB.tickScenario === 'function') BALANCE_LAB.tickScenario();
   // V74-10 TRUE WORLD FREEZE: while Iron Wall owns the rally, absolutely no player/AI/particle/venue simulation advances.
   // handlePhysics itself advances only the cinematic timer, then only the intangible execution ball.
   if (ball.isIronWallSlam && ironWallExecution) {
@@ -3812,8 +4209,13 @@ try { stateTxConn.send(makeNetworkSafe({
 // 🌟 本機玩家移動（支援自定義鍵與 Space/W 雙跳躍）
   const myPlayer = allPlayers[NET.mySlot] || userPlayer;
 
+  const myPlayerIsHuman = (typeof isSlotHumanControlled === 'function') ? isSlotHumanControlled(myPlayer) : myPlayer.isLocallyControlled;
+
   // 🌟 核心約束：只要還在接重扣硬直中 (stunTimer > 0)，禁止任何按鍵操控，讓後退滑行完整跑完！
-  if (myPlayer.stunTimer <= 0) {
+  // V75-3.3: local-slot movement is gated by ownership, not by slot identity. This is
+  // essential for 4-AI scrimmage: otherwise the human movement block zeroes the AI's vx
+  // before Player.update() every frame, creating the old "fake AI" that could touch but not move.
+  if (myPlayerIsHuman && myPlayer.stunTimer <= 0) {
     const _oldVenueVx=myPlayer.vx, _fr=(typeof venueGroundFriction==='function'?venueGroundFriction():0);
     // V52：普通場地維持原手感；只有冰面／濕地在離地後繼承起跳瞬間的水平慣性。
     // 關鍵是不要在空中每幀把 vx 歸零後重新加速，否則會像每跳一次都重新起步。
@@ -3837,8 +4239,10 @@ try { stateTxConn.send(makeNetworkSafe({
     if (isRightPress) { myPlayer._moveIntentFrame=gameFrame; const t=myPlayer.effectiveSpeed*(typeof venuePlayerSpeedFactor==='function'?venuePlayerSpeedFactor(myPlayer):1); myPlayer.vx=_fr?myPlayer.vx+(t-myPlayer.vx)*(_fr>.96?.10:.22):t; myPlayer.facing=1; }
     if (isJumpPress) myPlayer.jump();
   }
-  // 處理 K 鍵緩衝檢定
-  if (receiveInputBuffer > 0) {
+  // 處理 K 鍵緩衝檢定。AI owns the local slot during Balance scrimmage, so stale human
+  // K buffers must never fire into the AI rally.
+  if (!myPlayerIsHuman) receiveInputBuffer = 0;
+  if (myPlayerIsHuman && receiveInputBuffer > 0) {
     receiveInputBuffer--;
     if (getDist(myPlayer) <= Math.max(70, (myPlayer.stats.reach || 70))) {
       handleUserBump(myPlayer);
@@ -3877,11 +4281,13 @@ try { stateTxConn.send(makeNetworkSafe({
     }
   });
 
-  if (serveState.active && serveState.currentServer !== myPlayer) {
+  if (serveState.active) {
     const isServerHuman = (typeof isSlotHumanControlled === 'function')
       ? isSlotHumanControlled(serveState.currentServer)
       : serveState.currentServer.isLocallyControlled;
 
+    // V75-3.3: the local slot may legitimately be AI-owned in scrimmage. Server identity
+    // must not be used as a proxy for human ownership.
     if (!isServerHuman && serveState.aiServeTimer > -120) {
       serveState.aiServeTimer--;
       const server = serveState.currentServer, isLeft = server.isLeft;
@@ -4007,8 +4413,11 @@ function mainLoop(currentTime) {
   if (!isPaused && !isSettlementOpen && isGameStarted) {
     let delta = currentTime - lastFrameTime;
     if (delta > 250) delta = 250;
-    lastFrameTime = currentTime; accumulator += delta;
-    let _diagTicks=0; while (accumulator >= TIME_STEP) { fixedUpdate(); accumulator -= TIME_STEP; _diagTicks++; }
+    const balanceScale = (typeof BALANCE_TEST_ACTIVE!=='undefined' && BALANCE_TEST_ACTIVE && typeof BALANCE_SIM_SPEED!=='undefined') ? Math.max(1,Math.min(10,BALANCE_SIM_SPEED||1)) : 1;
+    const balanceDelta = balanceScale>4 ? Math.min(delta,100) : delta;
+    lastFrameTime = currentTime; accumulator += balanceDelta * balanceScale;
+    let _diagTicks=0; const _balanceTickCap = balanceScale>4 ? 60 : Infinity; while (accumulator >= TIME_STEP && _diagTicks < _balanceTickCap) { fixedUpdate(); accumulator -= TIME_STEP; _diagTicks++; }
+    if(_diagTicks>=_balanceTickCap && accumulator>=TIME_STEP) accumulator = accumulator % TIME_STEP;
     if(typeof NET_DIAG!=='undefined' && _diagTicks>1){ NET_DIAG.catchupFrames++; NET_DIAG.catchupTicks+=(_diagTicks-1); }
     render(); if(typeof NET_DIAG!=='undefined' && NET_DIAG.startedAt&&!NET_DIAG.finalized) NET_DIAG.renderCount++;
   } else { 

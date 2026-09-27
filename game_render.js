@@ -4,6 +4,7 @@
 function drawPlayerEntity(player, targetCtx) {
   if (player && player.respawnBlinkTimer > 0 && Math.floor(player.respawnBlinkTimer / 5) % 2 === 0) return;
   const cosmetics = (player.card && player.card.cosmetics) ? player.card.cosmetics : { hat: 'hat_none', face: 'face_none', effect: 'fx_none' };
+  const cosmeticOnly = !!player.cosmeticOnly; // V76-4.0.3: gacha/collection icon reuses the exact live cosmetic renderer without drawing the carrier.
   const effectObj = (typeof COSMETICS_DB !== 'undefined') ? COSMETICS_DB.effects.find(e => e.id === cosmetics.effect) : null;
   const glowColor = effectObj ? effectObj.glow : null;
 
@@ -140,12 +141,14 @@ const eq = (typeof INVENTORY_EQUIPS !== 'undefined') ? INVENTORY_EQUIPS.find(e =
   }
 
   const _beachBallBody = cosmetics.effect === 'fx_beach_ball_body';
-  if (_beachBallBody) {
-    const cy=-player.radius, r=player.radius;
-    for(let i=0;i<6;i++){targetCtx.fillStyle=['#ef4444','#f8fafc','#38bdf8','#facc15','#f8fafc','#22c55e'][i];targetCtx.beginPath();targetCtx.moveTo(0,cy);targetCtx.arc(0,cy,r,i*Math.PI/3,(i+1)*Math.PI/3);targetCtx.closePath();targetCtx.fill();}
-    targetCtx.strokeStyle='#fff';targetCtx.lineWidth=4;targetCtx.beginPath();targetCtx.arc(0,cy,r,0,Math.PI*2);targetCtx.stroke();
-  } else {
-    targetCtx.beginPath();targetCtx.arc(0,-player.radius,player.radius,0,Math.PI*2);targetCtx.fillStyle=player.color;targetCtx.fill();targetCtx.lineWidth=3;targetCtx.strokeStyle=glowColor||'#fff';targetCtx.stroke();
+  if (!cosmeticOnly) {
+    if (_beachBallBody) {
+      const cy=-player.radius, r=player.radius;
+      for(let i=0;i<6;i++){targetCtx.fillStyle=['#ef4444','#f8fafc','#38bdf8','#facc15','#f8fafc','#22c55e'][i];targetCtx.beginPath();targetCtx.moveTo(0,cy);targetCtx.arc(0,cy,r,i*Math.PI/3,(i+1)*Math.PI/3);targetCtx.closePath();targetCtx.fill();}
+      targetCtx.strokeStyle='#fff';targetCtx.lineWidth=4;targetCtx.beginPath();targetCtx.arc(0,cy,r,0,Math.PI*2);targetCtx.stroke();
+    } else {
+      targetCtx.beginPath();targetCtx.arc(0,-player.radius,player.radius,0,Math.PI*2);targetCtx.fillStyle=player.color;targetCtx.fill();targetCtx.lineWidth=3;targetCtx.strokeStyle=glowColor||'#fff';targetCtx.stroke();
+    }
   }
   targetCtx.shadowBlur = 0;
 
@@ -191,16 +194,18 @@ if (player.isBlocking) {
   // 3. 臉部五官與配件 (原邏輯完整保留)...
   if (!player.isDiving && !_beachBallBody) {
     const eyeX = player.facing * 8;
-    targetCtx.fillStyle = 'rgba(244, 114, 182, 0.6)'; targetCtx.beginPath();
-    targetCtx.arc(eyeX - 7, -player.radius + 6, 4, 0, Math.PI * 2);
-    targetCtx.arc(eyeX + 7, -player.radius + 6, 4, 0, Math.PI * 2);
-    targetCtx.fill();
-    targetCtx.fillStyle = '#1e1b4b'; targetCtx.beginPath();
-    targetCtx.arc(eyeX - 5, -player.radius, 3.5, 0, Math.PI * 2);
-    targetCtx.arc(eyeX + 5, -player.radius, 3.5, 0, Math.PI * 2);
-    targetCtx.fill();
+    if (!cosmeticOnly) {
+      targetCtx.fillStyle = 'rgba(244, 114, 182, 0.6)'; targetCtx.beginPath();
+      targetCtx.arc(eyeX - 7, -player.radius + 6, 4, 0, Math.PI * 2);
+      targetCtx.arc(eyeX + 7, -player.radius + 6, 4, 0, Math.PI * 2);
+      targetCtx.fill();
+      targetCtx.fillStyle = '#1e1b4b'; targetCtx.beginPath();
+      targetCtx.arc(eyeX - 5, -player.radius, 3.5, 0, Math.PI * 2);
+      targetCtx.arc(eyeX + 5, -player.radius, 3.5, 0, Math.PI * 2);
+      targetCtx.fill();
+    }
 
-    // 臉飾完整向量繪製
+    // 臉飾完整向量繪製：角色與 Icon 共用同一份 live renderer，避免兩套外觀漂移。
     const fId = cosmetics.face;
     if (fId === 'face_mustache') {
       targetCtx.fillStyle = '#475569';
@@ -469,6 +474,20 @@ if (player.isBlocking) {
       targetCtx.fillStyle='#9fb66a';targetCtx.beginPath();targetCtx.ellipse(0,ty-7,11,3.1,0,0,Math.PI*2);targetCtx.fill();targetCtx.strokeStyle='#66846f';targetCtx.lineWidth=1;targetCtx.stroke();
       targetCtx.strokeStyle='rgba(255,255,255,.65)'; targetCtx.lineWidth=1.2; targetCtx.beginPath(); targetCtx.moveTo(-3,ty-9); targetCtx.quadraticCurveTo(-7,ty-15,-2,ty-19); targetCtx.moveTo(4,ty-9); targetCtx.quadraticCurveTo(8,ty-15,4,ty-20); targetCtx.stroke();
     }
+  }
+
+  // V76-4.0.3: cosmetic icon mode ends here. The exact same hat/face drawing above is reused,
+  // but player body/name/status/action VFX are intentionally omitted from the icon.
+  if (cosmeticOnly) {
+    targetCtx.restore();
+    return;
+  }
+
+  // V76-4.1 frontend portrait mode: draw the real body/cosmetics, but stop before gameplay-only
+  // arrows, name capsules, serve countdowns, action telegraphs and particle spawning.
+  if (player.presentationOnly) {
+    targetCtx.restore();
+    return;
   }
 
 // 🌟 2. 向上微升粒子生成判定
@@ -893,7 +912,7 @@ function renderDebugTerminal() {
     lines.push(`FLOOR ETA  ${r.eta == null ? '-' : r.eta.toFixed(1)+'f'}`);
     lines.push(`BALL SPD   ${r.speed.toFixed(2)} px/f`);
     lines.push(`VX/VY      ${r.vx.toFixed(2)} / ${r.vy.toFixed(2)}`);
-    lines.push(`INT/DEX    ${r.int} / ${r.dex}`);
+    lines.push(`INT/TEC    ${r.int} / ${r.dex}`);
     lines.push(`TYPE       ${r.broken ? 'BROKEN ' : ''}${r.sineFloat ? 'SINE FLOAT' : (r.float ? 'FLOAT' : (r.serveRally ? 'SERVE' : 'NORMAL'))}`);
     if (r.cooldown > 0) lines.push(`COOLDOWN   ${r.cooldown}f`);
     lines.push(`RESULT     ${r.result}`);
@@ -1410,13 +1429,15 @@ function render() {
   // 🌟 文字呼喊與金幣浮空：鏡像模式下二次翻轉，防止鏡像反字！
   for (let i = calloutPopups.length - 1; i >= 0; i--) {
     const pop = calloutPopups[i];
-    pop.timer--; pop.y -= 0.6;
+    pop.timer--; pop.y -= Number.isFinite(pop.rise) ? pop.rise : 0.6;
     ctx.save();
     ctx.translate(pop.x, pop.y);
     if (isGuestMirror) ctx.scale(-1, 1);
-    ctx.font = '900 24px -apple-system, sans-serif'; ctx.textAlign = 'center';
-    ctx.globalAlpha = Math.min(1, pop.timer / 15);
-    ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 4; ctx.strokeText(pop.text, 0, 0);
+    if (pop.pulse) { const q=Math.max(0,pop.timer/(pop.maxTimer||1)); const sc=1+Math.sin((1-q)*Math.PI)*.08; ctx.scale(sc,sc); }
+    ctx.font = pop.font || '850 19px -apple-system, sans-serif'; ctx.textAlign = 'center';
+    const fade=Math.min(1, pop.timer / Math.max(8,Math.min(14,(pop.maxTimer||45)*.32)));
+    ctx.globalAlpha = (Number.isFinite(pop.maxAlpha)?pop.maxAlpha:1) * fade;
+    ctx.strokeStyle = '#0f172a'; ctx.lineWidth = Number.isFinite(pop.strokeWidth)?pop.strokeWidth:3; ctx.strokeText(pop.text, 0, 0);
     ctx.fillStyle = pop.color; ctx.fillText(pop.text, 0, 0);
     ctx.restore();
     if (pop.timer <= 0) calloutPopups.splice(i, 1);
